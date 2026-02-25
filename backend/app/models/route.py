@@ -1,0 +1,58 @@
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from ..database import Base
+
+
+class Route(Base):
+    __tablename__ = "Route"
+
+    RouteId = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    Name = Column(String(120), nullable=False)
+    ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
+    FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=True)  # legacy, usar RouteForm
+    IsActive = Column(Boolean, default=True, nullable=False)
+    CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RouteForm(Base):
+    """Formularios asignados a una ruta (muchos por ruta)."""
+    __tablename__ = "RouteForm"
+
+    RouteId = Column(Integer, ForeignKey("Route.RouteId"), primary_key=True)
+    FormId = Column(Integer, ForeignKey("Form.FormId"), primary_key=True)
+    SortOrder = Column(Integer, default=0, nullable=False)
+
+    Form = relationship("Form", lazy="joined")
+
+
+class RoutePdv(Base):
+    __tablename__ = "RoutePdv"
+
+    RouteId = Column(Integer, ForeignKey("Route.RouteId"), primary_key=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), primary_key=True)
+    SortOrder = Column(Integer, nullable=False)
+    Priority = Column(SmallInteger, default=3, nullable=False)
+
+
+class RouteDay(Base):
+    __tablename__ = "RouteDay"
+
+    RouteDayId = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId"), nullable=False)
+    WorkDate = Column(Date, nullable=False)
+    AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=False)
+    Status = Column(String(20), default="PLANNED", nullable=False)
+    CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RouteDayPdv(Base):
+    __tablename__ = "RouteDayPdv"
+
+    RouteDayId = Column(Integer, ForeignKey("RouteDay.RouteDayId"), primary_key=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), primary_key=True)
+    PlannedOrder = Column(Integer, nullable=False)
+    PlannedWindowFrom = Column(Time, nullable=True)
+    PlannedWindowTo = Column(Time, nullable=True)
+    Priority = Column(SmallInteger, default=3, nullable=False)
+    ExecutionStatus = Column(String(20), default="PENDING", nullable=False)
