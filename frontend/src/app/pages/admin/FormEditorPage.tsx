@@ -29,6 +29,7 @@ import {
   Star,
   ChevronRight,
   X,
+  DollarSign,
 } from "lucide-react";
 import {
   formsApi,
@@ -46,6 +47,7 @@ const QUESTION_TYPES = [
   { type: "select", icon: List, label: "Lista desplegable" },
   { type: "radio", icon: ToggleLeft, label: "Opción única" },
   { type: "checkbox", icon: CheckSquare, label: "Casillas" },
+  { type: "checkbox_price", icon: DollarSign, label: "Casillas con precio" },
   { type: "date", icon: Calendar, label: "Fecha" },
   { type: "scale", icon: Star, label: "Escala lineal" },
   { type: "photo", icon: Image, label: "Foto" },
@@ -53,7 +55,7 @@ const QUESTION_TYPES = [
 
 type QType = (typeof QUESTION_TYPES)[number]["type"];
 
-const OPTION_TYPES: QType[] = ["select", "radio", "checkbox"];
+const OPTION_TYPES: QType[] = ["select", "radio", "checkbox", "checkbox_price"];
 const SCALE_DEFAULT = { min: 1, max: 5, minLabel: "", maxLabel: "" };
 
 interface QuestionWithOptions extends FormQuestion {
@@ -81,6 +83,7 @@ export function FormEditorPage() {
   const id = formId ? Number(formId) : null;
 
   const [form, setForm] = useState<Awaited<ReturnType<typeof formsApi.get>> | null>(null);
+  const [formDraft, setFormDraft] = useState<{ Name: string; Channel: string | null } | null>(null);
   const [questions, setQuestions] = useState<QuestionWithOptions[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -97,6 +100,7 @@ export function FormEditorPage() {
         formsApi.listQuestions(id),
       ]);
       setForm(f);
+      setFormDraft({ Name: f.Name, Channel: f.Channel });
       const withOpts = await Promise.all(
         qList.map(async (q) => {
           const opts = OPTION_TYPES.includes(q.QType as QType)
@@ -188,26 +192,24 @@ export function FormEditorPage() {
     }
   };
 
-  const addOption = async (questionId: number) => {
+  const addOption = (questionId: number) => {
     const q = questions.find((x) => x.QuestionId === questionId);
     if (!q?.options) return;
     const sortOrder = q.options.length;
-    try {
-      const opt = await formsApi.createOption(questionId, {
-        Value: `op${sortOrder + 1}`,
-        Label: `Opción ${sortOrder + 1}`,
-        SortOrder,
-      });
-      setQuestions((prev) =>
-        prev.map((x) =>
-          x.QuestionId === questionId
-            ? { ...x, options: [...(x.options || []), opt] }
-            : x
-        )
-      );
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error");
-    }
+    const newOpt = {
+      OptionId: -(Date.now()), // temporal, se crea en backend al guardar
+      QuestionId: questionId,
+      Value: `op${sortOrder + 1}`,
+      Label: `Opción ${sortOrder + 1}`,
+      SortOrder: sortOrder,
+    };
+    setQuestions((prev) =>
+      prev.map((x) =>
+        x.QuestionId === questionId
+          ? { ...x, options: [...(x.options || []), newOpt] }
+          : x
+      )
+    );
   };
 
   const updateOption = async (questionId: number, optionId: number, label: string) => {
@@ -231,6 +233,16 @@ export function FormEditorPage() {
   };
 
   const deleteOption = async (questionId: number, optionId: number) => {
+    if (optionId < 0) {
+      setQuestions((prev) =>
+        prev.map((x) =>
+          x.QuestionId === questionId
+            ? { ...x, options: (x.options || []).filter((o) => o.OptionId !== optionId) }
+            : x
+        )
+      );
+      return;
+    }
     try {
       await formsApi.deleteOption(optionId);
       setQuestions((prev) =>
@@ -244,6 +256,26 @@ export function FormEditorPage() {
       toast.error(e instanceof Error ? e.message : "Error");
     }
   };
+
+  const saveFormMetadata = async () => {
+    if (!id || !formDraft) return;
+    setSaving(true);
+    try {
+      await formsApi.update(id, {
+        Name: formDraft.Name,
+        Channel: formDraft.Channel || undefined,
+      });
+      setForm((f) => (f ? { ...f, Name: formDraft!.Name, Channel: formDraft!.Channel } : null));
+      toast.success("Formulario guardado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const formMetadataDirty =
+    formDraft && form && (formDraft.Name !== form.Name || (formDraft.Channel ?? "") !== (form.Channel ?? ""));
 
   const setConditionalRule = async (questionId: number, rule: ConditionalRule | null) => {
     const q = questions.find((x) => x.QuestionId === questionId);
@@ -278,23 +310,30 @@ export function FormEditorPage() {
             >
               <ArrowLeft size={24} />
             </button>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <Input
-                value={form.Name}
-                onChange={(e) => setForm((f) => (f ? { ...f, Name: e.target.value } : null))}
-                onBlur={() => form && formsApi.update(id!, { Name: form.Name }).catch(() => {})}
+                value={formDraft?.Name ?? ""}
+                onChange={(e) => setFormDraft((d) => (d ? { ...d, Name: e.target.value } : null))}
                 className="text-xl font-bold border-0 border-b-2 border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0"
-                placeholder="Sin título"
+                placeholder="Nombre del formulario"
               />
               <Input
-                value={form.Channel || ""}
-                onChange={(e) => setForm((f) => (f ? { ...f, Channel: e.target.value || null } : null))}
-                onBlur={() => form && formsApi.update(id!, { Channel: form.Channel || undefined }).catch(() => {})}
+                value={formDraft?.Channel ?? ""}
+                onChange={(e) => setFormDraft((d) => (d ? { ...d, Channel: e.target.value || null } : null))}
                 className="text-sm text-slate-500 mt-1 border-0 bg-transparent"
-                placeholder="Descripción o canal (opcional)"
+                placeholder="Canal o descripción (opcional)"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant={formMetadataDirty ? "default" : "outline"}
+                size="sm"
+                onClick={saveFormMetadata}
+                disabled={saving || !formDraft?.Name?.trim()}
+              >
+                <Save size={18} className="mr-1" />
+                {saving ? "Guardando..." : "Guardar"}
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setPreviewMode(!previewMode)}>
                 <Eye size={18} className="mr-1" />
                 {previewMode ? "Editar" : "Vista previa"}
@@ -304,12 +343,30 @@ export function FormEditorPage() {
         </div>
       </div>
 
+      {/* Sticky save bar when form has unsaved changes */}
+      {formMetadataDirty && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
+          <div className="max-w-3xl mx-auto flex items-center justify-between">
+            <p className="text-sm text-amber-800">
+              Tienes cambios sin guardar en el nombre o canal del formulario.
+            </p>
+            <Button size="sm" onClick={saveFormMetadata} disabled={saving}>
+              <Save size={16} className="mr-1" />
+              {saving ? "Guardando..." : "Guardar ahora"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Content */}
       <div className="max-w-3xl mx-auto px-4 py-8">
         {previewMode ? (
           <FormPreview questions={questions} />
         ) : (
           <>
+            <p className="text-sm text-slate-500 mb-6">
+              Haz clic en una pregunta para editarla. Los cambios se guardan al hacer clic en <strong>Guardar</strong> en cada tarjeta.
+            </p>
             {/* Questions */}
             <div className="space-y-4">
               {questions.map((q, index) => (
@@ -323,8 +380,34 @@ export function FormEditorPage() {
                     if (data.Label !== undefined) await updateQuestion(q.QuestionId, { Label: data.Label });
                     if (data.IsRequired !== undefined) await updateQuestion(q.QuestionId, { IsRequired: data.IsRequired });
                     if (data.RulesJson !== undefined) await updateQuestion(q.QuestionId, { RulesJson: data.RulesJson });
-                    for (const { optionId, label } of data.options ?? []) {
-                      await updateOption(q.QuestionId, optionId, label);
+                    const toCreate = data.newOptions ?? [];
+                    const toUpdate = data.options ?? [];
+                    const created = await Promise.all(
+                      toCreate.map((o) =>
+                        formsApi.createOption(q.QuestionId, {
+                          Value: o.value,
+                          Label: o.label,
+                          SortOrder: o.sortOrder,
+                        })
+                      )
+                    );
+                    await Promise.all(
+                      toUpdate.map(({ optionId, label }) => updateOption(q.QuestionId, optionId, label))
+                    );
+                    if (created.length > 0) {
+                      setQuestions((prev) =>
+                        prev.map((x) =>
+                          x.QuestionId === q.QuestionId
+                            ? {
+                                ...x,
+                                options: [
+                                  ...(x.options || []).filter((o) => o.OptionId > 0),
+                                  ...created,
+                                ].sort((a, b) => a.SortOrder - b.SortOrder),
+                              }
+                            : x
+                        )
+                      );
                     }
                   }}
                   onDelete={() => deleteQuestion(q.QuestionId)}
@@ -399,6 +482,7 @@ function QuestionCard({
     IsRequired?: boolean;
     RulesJson?: string | null;
     options?: { optionId: number; label: string }[];
+    newOptions?: { value: string; label: string; sortOrder: number }[];
   }) => Promise<void>;
   onDelete: () => void;
   onMoveUp?: () => void;
@@ -456,8 +540,18 @@ function QuestionCard({
 
       const optionsToSave = hasOptions && question.options
         ? question.options
-          .filter((o) => draftOptions[o.OptionId] !== undefined && draftOptions[o.OptionId] !== o.Label)
+          .filter((o) => o.OptionId > 0 && draftOptions[o.OptionId] !== undefined && draftOptions[o.OptionId] !== o.Label)
           .map((o) => ({ optionId: o.OptionId, label: draftOptions[o.OptionId] ?? o.Label }))
+        : [];
+
+      const newOptionsToSave = hasOptions && question.options
+        ? question.options
+          .filter((o) => o.OptionId < 0)
+          .map((o, i) => ({
+            value: o.Value,
+            label: draftOptions[o.OptionId] ?? o.Label,
+            sortOrder: o.SortOrder,
+          }))
         : [];
 
       await onSave({
@@ -465,6 +559,7 @@ function QuestionCard({
         IsRequired: draftRequired,
         RulesJson: rulesJson,
         options: optionsToSave.length > 0 ? optionsToSave : undefined,
+        newOptions: newOptionsToSave.length > 0 ? newOptionsToSave : undefined,
       });
       toast.success("Pregunta guardada");
     } catch (e) {
@@ -520,24 +615,23 @@ function QuestionCard({
             </div>
           </div>
           {isEditing && (
-            <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setDraftRequired(!draftRequired)}
-              >
-                Obligatoria
-              </Button>
-              <Switch
-                checked={draftRequired}
-                onCheckedChange={setDraftRequired}
-              />
+            <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-500">Obligatoria</span>
+                <Switch
+                  checked={draftRequired}
+                  onCheckedChange={setDraftRequired}
+                />
+              </div>
               <Button variant="default" size="sm" onClick={(e) => { e.stopPropagation(); handleSave(); }} disabled={saving}>
                 <Save size={16} className="mr-1" />
                 {saving ? "Guardando..." : "Guardar"}
               </Button>
-              <Button variant="ghost" size="sm" onClick={onDelete}>
-                <Trash2 size={18} className="text-red-600" />
+              <Button variant="ghost" size="sm" onClick={() => onEdit()}>
+                Cancelar
+              </Button>
+              <Button variant="ghost" size="sm" onClick={onDelete} className="text-red-600 hover:text-red-700">
+                <Trash2 size={18} />
               </Button>
             </div>
           )}
@@ -727,6 +821,22 @@ function FormPreview({ questions }: { questions: QuestionWithOptions[] }) {
                       <input type="checkbox" className="w-4 h-4" />
                       <span>{o.Label}</span>
                     </label>
+                  ))}
+                </div>
+              )}
+              {q.QType === "checkbox_price" && (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 mb-1">
+                    Al marcar una opción se habilita el campo de precio en la misma línea.
+                  </p>
+                  {(q.options || []).map((o) => (
+                    <div key={o.OptionId} className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                        <input type="checkbox" className="w-4 h-4" />
+                        <span>{o.Label}</span>
+                      </label>
+                      <Input type="number" placeholder="Precio" className="w-24" readOnly />
+                    </div>
                   ))}
                 </div>
               )}

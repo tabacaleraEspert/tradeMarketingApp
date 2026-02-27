@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
-import { Badge } from "../components/ui/badge";
 import { Input } from "../components/ui/input";
 import { Switch } from "../components/ui/switch";
 import { Modal, ConfirmModal } from "../components/ui/modal";
@@ -234,21 +233,6 @@ export function PointOfSaleDetail() {
             <p className="text-sm text-slate-600">{pos.ChannelName || pos.Channel || "-"}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Badge
-              variant={
-                isCompleted
-                  ? "secondary"
-                  : isVisitInProgress
-                  ? "default"
-                  : "outline"
-              }
-            >
-              {isCompleted
-                ? "Completa"
-                : isVisitInProgress
-                ? "En Curso"
-                : "Pendiente"}
-            </Badge>
             <Button variant="outline" size="sm" onClick={openEditModal}>
               <Edit size={18} />
             </Button>
@@ -339,10 +323,27 @@ export function PointOfSaleDetail() {
               </div>
             ))}
 
-            <Button variant="outline" className="w-full mt-2" size="sm">
-              <Navigation size={16} className="mr-2" />
-              Cómo llegar
-            </Button>
+            {(pos?.Address || (pos?.Lat != null && pos?.Lon != null)) ? (
+              <Button variant="outline" className="w-full mt-2" size="sm" asChild>
+                <a
+                  href={
+                    pos.Address
+                      ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(pos.Address)}`
+                      : `https://www.google.com/maps/dir/?api=1&destination=${pos!.Lat},${pos!.Lon}`
+                  }
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <Navigation size={16} className="mr-2" />
+                  Cómo llegar
+                </a>
+              </Button>
+            ) : (
+              <Button variant="outline" className="w-full mt-2" size="sm" disabled>
+                <Navigation size={16} className="mr-2" />
+                Cómo llegar
+              </Button>
+            )}
           </CardContent>
         </Card>
 

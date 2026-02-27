@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
+import { useJsApiLoader } from "@react-google-maps/api";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -7,12 +8,12 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 import { pdvsApi, distributorsApi, ApiError } from "@/lib/api";
 import { useChannels, useSubChannels } from "@/lib/api";
-import { GpsCaptureButton } from "../components/GpsCaptureButton";
 import { LocationMap } from "../components/LocationMap";
+import { AddressAutocomplete } from "../components/AddressAutocomplete";
 import type { Distributor } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
 
@@ -47,6 +48,38 @@ export function NewPointOfSale() {
 
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
+
+  const { isLoaded: isMapsLoaded } = useJsApiLoader({
+    id: "google-map-script-places",
+    googleMapsApiKey: (import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string) || " ",
+    libraries: ["places"],
+    preventGoogleFontsLoading: true,
+  });
+
+  const [geocoding, setGeocoding] = useState(false);
+
+  const handleGeocodeAddress = () => {
+    const addr = formData.address?.trim();
+    if (!addr || !isMapsLoaded || typeof google === "undefined" || !google.maps) {
+      toast.error("Escribe una dirección y espera a que cargue el mapa");
+      return;
+    }
+    setGeocoding(true);
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: addr }, (results, status) => {
+      setGeocoding(false);
+      if (status === "OK" && results?.[0]) {
+        const loc = results[0].geometry.location;
+        const lat = loc.lat();
+        const lon = loc.lng();
+        const formattedAddr = results[0].formatted_address || addr;
+        setFormData((f) => ({ ...f, address: formattedAddr, lat, lon }));
+        toast.success("Ubicación encontrada");
+      } else {
+        toast.error("No se pudo encontrar la ubicación. Intenta con una dirección más específica.");
+      }
+    });
+  };
 
   useEffect(() => {
     distributorsApi.list().then((list) => setDistributors(list)).catch(() => {});
@@ -156,21 +189,28 @@ export function NewPointOfSale() {
               <Label htmlFor="address">
                 Dirección <span className="text-red-600">*</span>
               </Label>
-              <Input
+              <AddressAutocomplete
                 id="address"
-                placeholder="Ej: Av. Corrientes 1234"
                 value={formData.address}
-                onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                required
-              />
-              <GpsCaptureButton
-                onCapture={({ lat, lon }) =>
-                  setFormData((f) => ({ ...f, lat, lon }))
+                onChange={(address) => setFormData((f) => ({ ...f, address }))}
+                onPlaceSelect={({ address, lat, lon }) =>
+                  setFormData((f) => ({ ...f, address, lat, lon }))
                 }
-                className="w-full"
-              >
-                Usar ubicación GPS actual
-              </GpsCaptureButton>
+                placeholder="Buscar dirección (ej: Av. Corrientes 1234)"
+              />
+              {formData.address.trim() && (formData.lat == null || formData.lon == null) && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleGeocodeAddress}
+                  disabled={geocoding || !isMapsLoaded}
+                  className="w-full"
+                >
+                  <Search size={16} className="mr-2" />
+                  {geocoding ? "Buscando..." : "Buscar ubicación en mapa"}
+                </Button>
+              )}
               {formData.lat != null && formData.lon != null && (
                 <>
                   <p className="text-xs text-slate-500">
@@ -181,7 +221,7 @@ export function NewPointOfSale() {
                     lon={Number(formData.lon)}
                     height="180px"
                     className="mt-2"
-                    popupText="Ubicación capturada"
+                    popupText={formData.address || "Ubicación de la dirección"}
                   />
                 </>
               )}

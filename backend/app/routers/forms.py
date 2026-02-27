@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from ..database import get_db
 from ..models import (
     Form as FormModel,
@@ -8,6 +9,7 @@ from ..models import (
     FormOption as FormOptionModel,
     RouteForm as RouteFormModel,
     Route as RouteModel,
+    VisitAnswer as VisitAnswerModel,
 )
 from ..schemas.form import (
     Form,
@@ -47,9 +49,19 @@ def create_form(data: FormCreate, db: Session = Depends(get_db)):
         IsActive=data.IsActive,
     )
     db.add(f)
-    db.commit()
-    db.refresh(f)
-    return f
+    try:
+        db.commit()
+        db.refresh(f)
+        return f
+    except IntegrityError as e:
+        db.rollback()
+        err_msg = str(getattr(e, "orig", e)).lower()
+        if "uq_form" in err_msg or "duplicate" in err_msg or "unique" in err_msg:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya existe un formulario con el nombre '{data.Name}' y versión {data.Version}. Usa otro nombre o incrementa la versión.",
+            )
+        raise
 
 
 @router.patch("/{form_id}", response_model=Form)
@@ -198,6 +210,8 @@ def delete_form_question(question_id: int, db: Session = Depends(get_db)):
     q = db.query(FormQuestionModel).filter(FormQuestionModel.QuestionId == question_id).first()
     if not q:
         raise HTTPException(status_code=404, detail="Pregunta no encontrada")
+    db.query(VisitAnswerModel).filter(VisitAnswerModel.QuestionId == question_id).delete()
+    db.query(FormOptionModel).filter(FormOptionModel.QuestionId == question_id).delete()
     db.delete(q)
     db.commit()
 

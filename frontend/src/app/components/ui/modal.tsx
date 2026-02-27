@@ -22,7 +22,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md" }:
 
   return (
     <>
-      {/* Overlay - z-[1000] para quedar por encima de mapas Leaflet (z-index ~700) */}
+      {/* Overlay - z-[1000] para quedar por encima de mapas (z-index ~700) */}
       <div
         className="fixed inset-0 bg-black/50 z-[1000] animate-fade-in"
         onClick={onClose}

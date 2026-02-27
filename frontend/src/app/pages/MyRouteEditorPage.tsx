@@ -11,6 +11,7 @@ import {
   Trash2,
   GripVertical,
   Calendar,
+  Save,
 } from "lucide-react";
 import {
   routesApi,
@@ -180,18 +181,56 @@ export function MyRouteEditorPage() {
     }
   };
 
-  const handleUpdateRoute = async (data: {
+  const [routeDraft, setRouteDraft] = useState<{
     Name?: string;
-    BejermanZone?: string;
-    FrequencyType?: string;
-    FrequencyConfig?: string;
-  }) => {
-    if (!id) return;
+    BejermanZone?: string | null;
+    FrequencyType?: string | null;
+    FrequencyConfig?: string | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (route) {
+      setRouteDraft({
+        Name: route.Name,
+        BejermanZone: route.BejermanZone ?? null,
+        FrequencyType: route.FrequencyType ?? null,
+        FrequencyConfig: route.FrequencyConfig ?? null,
+      });
+    } else {
+      setRouteDraft(null);
+    }
+  }, [route]);
+
+  const routeMetadataDirty =
+    route &&
+    routeDraft &&
+    (routeDraft.Name !== route.Name ||
+      (routeDraft.BejermanZone ?? "") !== (route.BejermanZone ?? "") ||
+      (routeDraft.FrequencyType ?? "") !== (route.FrequencyType ?? "") ||
+      (routeDraft.FrequencyConfig ?? "") !== (route.FrequencyConfig ?? ""));
+
+  const handleSaveRouteMetadata = async () => {
+    if (!id || !routeDraft) return;
+    setSaving(true);
     try {
-      const updated = await routesApi.update(id, data);
+      const updated = await routesApi.update(id, {
+        Name: routeDraft.Name,
+        BejermanZone: routeDraft.BejermanZone ?? undefined,
+        FrequencyType: routeDraft.FrequencyType ?? undefined,
+        FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
+      });
       setRoute(updated);
+      setRouteDraft({
+        Name: updated.Name,
+        BejermanZone: updated.BejermanZone ?? null,
+        FrequencyType: updated.FrequencyType ?? null,
+        FrequencyConfig: updated.FrequencyConfig ?? null,
+      });
+      toast.success("Ruta guardada");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -217,7 +256,7 @@ export function MyRouteEditorPage() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-slate-900">Editar Ruta</h1>
-            <p className="text-sm text-slate-600">{route.Name}</p>
+            <p className="text-sm text-slate-600">{routeDraft?.Name ?? route.Name}</p>
           </div>
         </div>
       </div>
@@ -226,14 +265,28 @@ export function MyRouteEditorPage() {
         {/* Datos de la ruta */}
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-slate-900">Datos de la ruta</h3>
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Datos de la ruta</h3>
+              {routeDraft && (
+                <Button
+                  variant={routeMetadataDirty ? "default" : "outline"}
+                  size="sm"
+                  onClick={handleSaveRouteMetadata}
+                  disabled={saving || !routeDraft.Name?.trim()}
+                >
+                  <Save size={16} className="mr-1" />
+                  {saving ? "Guardando..." : "Guardar"}
+                </Button>
+              )}
+            </div>
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
                 <Input
-                  value={route.Name}
-                  onChange={(e) => setRoute((r) => (r ? { ...r, Name: e.target.value } : null))}
-                  onBlur={() => handleUpdateRoute({ Name: route.Name })}
+                  value={routeDraft?.Name ?? ""}
+                  onChange={(e) =>
+                    setRouteDraft((d) => (d ? { ...d, Name: e.target.value } : null))
+                  }
                   placeholder="Ej: RF Quilmes"
                 />
               </div>
@@ -241,11 +294,10 @@ export function MyRouteEditorPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Zona Bejerman</label>
                 <select
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  value={route.BejermanZone ?? ""}
+                  value={routeDraft?.BejermanZone ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || undefined;
-                    setRoute((r) => (r ? { ...r, BejermanZone: v ?? null } : null));
-                    handleUpdateRoute({ BejermanZone: v });
+                    setRouteDraft((d) => (d ? { ...d, BejermanZone: v ?? null } : null));
                   }}
                 >
                   <option value="">Sin zona</option>
@@ -260,11 +312,10 @@ export function MyRouteEditorPage() {
                 <label className="block text-sm font-medium text-slate-700 mb-1">Frecuencia</label>
                 <select
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                  value={route.FrequencyType ?? ""}
+                  value={routeDraft?.FrequencyType ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || undefined;
-                    setRoute((r) => (r ? { ...r, FrequencyType: v ?? null } : null));
-                    handleUpdateRoute({ FrequencyType: v });
+                    setRouteDraft((d) => (d ? { ...d, FrequencyType: v ?? null } : null));
                   }}
                 >
                   <option value="">Sin definir</option>

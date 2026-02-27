@@ -12,6 +12,7 @@ import {
   GripVertical,
   Calendar,
   User,
+  Save,
 } from "lucide-react";
 import {
   routesApi,
@@ -181,20 +182,56 @@ export function RouteEditorPage() {
     }
   };
 
-  const handleUpdateRoute = async (data: {
+  const [routeDraft, setRouteDraft] = useState<{
     Name?: string;
-    ZoneId?: number;
-    BejermanZone?: string;
-    FrequencyType?: string;
-    FrequencyConfig?: string;
-    EstimatedMinutes?: number;
-  }) => {
-    if (!id) return;
+    ZoneId?: number | null;
+    BejermanZone?: string | null;
+    EstimatedMinutes?: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (route) {
+      setRouteDraft({
+        Name: route.Name,
+        ZoneId: route.ZoneId ?? null,
+        BejermanZone: route.BejermanZone ?? null,
+        EstimatedMinutes: route.EstimatedMinutes ?? null,
+      });
+    } else {
+      setRouteDraft(null);
+    }
+  }, [route]);
+
+  const routeMetadataDirty =
+    route &&
+    routeDraft &&
+    (routeDraft.Name !== route.Name ||
+      (routeDraft.ZoneId ?? null) !== (route.ZoneId ?? null) ||
+      (routeDraft.BejermanZone ?? "") !== (route.BejermanZone ?? "") ||
+      (routeDraft.EstimatedMinutes ?? null) !== (route.EstimatedMinutes ?? null));
+
+  const handleSaveRouteMetadata = async () => {
+    if (!id || !routeDraft) return;
+    setSaving(true);
     try {
-      const updated = await routesApi.update(id, data);
+      const updated = await routesApi.update(id, {
+        Name: routeDraft.Name,
+        ZoneId: routeDraft.ZoneId ?? undefined,
+        BejermanZone: routeDraft.BejermanZone ?? undefined,
+        EstimatedMinutes: routeDraft.EstimatedMinutes ?? undefined,
+      });
       setRoute(updated);
+      setRouteDraft({
+        Name: updated.Name,
+        ZoneId: updated.ZoneId ?? null,
+        BejermanZone: updated.BejermanZone ?? null,
+        EstimatedMinutes: updated.EstimatedMinutes ?? null,
+      });
+      toast.success("Ruta guardada");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -220,21 +257,35 @@ export function RouteEditorPage() {
         </button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-slate-900">Editar Ruta Foco</h1>
-          <p className="text-slate-600">{route.Name}</p>
+          <p className="text-slate-600">{routeDraft?.Name ?? route.Name}</p>
         </div>
       </div>
 
       {/* Route Info */}
       <Card>
         <CardContent className="p-6 space-y-4">
-          <h3 className="font-semibold text-slate-900">Datos de la ruta</h3>
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-slate-900">Datos de la ruta</h3>
+            {routeDraft && (
+              <Button
+                variant={routeMetadataDirty ? "default" : "outline"}
+                size="sm"
+                onClick={handleSaveRouteMetadata}
+                disabled={saving || !routeDraft.Name?.trim()}
+              >
+                <Save size={16} className="mr-1" />
+                {saving ? "Guardando..." : "Guardar"}
+              </Button>
+            )}
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
               <Input
-                value={route.Name}
-                onChange={(e) => setRoute((r) => (r ? { ...r, Name: e.target.value } : null))}
-                onBlur={() => handleUpdateRoute({ Name: route.Name })}
+                value={routeDraft?.Name ?? ""}
+                onChange={(e) =>
+                  setRouteDraft((d) => (d ? { ...d, Name: e.target.value } : null))
+                }
                 placeholder="Ej: Ruta Norte - Kioscos"
               />
             </div>
@@ -242,11 +293,10 @@ export function RouteEditorPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Zona</label>
               <select
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                value={route.ZoneId ?? ""}
+                value={routeDraft?.ZoneId ?? ""}
                 onChange={(e) => {
                   const zoneId = e.target.value ? Number(e.target.value) : undefined;
-                  setRoute((r) => (r ? { ...r, ZoneId: zoneId ?? null } : null));
-                  handleUpdateRoute({ ZoneId: zoneId });
+                  setRouteDraft((d) => (d ? { ...d, ZoneId: zoneId ?? null } : null));
                 }}
               >
                 <option value="">Sin zona</option>
@@ -261,11 +311,10 @@ export function RouteEditorPage() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Zona Bejerman</label>
               <select
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                value={route.BejermanZone ?? ""}
+                value={routeDraft?.BejermanZone ?? ""}
                 onChange={(e) => {
                   const v = e.target.value || undefined;
-                  setRoute((r) => (r ? { ...r, BejermanZone: v ?? null } : null));
-                  handleUpdateRoute({ BejermanZone: v });
+                  setRouteDraft((d) => (d ? { ...d, BejermanZone: v ?? null } : null));
                 }}
               >
                 <option value="">Sin zona</option>
@@ -283,16 +332,13 @@ export function RouteEditorPage() {
                 </label>
                 <Input
                   type="number"
-                  value={route.EstimatedMinutes ?? ""}
+                  value={routeDraft?.EstimatedMinutes ?? ""}
                   onChange={(e) => {
                     const v = e.target.value ? Number(e.target.value) : undefined;
-                    setRoute((r) => (r ? { ...r, EstimatedMinutes: v ?? null } : null));
+                    setRouteDraft((d) =>
+                      d ? { ...d, EstimatedMinutes: v ?? null } : null
+                    );
                   }}
-                  onBlur={() =>
-                    handleUpdateRoute({
-                      EstimatedMinutes: route.EstimatedMinutes ?? undefined,
-                    })
-                  }
                   placeholder="Ej: 120"
                 />
               </div>

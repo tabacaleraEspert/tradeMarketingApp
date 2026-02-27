@@ -32,7 +32,7 @@ function parseRulesJson(json: string | null): { showIf?: { questionId: number; o
   }
 }
 
-const OPTION_TYPES = ["select", "radio", "checkbox"];
+const OPTION_TYPES = ["select", "radio", "checkbox", "checkbox_price"];
 const SCALE_DEFAULT = { min: 1, max: 5, minLabel: "", maxLabel: "" };
 
 export function SurveyForm() {
@@ -46,7 +46,9 @@ export function SurveyForm() {
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
   const [routeForms, setRouteForms] = useState<RouteFormWithForm[]>([]);
   const [formQuestions, setFormQuestions] = useState<Record<number, QuestionWithOptions[]>>({});
-  const [answers, setAnswers] = useState<Record<number, string | number | boolean | string[]>>({});
+  const [answers, setAnswers] = useState<
+    Record<number, string | number | boolean | string[] | Record<string, number | null>>
+  >({});
   const [activeTab, setActiveTab] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
@@ -97,7 +99,10 @@ export function SurveyForm() {
     loadData();
   }, [loadData]);
 
-  const setAnswer = (questionId: number, value: string | number | boolean | string[]) => {
+  const setAnswer = (
+    questionId: number,
+    value: string | number | boolean | string[] | Record<string, number | null>
+  ) => {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   };
 
@@ -106,6 +111,7 @@ export function SurveyForm() {
     const v = answers[q.QuestionId];
     if (v === undefined || v === "") return false;
     if (Array.isArray(v)) return v.length > 0;
+    if (typeof v === "object" && v !== null && !Array.isArray(v)) return Object.keys(v).length > 0;
     return true;
   }).length;
   const progressPercentage = allQuestions.length > 0 ? Math.round((completedCount / allQuestions.length) * 100) : 0;
@@ -263,8 +269,8 @@ function SurveyQuestionField({
   onChange,
 }: {
   question: QuestionWithOptions;
-  value: string | number | boolean | string[] | undefined;
-  onChange: (v: string | number | boolean | string[]) => void;
+  value: string | number | boolean | string[] | Record<string, number | null> | undefined;
+  onChange: (v: string | number | boolean | string[] | Record<string, number | null>) => void;
 }) {
   const opts = question.options || [];
 
@@ -423,6 +429,62 @@ function SurveyQuestionField({
               <span>{o.Label}</span>
             </label>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.QType === "checkbox_price") {
+    const obj = (value as Record<string, number | null>) ?? {};
+    return (
+      <div className="space-y-2">
+        <Label>
+          {question.Label}
+          {question.IsRequired && <span className="text-red-500">*</span>}
+        </Label>
+        <p className="text-sm text-slate-500 mb-2">Seleccione las marcas que trabaja e indique el precio si corresponde</p>
+        <div className="space-y-2">
+          {opts.map((o) => {
+            const isChecked = o.Value in obj;
+            const price = obj[o.Value] ?? null;
+            return (
+              <div key={o.OptionId} className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const next = { ...obj };
+                      if (e.target.checked) {
+                        next[o.Value] = null;
+                      } else {
+                        delete next[o.Value];
+                      }
+                      onChange(next);
+                    }}
+                  />
+                  <span>{o.Label}</span>
+                </label>
+                {isChecked && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-slate-500">Precio:</span>
+                    <Input
+                      type="number"
+                      placeholder="0"
+                      className="w-24 h-8"
+                      value={price !== null ? price : ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const num = val === "" ? null : Number(val);
+                        onChange({ ...obj, [o.Value]: num });
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     );
