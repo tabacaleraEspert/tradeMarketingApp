@@ -29,11 +29,24 @@ export interface Distributor {
   IsActive: boolean;
 }
 
+export interface PdvContact {
+  PdvContactId: number;
+  PdvId: number;
+  ContactName: string;
+  ContactPhone: string | null;
+  Birthday: string | null;
+  CreatedAt: string;
+}
+
 export interface Pdv {
   PdvId: number;
   Code: string | null;
   Name: string;
-  Channel: string;
+  Channel: string | null;
+  ChannelId: number | null;
+  SubChannelId: number | null;
+  ChannelName: string | null;
+  SubChannelName: string | null;
   Address: string | null;
   City: string | null;
   ZoneId: number | null;
@@ -42,10 +55,26 @@ export interface Pdv {
   Lon: number | null;
   ContactName: string | null;
   ContactPhone: string | null;
+  Contacts: PdvContact[];
   DefaultMaterialExternalId: string | null;
   IsActive: boolean;
   CreatedAt: string;
   UpdatedAt: string;
+}
+
+export interface Channel {
+  ChannelId: number;
+  Name: string;
+  IsActive: boolean;
+  CreatedAt: string;
+}
+
+export interface SubChannel {
+  SubChannelId: number;
+  ChannelId: number;
+  Name: string;
+  IsActive: boolean;
+  CreatedAt: string;
 }
 
 export interface Route {
@@ -54,6 +83,12 @@ export interface Route {
   ZoneId: number | null;
   FormId: number | null;
   IsActive: boolean;
+  BejermanZone: string | null;
+  FrequencyType: string | null;
+  FrequencyConfig: string | null;
+  EstimatedMinutes: number | null;
+  CreatedByUserId: number | null;
+  PdvCount: number;
   CreatedAt: string;
 }
 
@@ -151,4 +186,16 @@ export interface Incident {
   Notes: string | null;
   CreatedBy: number | null;
   CreatedAt: string;
+}
+
+export interface Notification {
+  NotificationId: number;
+  Title: string;
+  Message: string;
+  Type: string;
+  Priority: number;
+  IsActive: boolean;
+  CreatedAt: string;
+  CreatedBy: number | null;
+  ExpiresAt: string | null;
 }

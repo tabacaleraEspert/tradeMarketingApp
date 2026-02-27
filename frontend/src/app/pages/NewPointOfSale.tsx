@@ -7,11 +7,20 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Camera, Send } from "lucide-react";
+import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { pdvsApi, distributorsApi, ApiError } from "@/lib/api";
+import { useChannels, useSubChannels } from "@/lib/api";
+import { GpsCaptureButton } from "../components/GpsCaptureButton";
+import { LocationMap } from "../components/LocationMap";
 import type { Distributor } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
+
+interface ContactForm {
+  contactName: string;
+  contactPhone: string;
+  birthday: string;
+}
 
 export function NewPointOfSale() {
   const navigate = useNavigate();
@@ -20,17 +29,24 @@ export function NewPointOfSale() {
   const [formData, setFormData] = useState({
     name: "",
     address: "",
-    channel: "",
-    subChannel: "",
+    channelId: "" as number | "",
+    subChannelId: "" as number | "",
     distributorId: "",
-    contactName: "",
-    contactPhone: "",
     observations: "",
+    lat: null as number | null,
+    lon: null as number | null,
   });
+
+  const [contacts, setContacts] = useState<ContactForm[]>([
+    { contactName: "", contactPhone: "", birthday: "" },
+  ]);
 
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [loading, setLoading] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
+
+  const { data: channels } = useChannels();
+  const { data: subchannels } = useSubChannels(formData.channelId || null);
 
   useEffect(() => {
     distributorsApi.list().then((list) => setDistributors(list)).catch(() => {});
@@ -42,27 +58,52 @@ export function NewPointOfSale() {
     toast.success("Foto capturada");
   };
 
+  const addContact = () => {
+    setContacts([...contacts, { contactName: "", contactPhone: "", birthday: "" }]);
+  };
+
+  const removeContact = (index: number) => {
+    if (contacts.length > 1) {
+      setContacts(contacts.filter((_, i) => i !== index));
+    }
+  };
+
+  const updateContact = (index: number, field: keyof ContactForm, value: string) => {
+    setContacts(
+      contacts.map((c, i) => (i === index ? { ...c, [field]: value } : c))
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.address || !formData.channel) {
+    if (!formData.name || !formData.address || !formData.channelId) {
       toast.error("Por favor completa los campos obligatorios");
       return;
     }
 
     setLoading(true);
     try {
+      const contactsToSend = contacts
+        .filter((c) => c.contactName.trim())
+        .map((c) => ({
+          ContactName: c.contactName.trim(),
+          ContactPhone: c.contactPhone.trim() || undefined,
+          Birthday: c.birthday || undefined,
+        }));
+
       await pdvsApi.create({
         Name: formData.name,
         Address: formData.address,
-        Channel: formData.channel,
+        ChannelId: Number(formData.channelId),
+        SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         ZoneId: currentUser.zoneId ?? undefined,
         DistributorId: formData.distributorId ? Number(formData.distributorId) : undefined,
-        ContactName: formData.contactName || undefined,
-        ContactPhone: formData.contactPhone || undefined,
-        IsActive: true,
+        Lat: formData.lat ?? undefined,
+        Lon: formData.lon ?? undefined,
+        Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       });
-      toast.success("PDV creado y enviado para validación");
+      toast.success("PDV creado correctamente");
       navigate("/");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el PDV");
@@ -122,10 +163,28 @@ export function NewPointOfSale() {
                 onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                 required
               />
-              <Button type="button" variant="outline" size="sm" className="w-full">
-                <MapPin size={16} className="mr-2" />
-                Usar Ubicación GPS Actual
-              </Button>
+              <GpsCaptureButton
+                onCapture={({ lat, lon }) =>
+                  setFormData((f) => ({ ...f, lat, lon }))
+                }
+                className="w-full"
+              >
+                Usar ubicación GPS actual
+              </GpsCaptureButton>
+              {formData.lat != null && formData.lon != null && (
+                <>
+                  <p className="text-xs text-slate-500">
+                    Coordenadas: {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}
+                  </p>
+                  <LocationMap
+                    lat={Number(formData.lat)}
+                    lon={Number(formData.lon)}
+                    height="180px"
+                    className="mt-2"
+                    popupText="Ubicación capturada"
+                  />
+                </>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -133,32 +192,49 @@ export function NewPointOfSale() {
                 Canal <span className="text-red-600">*</span>
               </Label>
               <Select
-                value={formData.channel}
-                onValueChange={(value) => setFormData({ ...formData, channel: value })}
+                value={formData.channelId ? String(formData.channelId) : ""}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    channelId: value ? Number(value) : "",
+                    subChannelId: "",
+                  })
+                }
                 required
               >
                 <SelectTrigger>
                   <SelectValue placeholder="Seleccionar canal" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="kiosco">Kiosco</SelectItem>
-                  <SelectItem value="autoservicio">Autoservicio</SelectItem>
-                  <SelectItem value="supermercado">Supermercado</SelectItem>
-                  <SelectItem value="mayorista">Mayorista</SelectItem>
-                  <SelectItem value="estacion-servicio">Estación de Servicio</SelectItem>
-                  <SelectItem value="otro">Otro</SelectItem>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.ChannelId} value={String(ch.ChannelId)}>
+                      {ch.Name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="subChannel">Sub-canal</Label>
-              <Input
-                id="subChannel"
-                placeholder="Ej: Tradicional, Cadena, etc."
-                value={formData.subChannel}
-                onChange={(e) => setFormData({ ...formData, subChannel: e.target.value })}
-              />
+              <Select
+                value={formData.subChannelId ? String(formData.subChannelId) : ""}
+                onValueChange={(value) =>
+                  setFormData({ ...formData, subChannelId: value ? Number(value) : "" })
+                }
+                disabled={!formData.channelId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={formData.channelId ? "Seleccionar subcanal" : "Primero selecciona un canal"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {subchannels.map((sc) => (
+                    <SelectItem key={sc.SubChannelId} value={String(sc.SubChannelId)}>
+                      {sc.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </CardContent>
         </Card>
@@ -189,31 +265,54 @@ export function NewPointOfSale() {
           </CardContent>
         </Card>
 
-        {/* Contact Info */}
+        {/* Contact Info - múltiples */}
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-slate-900">Contacto</h3>
-
-            <div className="space-y-2">
-              <Label htmlFor="contactName">Nombre del Responsable</Label>
-              <Input
-                id="contactName"
-                placeholder="Nombre y apellido"
-                value={formData.contactName}
-                onChange={(e) => setFormData({ ...formData, contactName: e.target.value })}
-              />
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900">Contactos</h3>
+              <Button type="button" variant="outline" size="sm" onClick={addContact}>
+                <Plus size={16} className="mr-1" />
+                Agregar
+              </Button>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="contactPhone">Teléfono</Label>
-              <Input
-                id="contactPhone"
-                type="tel"
-                placeholder="+54 11 1234-5678"
-                value={formData.contactPhone}
-                onChange={(e) => setFormData({ ...formData, contactPhone: e.target.value })}
-              />
-            </div>
+            {contacts.map((contact, index) => (
+              <div key={index} className="p-3 bg-slate-50 rounded-lg space-y-2 border border-slate-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-slate-600">Contacto {index + 1}</span>
+                  {contacts.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-600 hover:text-red-700"
+                      onClick={() => removeContact(index)}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Nombre y apellido"
+                    value={contact.contactName}
+                    onChange={(e) => updateContact(index, "contactName", e.target.value)}
+                  />
+                  <Input
+                    type="tel"
+                    placeholder="+54 11 1234-5678"
+                    value={contact.contactPhone}
+                    onChange={(e) => updateContact(index, "contactPhone", e.target.value)}
+                  />
+                  <Input
+                    type="date"
+                    placeholder="Cumpleaños"
+                    value={contact.birthday}
+                    onChange={(e) => updateContact(index, "birthday", e.target.value)}
+                  />
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 
@@ -263,30 +362,11 @@ export function NewPointOfSale() {
           </CardContent>
         </Card>
 
-        {/* Info Banner */}
-        <Card className="bg-yellow-50 border-yellow-200">
-          <CardContent className="p-4">
-            <div className="flex items-start gap-2">
-              <Badge variant="outline" className="mt-0.5 bg-yellow-600 text-white border-yellow-600">
-                Pendiente
-              </Badge>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-yellow-900 mb-1">
-                  PDV en Validación
-                </p>
-                <p className="text-xs text-yellow-800">
-                  El punto de venta será enviado para validación por el equipo administrativo antes de ser activado en el sistema
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Submit Button */}
         <div className="fixed bottom-20 left-0 right-0 bg-white border-t border-slate-200 p-4">
           <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={loading}>
             <Send className="mr-2" size={18} />
-            {loading ? "Enviando..." : "Enviar para Validación"}
+            {loading ? "Creando..." : "Crear PDV"}
           </Button>
         </div>
       </form>

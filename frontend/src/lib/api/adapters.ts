@@ -1,17 +1,20 @@
 import type { Pdv } from "./types";
 import type { RouteDayPdvWithDetails } from "./hooks";
 import type { IncidentWithPdvName } from "./hooks";
+import type { Notification } from "./types";
 
 /** Convierte Pdv del API a formato UI (para Buscar PDV) */
 export function pdvToPointOfSaleUI(p: Pdv): PointOfSaleUI {
+  const primaryContact = p.Contacts?.[0];
   return {
     id: String(p.PdvId),
     name: p.Name,
     address: p.Address || p.City || "Sin dirección",
-    channel: p.Channel,
+    channel: p.ChannelName || p.Channel || "-",
+    subChannel: p.SubChannelName || undefined,
     distributor: p.DistributorId ? `Distribuidor #${p.DistributorId}` : "-",
-    contact: p.ContactName || "-",
-    phone: p.ContactPhone || "-",
+    contact: primaryContact?.ContactName || p.ContactName || "-",
+    phone: primaryContact?.ContactPhone || p.ContactPhone || "-",
     lat: p.Lat ?? 0,
     lng: p.Lon ?? 0,
     status: "pending",
@@ -43,6 +46,8 @@ export interface PointOfSaleUI {
   isActive?: boolean;
   /** RouteDayId cuando viene de Ruta Foco del Día (para Relevamiento) */
   routeDayId?: number;
+  /** Nombre de la ruta (para Home/Agenda) */
+  routeName?: string;
 }
 
 /** Formato de Alerta para la UI */
@@ -85,14 +90,16 @@ export function routeDayPdvToPointOfSaleUI(
     ? timeFrom.slice(0, 5)
     : undefined;
 
+  const primaryContact = p.Contacts?.[0];
   return {
     id: String(p.PdvId),
     name: p.Name,
     address: p.Address || p.City || "Sin dirección",
-    channel: p.Channel,
+    channel: p.ChannelName || p.Channel || "-",
+    subChannel: p.SubChannelName || undefined,
     distributor: p.DistributorId ? `Distribuidor #${p.DistributorId}` : "-",
-    contact: p.ContactName || "-",
-    phone: p.ContactPhone || "-",
+    contact: primaryContact?.ContactName || p.ContactName || "-",
+    phone: primaryContact?.ContactPhone || p.ContactPhone || "-",
     lat: p.Lat ?? 0,
     lng: p.Lon ?? 0,
     status,
@@ -102,6 +109,7 @@ export function routeDayPdvToPointOfSaleUI(
     recentIssues: 0,
     isActive: p.IsActive,
     routeDayId: rdp.RouteDayId,
+    routeName: rdp.routeName,
   };
 }
 
@@ -133,5 +141,26 @@ export function incidentToAlertUI(inc: IncidentWithPdvName): AlertUI {
     priority,
     status,
     createdAt: inc.CreatedAt,
+  };
+}
+
+const notificationPriorityToUI: Record<number, AlertUI["priority"]> = {
+  1: "high",
+  2: "medium",
+  3: "low",
+};
+
+export function notificationToAlertUI(n: Notification): AlertUI {
+  const priority: AlertUI["priority"] =
+    (notificationPriorityToUI[n.Priority] as AlertUI["priority"]) ?? "medium";
+  return {
+    id: `notification-${n.NotificationId}`,
+    posId: "",
+    posName: n.Title,
+    type: n.Type || "notification",
+    description: n.Message,
+    priority,
+    status: n.IsActive ? "open" : "resolved",
+    createdAt: n.CreatedAt,
   };
 }

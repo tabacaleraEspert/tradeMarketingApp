@@ -1,10 +1,12 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useState, useEffect } from "react";
+import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
+import { Label } from "../components/ui/label";
+import { Textarea } from "../components/ui/textarea";
 import { ArrowLeft, Camera, Image as ImageIcon, Trash2, Check, Upload } from "lucide-react";
-import { pointsOfSale } from "../data/mockData";
+import { pdvsApi, visitsApi } from "@/lib/api";
 import { toast } from "sonner";
 
 interface CapturedPhoto {
@@ -18,10 +20,27 @@ interface CapturedPhoto {
 export function PhotoCapture() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const pos = pointsOfSale.find((p) => p.id === id);
+  const location = useLocation();
+  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
 
+  const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
+  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
+  const [reminderForNext, setReminderForNext] = useState("");
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("storefront");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    pdvsApi.get(Number(id)).then(setPdv).catch(() => setPdv(null));
+    if (!visitIdFromState) {
+      visitsApi.list({ pdv_id: Number(id), status: "OPEN" }).then((v) => {
+        if (v.length > 0) setVisitId(v[0].VisitId);
+      });
+    } else {
+      setVisitId(visitIdFromState);
+    }
+  }, [id, visitIdFromState]);
 
   const categories = [
     { id: "storefront", label: "Frente del Local", required: true },
@@ -56,7 +75,7 @@ export function PhotoCapture() {
     toast.success("Foto eliminada");
   };
 
-  const handleFinish = () => {
+  const handleFinish = async () => {
     const requiredCategories = categories.filter((c) => c.required).map((c) => c.id);
     const capturedCategories = [...new Set(photos.map((p) => p.category))];
     const missingCategories = requiredCategories.filter(
@@ -68,8 +87,21 @@ export function PhotoCapture() {
       return;
     }
 
-    toast.success("Evidencia fotográfica completada");
-    navigate(`/pos/${id}`);
+    setSaving(true);
+    try {
+      if (visitId) {
+        await visitsApi.update(visitId, {
+          Status: "CLOSED",
+          CloseReason: reminderForNext.trim() || undefined,
+        });
+      }
+      toast.success("Evidencia fotográfica completada");
+      navigate(`/pos/${id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getCategoryPhotos = (categoryId: string) => {
@@ -80,8 +112,12 @@ export function PhotoCapture() {
     return categories.filter((c) => c.required).length;
   };
 
-  if (!pos) {
-    return null;
+  if (!pdv) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+        <p className="text-slate-600">Cargando...</p>
+      </div>
+    );
   }
 
   return (
@@ -97,7 +133,7 @@ export function PhotoCapture() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-slate-900">Evidencia Fotográfica</h1>
-            <p className="text-sm text-slate-600">{pos.name}</p>
+            <p className="text-sm text-slate-600">{pdv.Name}</p>
           </div>
         </div>
 
@@ -230,6 +266,22 @@ export function PhotoCapture() {
           </Card>
         )}
 
+        {/* Recordatorio próxima visita */}
+        <Card>
+          <CardContent className="p-4">
+            <Label className="text-sm font-semibold text-slate-900 mb-2 block">
+              Recordatorio próxima visita
+            </Label>
+            <Textarea
+              placeholder="Deja un comentario o tarea para la próxima visita (ej: Verificar stock, Reponer material POP...)"
+              value={reminderForNext}
+              onChange={(e) => setReminderForNext(e.target.value)}
+              rows={3}
+              className="resize-none"
+            />
+          </CardContent>
+        </Card>
+
         {/* Instructions */}
         <Card className="bg-blue-50 border-blue-200">
           <CardContent className="p-4">
@@ -257,15 +309,11 @@ export function PhotoCapture() {
         <Button
           className="w-full h-12 text-base font-semibold"
           onClick={handleFinish}
-          disabled={photos.length < getMinPhotosRequired()}
+          disabled={photos.length < getMinPhotosRequired() || saving}
         >
-          Finalizar y Guardar
+          {saving ? "Guardando..." : "Finalizar y Guardar"}
         </Button>
       </div>
     </div>
   );
-}
-
-function Label({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <label className={className}>{children}</label>;
 }

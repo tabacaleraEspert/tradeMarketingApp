@@ -11,6 +11,7 @@ import {
   User,
   Wifi,
   WifiOff,
+  Layers,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -25,8 +26,10 @@ export function AdminLayout() {
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestión PDV" },
+    { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/routes", icon: Route, label: "Rutas Foco" },
     { path: "/admin/forms", icon: FileText, label: "Formularios" },
+    { path: "/admin/notifications", icon: Bell, label: "Notificaciones" },
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
   ];
 

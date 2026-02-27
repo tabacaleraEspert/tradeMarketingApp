@@ -21,6 +21,9 @@ import type {
   Role,
   Distributor,
   Pdv,
+  PdvContact,
+  Channel,
+  SubChannel,
   Route,
   RoutePdv,
   RouteFormWithForm,
@@ -32,6 +35,7 @@ import type {
   FormOption,
   Visit,
   Incident,
+  Notification,
 } from "./types";
 
 // --- Zones ---
@@ -66,6 +70,10 @@ export const usersApi = {
     }
   ) => api.patch<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
+  getMonthlyStats: (userId: number) =>
+    api.get<{ visits: number; compliance: number; new_pdvs: number }>(
+      `/users/${userId}/stats/monthly`
+    ),
 };
 
 // --- Roles ---
@@ -91,7 +99,49 @@ export const distributorsApi = {
   delete: (id: number) => api.delete(`/distributors/${id}`),
 };
 
+// --- Channels ---
+export const channelsApi = {
+  list: () => api.get<Channel[]>("/channels"),
+  listAll: () => api.get<Channel[]>("/channels/all"),
+  get: (id: number) => api.get<Channel>(`/channels/${id}`),
+  create: (data: { Name: string; IsActive?: boolean }) =>
+    api.post<Channel>("/channels", data),
+  update: (id: number, data: { Name?: string; IsActive?: boolean }) =>
+    api.patch<Channel>(`/channels/${id}`, data),
+  delete: (id: number) => api.delete(`/channels/${id}`),
+};
+
+// --- SubChannels ---
+export const subchannelsApi = {
+  list: (channelId?: number) =>
+    api.get<SubChannel[]>("/subchannels", channelId ? { channel_id: channelId } : {}),
+  listAll: (channelId?: number) =>
+    api.get<SubChannel[]>("/subchannels/all", channelId ? { channel_id: channelId } : {}),
+  get: (id: number) => api.get<SubChannel>(`/subchannels/${id}`),
+  create: (data: { ChannelId: number; Name: string; IsActive?: boolean }) =>
+    api.post<SubChannel>("/subchannels", data),
+  update: (id: number, data: { ChannelId?: number; Name?: string; IsActive?: boolean }) =>
+    api.patch<SubChannel>(`/subchannels/${id}`, data),
+  delete: (id: number) => api.delete(`/subchannels/${id}`),
+};
+
 // --- PDVs ---
+export interface PdvCreateData {
+  Code?: string;
+  Name: string;
+  ChannelId: number;
+  SubChannelId?: number;
+  Address?: string;
+  City?: string;
+  ZoneId?: number;
+  DistributorId?: number;
+  Lat?: number;
+  Lon?: number;
+  Contacts?: { ContactName: string; ContactPhone?: string; Birthday?: string }[];
+  DefaultMaterialExternalId?: string;
+  IsActive?: boolean;
+}
+
 export const pdvsApi = {
   list: (params?: {
     skip?: number;
@@ -100,35 +150,44 @@ export const pdvsApi = {
     distributor_id?: number;
   }) => api.get<Pdv[]>("/pdvs", params),
   get: (id: number) => api.get<Pdv>(`/pdvs/${id}`),
-  create: (data: {
-    Code?: string;
-    Name: string;
-    Channel: string;
-    Address?: string;
-    City?: string;
-    ZoneId?: number;
-    DistributorId?: number;
-    Lat?: number;
-    Lon?: number;
-    ContactName?: string;
-    ContactPhone?: string;
-    DefaultMaterialExternalId?: string;
-    IsActive?: boolean;
-  }) => api.post<Pdv>("/pdvs", data),
-  update: (id: number, data: Partial<Pdv>) =>
+  create: (data: PdvCreateData) => api.post<Pdv>("/pdvs", data),
+  update: (id: number, data: Partial<PdvCreateData> & { Contacts?: { ContactName: string; ContactPhone?: string; Birthday?: string }[] }) =>
     api.patch<Pdv>(`/pdvs/${id}`, data),
   delete: (id: number) => api.delete(`/pdvs/${id}`),
 };
 
 // --- Routes ---
+export const BEJERMAN_ZONES = ["Litoral", "GBA Sur", "GBA Norte", "Patagonia"] as const;
+
 export const routesApi = {
-  list: (params?: { skip?: number; limit?: number }) =>
+  list: (params?: { skip?: number; limit?: number; created_by?: number }) =>
     api.get<Route[]>("/routes", params as Record<string, number | undefined>),
   get: (id: number) => api.get<Route>(`/routes/${id}`),
-  create: (data: { Name: string; ZoneId?: number; FormId?: number; IsActive?: boolean }) =>
-    api.post<Route>("/routes", data),
-  update: (id: number, data: { Name?: string; ZoneId?: number; FormId?: number; IsActive?: boolean }) =>
-    api.patch<Route>(`/routes/${id}`, data),
+  getBejermanZones: () => api.get<{ zones: string[] }>("/routes/bejerman-zones"),
+  create: (data: {
+    Name: string;
+    ZoneId?: number;
+    FormId?: number;
+    IsActive?: boolean;
+    CreatedByUserId?: number;
+    BejermanZone?: string;
+    FrequencyType?: string;
+    FrequencyConfig?: string;
+    EstimatedMinutes?: number;
+  }) => api.post<Route>("/routes", data),
+  update: (
+    id: number,
+    data: {
+      Name?: string;
+      ZoneId?: number;
+      FormId?: number;
+      IsActive?: boolean;
+      BejermanZone?: string;
+      FrequencyType?: string;
+      FrequencyConfig?: string;
+      EstimatedMinutes?: number;
+    }
+  ) => api.patch<Route>(`/routes/${id}`, data),
   delete: (id: number) => api.delete(`/routes/${id}`),
 
   // Route PDVs
@@ -191,6 +250,16 @@ export const formsApi = {
   update: (id: number, data: { Name?: string; Channel?: string; Version?: number; IsActive?: boolean }) =>
     api.patch<Form>(`/forms/${id}`, data),
   delete: (id: number) => api.delete(`/forms/${id}`),
+
+  // Asignación a rutas (bidireccional)
+  getRoutesWithForm: (formId: number) =>
+    api.get<{ route_ids: number[] }>(`/forms/${formId}/routes`),
+  bulkAssignToRoutes: (
+    formId: number,
+    data: { route_ids?: number[]; assign_to_all?: boolean }
+  ) => api.post<{ assigned: number; skipped: number }>(`/forms/${formId}/routes/bulk`, data),
+  removeFromRoute: (formId: number, routeId: number) =>
+    api.delete(`/forms/${formId}/routes/${routeId}`),
 
   // Questions
   listQuestions: (formId: number) =>
@@ -281,4 +350,23 @@ export const incidentsApi = {
   update: (id: number, data: { Status?: string; Priority?: number; Notes?: string }) =>
     api.patch<Incident>(`/incidents/${id}`, data),
   delete: (id: number) => api.delete(`/incidents/${id}`),
+};
+
+// --- Notifications ---
+export const notificationsApi = {
+  list: (params?: { skip?: number; limit?: number; active_only?: boolean }) =>
+    api.get<Notification[]>("/notifications", params),
+  get: (id: number) => api.get<Notification>(`/notifications/${id}`),
+  create: (data: {
+    Title: string;
+    Message: string;
+    Type?: string;
+    Priority?: number;
+    IsActive?: boolean;
+    ExpiresAt?: string | null;
+    CreatedBy?: number | null;
+  }) => api.post<Notification>("/notifications", data),
+  update: (id: number, data: Partial<Notification>) =>
+    api.patch<Notification>(`/notifications/${id}`, data),
+  delete: (id: number) => api.delete(`/notifications/${id}`),
 };

@@ -15,8 +15,8 @@ import {
   Calendar,
 } from "lucide-react";
 import { getCurrentUser } from "../lib/auth";
-import { useRouteDayPdvsForDate, useIncidentsWithPdvNames } from "@/lib/api";
-import { routeDayPdvToPointOfSaleUI, incidentToAlertUI } from "@/lib/api";
+import { useRouteDayPdvsForDate, useIncidentsWithPdvNames, useActiveNotifications } from "@/lib/api";
+import { routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI } from "@/lib/api";
 
 export function Home() {
   const navigate = useNavigate();
@@ -24,20 +24,35 @@ export function Home() {
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
-  const { data: routeDayPdvs, loading: loadingPdvs } = useRouteDayPdvsForDate(selectedDate);
+  // Trade Rep: solo su ruta asignada. Admin: todas las rutas del día
+  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
+  const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
+
+  const { data: routeDayPdvs, loading: loadingPdvs } = useRouteDayPdvsForDate(
+    selectedDate,
+    userIdForFilter
+  );
   const { data: incidents } = useIncidentsWithPdvNames();
+  const { data: notifications } = useActiveNotifications();
 
   const pointsOfSale = useMemo(
     () => routeDayPdvs.map(routeDayPdvToPointOfSaleUI),
     [routeDayPdvs]
   );
-  const alerts = useMemo(() => incidents.map(incidentToAlertUI), [incidents]);
+  const alerts = useMemo(
+    () => [
+      ...incidents.map(incidentToAlertUI),
+      ...notifications.map(notificationToAlertUI),
+    ],
+    [incidents, notifications]
+  );
 
   const syncStatus = { lastSync: new Date().toISOString(), pendingRecords: 0, pendingPhotos: 0, isOnline: true };
 
   const todayVisits = pointsOfSale.length;
   const completedVisits = pointsOfSale.filter((p) => p.status === "completed").length;
   const pendingVisits = pointsOfSale.filter((p) => p.status === "pending").length;
+  const todayRouteName = pointsOfSale[0]?.routeName;
   const monthlyCompliance =
     todayVisits > 0 ? Math.round((completedVisits / todayVisits) * 100) : 0;
   const openAlerts = alerts.filter((a) => a.status === "open" || a.status === "in-progress").length;
@@ -58,8 +73,9 @@ export function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-4">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-12">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 pb-8">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 pb-8 rounded-b-2xl">
         <div className="flex items-start justify-between mb-4">
           <div>
             <h1 className="text-2xl font-bold">Hola, {currentUser.name.split(" ")[0]}</h1>
@@ -104,15 +120,21 @@ export function Home() {
       </div>
 
       {/* Main Content */}
-      <div className="px-4 -mt-4">
-        {/* Primary CTA */}
+      <div className="-mt-4">
+        {/* Ruta del día + Primary CTA */}
+        {todayRouteName && (
+          <div className="mb-3 px-1">
+            <p className="text-sm font-medium text-slate-600">Tu ruta hoy</p>
+            <p className="text-lg font-bold text-slate-900">{todayRouteName}</p>
+          </div>
+        )}
         <Button
           onClick={() => navigate("/route", { state: { selectedDate: selectedDate.toISOString() } })}
           className="w-full h-14 text-base font-semibold shadow-lg mb-6"
           size="lg"
         >
           <MapPin className="mr-2" size={20} />
-          Ver Ruta Foco de Hoy
+          {todayVisits > 0 ? "Ver Ruta Foco" : "Ver Agenda"}
         </Button>
 
         {/* Alerts Banner */}
@@ -179,6 +201,20 @@ export function Home() {
                 <p className="font-semibold text-slate-900">Alta PDV</p>
               </CardContent>
             </Card>
+
+            {!isAdmin && (
+              <Card
+                className="cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => navigate("/my-routes")}
+              >
+                <CardContent className="p-4 text-center">
+                  <div className="bg-indigo-100 rounded-full w-12 h-12 flex items-center justify-center mx-auto mb-2">
+                    <MapPin size={24} className="text-indigo-600" />
+                  </div>
+                  <p className="font-semibold text-slate-900">Mis Rutas</p>
+                </CardContent>
+              </Card>
+            )}
 
             <Card 
               className="cursor-pointer hover:shadow-md transition-shadow"
@@ -312,6 +348,7 @@ export function Home() {
             </div>
           </CardContent>
         </Card>
+      </div>
       </div>
 
       {/* Date Selector */}

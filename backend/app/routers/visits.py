@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
@@ -61,7 +62,10 @@ def update_visit(visit_id: int, data: VisitUpdate, db: Session = Depends(get_db)
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
-    for k, val in data.model_dump(exclude_unset=True).items():
+    dump = data.model_dump(exclude_unset=True)
+    if dump.get("Status") in ("CLOSED", "COMPLETED") and v.ClosedAt is None:
+        dump["ClosedAt"] = dump.get("ClosedAt") or datetime.now(timezone.utc)
+    for k, val in dump.items():
         setattr(v, k, val)
     db.commit()
     db.refresh(v)

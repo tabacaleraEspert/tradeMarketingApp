@@ -14,7 +14,7 @@ import {
   Trash2,
   Copy,
 } from "lucide-react";
-import { useApiList, routesApi, useZones, useUsers, useForms } from "@/lib/api";
+import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES } from "@/lib/api";
 import { toast } from "sonner";
 
 export function RouteManagement() {
@@ -24,19 +24,12 @@ export function RouteManagement() {
   const [formName, setFormName] = useState("");
   const [formZoneId, setFormZoneId] = useState<number | "">("");
   const [formFormId, setFormFormId] = useState<number | "">("");
+  const [formBejermanZone, setFormBejermanZone] = useState("");
+  const [formEstimatedMinutes, setFormEstimatedMinutes] = useState<number | "">("");
   const [formIsActive, setFormIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const { data: routes, loading, refetch } = useApiList(async () => {
-    const r = await routesApi.list();
-    const withCount = await Promise.all(
-      r.map(async (route) => {
-        const pdvs = await routesApi.listPdvs(route.RouteId);
-        return { ...route, posCount: pdvs.length };
-      })
-    );
-    return withCount;
-  });
+  const { data: routes, loading, refetch } = useApiList(() => routesApi.list());
   const { data: zones } = useZones();
   const { data: users } = useUsers();
   const { data: forms } = useForms();
@@ -56,6 +49,8 @@ export function RouteManagement() {
             setFormName("");
             setFormZoneId("");
             setFormFormId("");
+            setFormBejermanZone("");
+            setFormEstimatedMinutes("");
             setFormIsActive(true);
           }}
           className="gap-2"
@@ -79,7 +74,7 @@ export function RouteManagement() {
           <CardContent className="p-4">
             <p className="text-sm text-slate-600 mb-1">Total PDV en Rutas</p>
             <p className="text-3xl font-bold text-green-600">
-              {routes.reduce((acc, r) => acc + (r.posCount ?? 0), 0)}
+              {routes.reduce((acc, r) => acc + (r.PdvCount ?? 0), 0)}
             </p>
           </CardContent>
         </Card>
@@ -95,7 +90,7 @@ export function RouteManagement() {
             <p className="text-3xl font-bold text-slate-600">
               {routes.length > 0
                 ? Math.round(
-                    routes.reduce((acc, r) => acc + (r.posCount ?? 0), 0) / routes.length
+                    routes.reduce((acc, r) => acc + (r.PdvCount ?? 0), 0) / routes.length
                   )
                 : 0}
             </p>
@@ -149,13 +144,25 @@ export function RouteManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
                 <div>
                   <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
                     <MapPin size={12} />
-                    Puntos de Venta
+                    PDVs
                   </p>
-                  <p className="text-xl font-bold text-slate-900">{route.posCount ?? 0}</p>
+                  <p className="text-xl font-bold text-slate-900">{route.PdvCount ?? 0}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Zona Bejerman</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {route.BejermanZone ?? "-"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Tiempo est. (min)</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {route.EstimatedMinutes != null ? `${route.EstimatedMinutes} min` : "-"}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 mb-1 flex items-center gap-1">
@@ -164,12 +171,6 @@ export function RouteManagement() {
                   </p>
                   <p className="text-sm font-semibold text-slate-900">
                     {new Date(route.CreatedAt).toLocaleDateString("es-AR")}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500 mb-1">Zona</p>
-                  <p className="text-sm font-semibold text-slate-900">
-                    {route.ZoneId ? zones.find((z) => z.ZoneId === route.ZoneId)?.Name ?? `#${route.ZoneId}` : "-"}
                   </p>
                 </div>
                 <div>
@@ -214,6 +215,8 @@ export function RouteManagement() {
                       Name: formName,
                       ZoneId: formZoneId || undefined,
                       FormId: formFormId || undefined,
+                      BejermanZone: formBejermanZone || undefined,
+                      EstimatedMinutes: formEstimatedMinutes !== "" ? Number(formEstimatedMinutes) : undefined,
                       IsActive: formIsActive,
                     });
                     toast.success("Ruta actualizada");
@@ -225,6 +228,8 @@ export function RouteManagement() {
                       Name: formName,
                       ZoneId: formZoneId || undefined,
                       FormId: formFormId || undefined,
+                      BejermanZone: formBejermanZone || undefined,
+                      EstimatedMinutes: formEstimatedMinutes !== "" ? Number(formEstimatedMinutes) : undefined,
                       IsActive: formIsActive,
                     });
                     toast.success("Ruta creada");
@@ -273,6 +278,36 @@ export function RouteManagement() {
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Zona Bejerman</label>
+            <select
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={formBejermanZone}
+              onChange={(e) => setFormBejermanZone(e.target.value)}
+            >
+              <option value="">Sin zona</option>
+              {BEJERMAN_ZONES.map((z) => (
+                <option key={z} value={z}>
+                  {z}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Tiempo estimado (min) — solo Admin
+            </label>
+            <Input
+              type="number"
+              placeholder="Ej: 120"
+              value={formEstimatedMinutes}
+              onChange={(e) =>
+                setFormEstimatedMinutes(e.target.value ? Number(e.target.value) : "")
+              }
+            />
           </div>
 
           <div>

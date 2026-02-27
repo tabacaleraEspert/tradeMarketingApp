@@ -14,6 +14,7 @@ import {
   pdvsApi,
   routesApi,
   formsApi,
+  visitsApi,
 } from "@/lib/api";
 import type { FormQuestion, FormOption, RouteFormWithForm } from "@/lib/api";
 import { toast } from "sonner";
@@ -38,9 +39,11 @@ export function SurveyForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeDayId = (location.state as { routeDayId?: number } | null)?.routeDayId;
+  const routeDayId = (location.state as { routeDayId?: number; visitId?: number } | null)?.routeDayId;
+  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
+  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
   const [routeForms, setRouteForms] = useState<RouteFormWithForm[]>([]);
   const [formQuestions, setFormQuestions] = useState<Record<number, QuestionWithOptions[]>>({});
   const [answers, setAnswers] = useState<Record<number, string | number | boolean | string[]>>({});
@@ -54,6 +57,13 @@ export function SurveyForm() {
       const pdvId = Number(id);
       const p = await pdvsApi.get(pdvId);
       setPdv(p);
+
+      if (!visitIdFromState) {
+        const openVisits = await visitsApi.list({ pdv_id: pdvId, status: "OPEN" });
+        if (openVisits.length > 0) setVisitId(openVisits[0].VisitId);
+      } else {
+        setVisitId(visitIdFromState);
+      }
 
       if (routeDayId) {
         const forms = await routesApi.listDayForms(routeDayId);
@@ -81,7 +91,7 @@ export function SurveyForm() {
     } finally {
       setLoading(false);
     }
-  }, [id, routeDayId, navigate]);
+  }, [id, routeDayId, visitIdFromState, navigate]);
 
   useEffect(() => {
     loadData();
@@ -106,7 +116,9 @@ export function SurveyForm() {
 
   const handleSubmit = () => {
     toast.success("Relevamiento completado");
-    navigate(`/pos/${id}/photos`, { state: routeDayId ? { routeDayId } : undefined });
+    navigate(`/pos/${id}/photos`, {
+      state: { routeDayId, visitId: visitId ?? visitIdFromState },
+    });
   };
 
   if (loading) {
@@ -229,7 +241,11 @@ export function SurveyForm() {
             <Button
               variant="outline"
               className="flex-1"
-              onClick={() => navigate(`/pos/${id}/photos`, { state: routeDayId ? { routeDayId } : undefined })}
+              onClick={() =>
+                navigate(`/pos/${id}/photos`, {
+                  state: { routeDayId, visitId: visitId ?? visitIdFromState },
+                })
+              }
             >
               <Camera className="mr-2" size={16} />
               Agregar Fotos

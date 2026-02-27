@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import Form as FormModel, FormQuestion as FormQuestionModel, FormOption as FormOptionModel
+from ..models import (
+    Form as FormModel,
+    FormQuestion as FormQuestionModel,
+    FormOption as FormOptionModel,
+    RouteForm as RouteFormModel,
+    Route as RouteModel,
+)
 from ..schemas.form import (
     Form,
     FormCreate,
@@ -64,6 +71,79 @@ def delete_form(form_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
     db.delete(f)
     db.commit()
+
+
+# --- Form ↔ Routes (asignación bidireccional) ---
+@router.get("/{form_id}/routes")
+def list_routes_with_form(form_id: int, db: Session = Depends(get_db)):
+    """Rutas que tienen este formulario asignado."""
+    f = db.query(FormModel).filter(FormModel.FormId == form_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Formulario no encontrado")
+    rows = (
+        db.query(RouteFormModel.RouteId)
+        .filter(RouteFormModel.FormId == form_id)
+        .all()
+    )
+    return {"route_ids": [r[0] for r in rows]}
+
+
+class BulkAssignRoutes(BaseModel):
+    route_ids: list[int] | None = None
+    assign_to_all: bool = False
+
+
+@router.post("/{form_id}/routes/bulk")
+def bulk_assign_form_to_routes(
+    form_id: int,
+    data: BulkAssignRoutes,
+    db: Session = Depends(get_db),
+):
+    """Asignar formulario a rutas (bulk). assign_to_all=True asigna a todas las rutas."""
+    f = db.query(FormModel).filter(FormModel.FormId == form_id).first()
+    if not f:
+        raise HTTPException(status_code=404, detail="Formulario no encontrado")
+
+    if data.assign_to_all:
+        routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+        route_ids = [r.RouteId for r in routes]
+    elif data.route_ids:
+        route_ids = data.route_ids
+    else:
+        return {"assigned": 0, "skipped": 0}
+
+    existing = {
+        r[0]
+        for r in db.query(RouteFormModel.RouteId)
+        .filter(
+            RouteFormModel.FormId == form_id,
+            RouteFormModel.RouteId.in_(route_ids),
+        )
+        .all()
+    }
+
+    assigned = 0
+    for rid in route_ids:
+        if rid in existing:
+            continue
+        rf = RouteFormModel(RouteId=rid, FormId=form_id, SortOrder=0)
+        db.add(rf)
+        assigned += 1
+
+    db.commit()
+    return {"assigned": assigned, "skipped": len(route_ids) - assigned}
+
+
+@router.delete("/{form_id}/routes/{route_id}", status_code=204)
+def remove_form_from_route(form_id: int, route_id: int, db: Session = Depends(get_db)):
+    """Quitar formulario de una ruta."""
+    rf = db.query(RouteFormModel).filter(
+        RouteFormModel.FormId == form_id,
+        RouteFormModel.RouteId == route_id,
+    ).first()
+    if rf:
+        db.delete(rf)
+        db.commit()
 
 
 # --- FormQuestion ---

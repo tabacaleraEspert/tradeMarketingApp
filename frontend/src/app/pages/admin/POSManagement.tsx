@@ -17,7 +17,9 @@ import {
   XCircle,
   Map as MapIcon,
 } from "lucide-react";
-import { usePdvs, useZones, useDistributors, pdvsApi } from "@/lib/api";
+import { usePdvs, useZones, useDistributors, useChannels, useSubChannels, pdvsApi } from "@/lib/api";
+import { GpsCaptureButton } from "../../components/GpsCaptureButton";
+import { LocationMap } from "../../components/LocationMap";
 import { toast } from "sonner";
 
 interface POSData {
@@ -42,13 +44,16 @@ export function POSManagement() {
   const [selectedPOS, setSelectedPOS] = useState<POSData | null>(null);
   const [formData, setFormData] = useState({
     name: "",
-    channel: "",
+    channelId: "" as number | "",
+    subChannelId: "" as number | "",
     address: "",
     contact: "",
     phone: "",
     zoneId: "" as number | "",
     distributorId: "" as number | "",
     isActive: true,
+    lat: null as number | null,
+    lon: null as number | null,
   });
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -56,6 +61,8 @@ export function POSManagement() {
   const { data: pdvs, loading, refetch } = usePdvs(selectedZoneId);
   const { data: zones } = useZones();
   const { data: distributors } = useDistributors();
+  const { data: channels } = useChannels();
+  const { data: subchannels } = useSubChannels(formData.channelId || null);
 
   const zoneMap = useMemo(() => new Map(zones.map((z) => [z.ZoneId, z.Name])), [zones]);
   const distributorMap = useMemo(
@@ -69,7 +76,7 @@ export function POSManagement() {
         id: String(p.PdvId),
         name: p.Name,
         address: p.Address || p.City || "-",
-        channel: p.Channel,
+        channel: p.ChannelName || p.Channel || "-",
         distributor: p.DistributorId ? distributorMap.get(p.DistributorId) || `#${p.DistributorId}` : "-",
         contact: p.ContactName || "-",
         phone: p.ContactPhone || "-",
@@ -81,8 +88,8 @@ export function POSManagement() {
     [pdvs, zoneMap, distributorMap]
   );
 
-  const channels = useMemo(
-    () => ["Todos", ...Array.from(new Set(pdvs.map((p) => p.Channel))).sort()],
+  const channelFilterOptions = useMemo(
+    () => ["Todos", ...Array.from(new Set(pdvs.map((p) => p.ChannelName || p.Channel).filter(Boolean))).sort()],
     [pdvs]
   );
 
@@ -126,58 +133,71 @@ export function POSManagement() {
       const pdv = pdvs.find((p) => String(p.PdvId) === pos.id);
       setFormData({
         name: pos.name,
-        channel: pos.channel,
+        channelId: pdv?.ChannelId ?? "",
+        subChannelId: pdv?.SubChannelId ?? "",
         address: pos.address,
         contact: pos.contact,
         phone: pos.phone,
         zoneId: pdv?.ZoneId ?? "",
         distributorId: pdv?.DistributorId ?? "",
         isActive: pos.status === "active",
+        lat: pdv?.Lat != null ? Number(pdv.Lat) : null,
+        lon: pdv?.Lon != null ? Number(pdv.Lon) : null,
       });
     } else {
       setSelectedPOS(null);
       setFormData({
         name: "",
-        channel: "",
+        channelId: "",
+        subChannelId: "",
         address: "",
         contact: "",
         phone: "",
         zoneId: "",
         distributorId: "",
         isActive: true,
+        lat: null,
+        lon: null,
       });
     }
   };
 
   const handleSave = async () => {
-    if (!formData.name || !formData.channel) {
+    if (!formData.name || !formData.channelId) {
       toast.error("Nombre y canal son obligatorios");
       return;
     }
     setSaving(true);
     try {
+      const contacts = formData.contact
+        ? [{ ContactName: formData.contact, ContactPhone: formData.phone || undefined }]
+        : undefined;
       if (selectedPOS) {
         await pdvsApi.update(Number(selectedPOS.id), {
           Name: formData.name,
-          Channel: formData.channel,
+          ChannelId: Number(formData.channelId),
+          SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
           Address: formData.address || undefined,
-          ContactName: formData.contact || undefined,
-          ContactPhone: formData.phone || undefined,
           ZoneId: formData.zoneId || undefined,
           DistributorId: formData.distributorId || undefined,
           IsActive: formData.isActive,
+          Lat: formData.lat ?? undefined,
+          Lon: formData.lon ?? undefined,
+          Contacts: contacts,
         });
         toast.success("PDV actualizado");
       } else {
         await pdvsApi.create({
           Name: formData.name,
-          Channel: formData.channel,
+          ChannelId: Number(formData.channelId),
+          SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
           Address: formData.address || undefined,
-          ContactName: formData.contact || undefined,
-          ContactPhone: formData.phone || undefined,
           ZoneId: formData.zoneId || undefined,
           DistributorId: formData.distributorId || undefined,
           IsActive: formData.isActive,
+          Lat: formData.lat ?? undefined,
+          Lon: formData.lon ?? undefined,
+          Contacts: contacts,
         });
         toast.success("PDV creado");
       }
@@ -241,7 +261,7 @@ export function POSManagement() {
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="all">Todos los canales</option>
-                {channels.slice(1).map((channel) => (
+                {channelFilterOptions.slice(1).map((channel) => (
                   <option key={channel} value={channel}>
                     {channel}
                   </option>
@@ -421,13 +441,40 @@ export function POSManagement() {
               <label className="block text-sm font-medium text-slate-700 mb-1">Canal</label>
               <select
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={formData.channel}
-                onChange={(e) => setFormData((f) => ({ ...f, channel: e.target.value }))}
+                value={formData.channelId}
+                onChange={(e) =>
+                  setFormData((f) => ({
+                    ...f,
+                    channelId: e.target.value ? Number(e.target.value) : "",
+                    subChannelId: "",
+                  }))
+                }
               >
                 <option value="">Seleccionar canal</option>
-                {channels.slice(1).map((channel) => (
-                  <option key={channel} value={channel}>
-                    {channel}
+                {channels.map((ch) => (
+                  <option key={ch.ChannelId} value={ch.ChannelId}>
+                    {ch.Name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Sub-canal</label>
+              <select
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={formData.subChannelId}
+                onChange={(e) =>
+                  setFormData((f) => ({
+                    ...f,
+                    subChannelId: e.target.value ? Number(e.target.value) : "",
+                  }))
+                }
+                disabled={!formData.channelId}
+              >
+                <option value="">Seleccionar subcanal</option>
+                {subchannels.map((sc) => (
+                  <option key={sc.SubChannelId} value={sc.SubChannelId}>
+                    {sc.Name}
                   </option>
                 ))}
               </select>
@@ -441,6 +488,28 @@ export function POSManagement() {
               value={formData.address}
               onChange={(e) => setFormData((f) => ({ ...f, address: e.target.value }))}
             />
+            <GpsCaptureButton
+              onCapture={({ lat, lon }) =>
+                setFormData((f) => ({ ...f, lat, lon }))
+              }
+              className="w-full mt-2"
+            >
+              Capturar ubicación GPS
+            </GpsCaptureButton>
+            {formData.lat != null && formData.lon != null && (
+              <>
+                <p className="text-xs text-slate-500 mt-1">
+                  Coordenadas: {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}
+                </p>
+                <LocationMap
+                  lat={Number(formData.lat)}
+                  lon={Number(formData.lon)}
+                  height="160px"
+                  className="mt-2"
+                  popupText="Ubicación del PDV"
+                />
+              </>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

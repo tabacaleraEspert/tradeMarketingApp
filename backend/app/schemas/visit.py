@@ -24,7 +24,8 @@ class VisitUpdate(BaseModel):
     FormVersion: int | None = None
     FormStatus: str | None = None
     MaterialExternalId: str | None = None
-    CloseReason: str | None = None
+    CloseReason: str | None = None  # Recordatorio próxima visita
+    ClosedAt: datetime | None = None
 
 
 class Visit(VisitBase):

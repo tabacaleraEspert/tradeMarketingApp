@@ -2,8 +2,11 @@ import { useState, useEffect, useCallback } from "react";
 import {
   routesApi,
   pdvsApi,
+  channelsApi,
+  subchannelsApi,
   visitsApi,
   incidentsApi,
+  notificationsApi,
   usersApi,
   zonesApi,
   distributorsApi,
@@ -14,14 +17,17 @@ import type { Pdv, RouteDayPdv, Incident } from "./types";
 /** PDV enriquecido con datos de ruta del día */
 export interface RouteDayPdvWithDetails extends RouteDayPdv {
   pdv: Pdv;
+  routeName?: string;
+  routeId?: number;
 }
 
 /**
  * Obtiene los PDVs planificados para una fecha.
- * Busca en todos los route days con WorkDate = date y devuelve los PDVs con sus detalles.
+ * Si userId se pasa, solo incluye días asignados a ese usuario (ruta del Trade Rep).
  */
 export async function fetchRouteDayPdvsForDate(
-  date: Date
+  date: Date,
+  userId?: number
 ): Promise<RouteDayPdvWithDetails[]> {
   const dateStr = date.toISOString().split("T")[0];
   const routes = await routesApi.list();
@@ -30,7 +36,11 @@ export async function fetchRouteDayPdvsForDate(
 
   for (const route of routes) {
     const days = await routesApi.listDays(route.RouteId);
-    const matchingDays = days.filter((d) => d.WorkDate.startsWith(dateStr));
+    const matchingDays = days.filter(
+      (d) =>
+        d.WorkDate.startsWith(dateStr) &&
+        (userId == null || d.AssignedUserId === userId)
+    );
 
     for (const day of matchingDays) {
       const dayPdvs = await routesApi.listDayPdvs(day.RouteDayId);
@@ -39,7 +49,7 @@ export async function fetchRouteDayPdvsForDate(
         seenPdvIds.add(rdp.PdvId);
         try {
           const pdv = await pdvsApi.get(rdp.PdvId);
-          result.push({ ...rdp, pdv });
+          result.push({ ...rdp, pdv, routeName: route.Name, routeId: route.RouteId });
         } catch {
           // PDV eliminado, omitir
         }
@@ -50,8 +60,8 @@ export async function fetchRouteDayPdvsForDate(
   return result.sort((a, b) => a.PlannedOrder - b.PlannedOrder);
 }
 
-/** Hook para PDVs de ruta por fecha */
-export function useRouteDayPdvsForDate(date: Date | null) {
+/** Hook para PDVs de ruta por fecha. userId: filtra por ruta asignada al Trade Rep */
+export function useRouteDayPdvsForDate(date: Date | null, userId?: number) {
   const [data, setData] = useState<RouteDayPdvWithDetails[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +76,7 @@ export function useRouteDayPdvsForDate(date: Date | null) {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchRouteDayPdvsForDate(date);
+      const result = await fetchRouteDayPdvsForDate(date, userId);
       setData(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar");
@@ -74,7 +84,7 @@ export function useRouteDayPdvsForDate(date: Date | null) {
     } finally {
       setLoading(false);
     }
-  }, [dateKey]);
+  }, [dateKey, userId]);
 
   useEffect(() => {
     refetch();
@@ -154,9 +164,60 @@ export function useZones() {
   return useApiList(() => zonesApi.list());
 }
 
+/** Hook para rutas */
+export function useRoutes() {
+  return useApiList(() => routesApi.list());
+}
+
+/** Hook para rutas creadas por un Trade Rep */
+export function useMyRoutes(userId: number | undefined) {
+  return useApiList(
+    () => (userId ? routesApi.list({ created_by: userId }) : Promise.resolve([])),
+    [userId]
+  );
+}
+
+/** Hook para canales */
+export function useChannels() {
+  return useApiList(() => channelsApi.list());
+}
+
+/** Hook para subcanales (filtrados por canal) */
+export function useSubChannels(channelId: number | null | undefined) {
+  return useApiList(
+    () => (channelId ? subchannelsApi.list(channelId) : Promise.resolve([])),
+    [channelId]
+  );
+}
+
 /** Hook para usuarios */
 export function useUsers() {
   return useApiList(() => usersApi.list());
+}
+
+/** Hook para estadísticas mensuales del usuario */
+export function useUserMonthlyStats(userId: number | undefined) {
+  const [data, setData] = useState<{
+    visits: number;
+    compliance: number;
+    new_pdvs: number;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!userId) {
+      setData(null);
+      return;
+    }
+    setLoading(true);
+    usersApi
+      .getMonthlyStats(userId)
+      .then(setData)
+      .catch(() => setData({ visits: 0, compliance: 0, new_pdvs: 0 }))
+      .finally(() => setLoading(false));
+  }, [userId]);
+
+  return { data, loading };
 }
 
 /** Hook para distribuidores */
@@ -201,4 +262,9 @@ export function useIncidentsWithPdvNames(filters?: Parameters<typeof incidentsAp
     () => fetchIncidentsWithPdvNames(filters),
     [filters?.pdvId, filters?.visitId, filters?.status]
   );
+}
+
+/** Hook para notificaciones activas (vista Trade) */
+export function useActiveNotifications() {
+  return useApiList(() => notificationsApi.list({ active_only: true }));
 }

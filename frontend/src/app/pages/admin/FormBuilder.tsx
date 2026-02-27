@@ -20,8 +20,9 @@ import {
   ToggleLeft,
   ChevronDown,
   ChevronUp,
+  Route,
 } from "lucide-react";
-import { useApiList, formsApi } from "@/lib/api";
+import { useApiList, formsApi, routesApi } from "@/lib/api";
 import { toast } from "sonner";
 
 interface FormWithQuestions {
@@ -44,7 +45,11 @@ export function FormBuilder() {
   const [formVersion, setFormVersion] = useState(1);
   const [saving, setSaving] = useState(false);
   const [previewQuestions, setPreviewQuestions] = useState<Awaited<ReturnType<typeof formsApi.listQuestions>>>([]);
+  const [assignRoutesFormId, setAssignRoutesFormId] = useState<number | null>(null);
+  const [routeIdsWithForm, setRouteIdsWithForm] = useState<Set<number>>(new Set());
+  const [assignLoading, setAssignLoading] = useState(false);
 
+  const { data: routes } = useApiList(() => routesApi.list());
   const { data: forms, loading, refetch } = useApiList(async () => {
     const f = await formsApi.list();
     const withCount = await Promise.all(
@@ -137,6 +142,21 @@ export function FormBuilder() {
                     <span>{form.questionsCount ?? 0} preguntas</span>
                     <span>•</span>
                     <span>Creado: {new Date(form.CreatedAt).toLocaleDateString("es-AR")}</span>
+                  </div>
+                  <div className="mt-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-slate-600 -ml-2"
+                      onClick={async () => {
+                        setAssignRoutesFormId(form.FormId);
+                        const res = await formsApi.getRoutesWithForm(form.FormId);
+                        setRouteIdsWithForm(new Set(res.route_ids));
+                      }}
+                    >
+                      <Route size={14} className="mr-1" />
+                      Asignar a rutas
+                    </Button>
                   </div>
                 </div>
 
@@ -278,6 +298,174 @@ export function FormBuilder() {
             />
           </div>
         </div>
+      </Modal>
+
+      {/* Modal Asignar a Rutas */}
+      <Modal
+        isOpen={assignRoutesFormId !== null}
+        onClose={() => setAssignRoutesFormId(null)}
+        title={`Asignar formulario a rutas${assignRoutesFormId ? `: ${forms.find((f) => f.FormId === assignRoutesFormId)?.Name}` : ""}`}
+        size="lg"
+        footer={
+          assignRoutesFormId && (
+            <div className="flex items-center justify-between w-full">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={assignLoading || routes.length === 0}
+                  onClick={async () => {
+                    setAssignLoading(true);
+                    try {
+                      await formsApi.bulkAssignToRoutes(assignRoutesFormId, {
+                        assign_to_all: true,
+                      });
+                      const res = await formsApi.getRoutesWithForm(assignRoutesFormId);
+                      setRouteIdsWithForm(new Set(res.route_ids));
+                      toast.success("Asignado a todas las rutas");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Error");
+                    } finally {
+                      setAssignLoading(false);
+                    }
+                  }}
+                >
+                  Asignar a todos
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={assignLoading || routeIdsWithForm.size === 0}
+                  onClick={async () => {
+                    if (!confirm("¿Quitar este formulario de todas las rutas?")) return;
+                    setAssignLoading(true);
+                    try {
+                      for (const rid of routeIdsWithForm) {
+                        await formsApi.removeFromRoute(assignRoutesFormId, rid);
+                      }
+                      setRouteIdsWithForm(new Set());
+                      toast.success("Quitado de todas las rutas");
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Error");
+                    } finally {
+                      setAssignLoading(false);
+                    }
+                  }}
+                >
+                  Quitar de todos
+                </Button>
+              </div>
+              <Button variant="outline" onClick={() => setAssignRoutesFormId(null)}>
+                Cerrar
+              </Button>
+            </div>
+          )
+        }
+      >
+        {assignRoutesFormId && (
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 p-2 bg-slate-50 rounded-lg">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={
+                    routes.length > 0 &&
+                    routes.every((r) => routeIdsWithForm.has(r.RouteId))
+                  }
+                  onChange={async (e) => {
+                    setAssignLoading(true);
+                    try {
+                      if (e.target.checked) {
+                        await formsApi.bulkAssignToRoutes(assignRoutesFormId, {
+                          assign_to_all: true,
+                        });
+                        const res = await formsApi.getRoutesWithForm(assignRoutesFormId);
+                        setRouteIdsWithForm(new Set(res.route_ids));
+                        toast.success("Asignado a todas las rutas");
+                      } else {
+                        const ids = [...routeIdsWithForm];
+                        for (const rid of ids) {
+                          await formsApi.removeFromRoute(assignRoutesFormId, rid);
+                        }
+                        setRouteIdsWithForm(new Set());
+                        toast.success("Quitado de todas las rutas");
+                      }
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : "Error");
+                    } finally {
+                      setAssignLoading(false);
+                    }
+                  }}
+                  disabled={assignLoading}
+                />
+                <span className="text-sm font-medium">Seleccionar todos</span>
+              </label>
+            </div>
+            <div className="max-h-64 overflow-y-auto border rounded-lg divide-y">
+              {routes.length === 0 ? (
+                <p className="p-4 text-slate-500 text-sm">No hay rutas</p>
+              ) : (
+                routes.map((route) => (
+                  <label
+                    key={route.RouteId}
+                    className="flex items-center gap-3 p-3 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={routeIdsWithForm.has(route.RouteId)}
+                      onChange={async (e) => {
+                        const checked = e.target.checked;
+                        setAssignLoading(true);
+                        try {
+                          if (checked) {
+                            await routesApi.addForm(route.RouteId, {
+                              FormId: assignRoutesFormId,
+                              SortOrder: 0,
+                            });
+                            setRouteIdsWithForm((prev) =>
+                              new Set([...prev, route.RouteId])
+                            );
+                          } else {
+                            await formsApi.removeFromRoute(
+                              assignRoutesFormId,
+                              route.RouteId
+                            );
+                            setRouteIdsWithForm((prev) => {
+                              const next = new Set(prev);
+                              next.delete(route.RouteId);
+                              return next;
+                            });
+                          }
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Error");
+                        } finally {
+                          setAssignLoading(false);
+                        }
+                      }}
+                      disabled={assignLoading}
+                    />
+                    <span
+                      className="flex-1 text-sm font-medium hover:text-blue-600"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        navigate(`/admin/routes/${route.RouteId}/edit`);
+                        setAssignRoutesFormId(null);
+                      }}
+                    >
+                      {route.Name}
+                    </span>
+                    {route.BejermanZone && (
+                      <Badge variant="outline" className="text-xs">
+                        {route.BejermanZone}
+                      </Badge>
+                    )}
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Preview Modal */}

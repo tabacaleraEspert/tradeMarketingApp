@@ -15,6 +15,7 @@ import {
   Settings,
 } from "lucide-react";
 import { getCurrentUser } from "../lib/auth";
+import { useUserMonthlyStats } from "@/lib/api";
 import { toast } from "sonner";
 
 export function Profile() {
@@ -37,6 +38,8 @@ export function Profile() {
   };
 
   const currentUser = getCurrentUser();
+  const userId = Number(currentUser.id) || undefined;
+  const { data: stats, loading: statsLoading } = useUserMonthlyStats(userId);
   const roleBadge = getRoleBadge(currentUser.role as "vendedor" | "supervisor" | "admin");
 
   return (
@@ -119,20 +122,43 @@ export function Profile() {
         <Card>
           <CardContent className="p-4">
             <h3 className="font-semibold text-slate-900 mb-3">Estadísticas del Mes</h3>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="text-center p-3 bg-slate-50 rounded-lg">
-                <p className="text-2xl font-bold text-blue-600">45</p>
-                <p className="text-xs text-slate-600 mt-1">Visitas</p>
+            {statsLoading ? (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-300">-</p>
+                  <p className="text-xs text-slate-500 mt-1">Visitas</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-300">-</p>
+                  <p className="text-xs text-slate-500 mt-1">Cumplimiento</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-slate-300">-</p>
+                  <p className="text-xs text-slate-500 mt-1">PDV Nuevos</p>
+                </div>
               </div>
-              <div className="text-center p-3 bg-slate-50 rounded-lg">
-                <p className="text-2xl font-bold text-green-600">87%</p>
-                <p className="text-xs text-slate-600 mt-1">Cumplimiento</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-blue-600">
+                    {stats?.visits ?? 0}
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1">Visitas</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-green-600">
+                    {stats?.compliance ?? 0}%
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1">Cumplimiento</p>
+                </div>
+                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                  <p className="text-2xl font-bold text-purple-600">
+                    {stats?.new_pdvs ?? 0}
+                  </p>
+                  <p className="text-xs text-slate-600 mt-1">PDV Nuevos</p>
+                </div>
               </div>
-              <div className="text-center p-3 bg-slate-50 rounded-lg">
-                <p className="text-2xl font-bold text-purple-600">12</p>
-                <p className="text-xs text-slate-600 mt-1">PDV Nuevos</p>
-              </div>
-            </div>
+            )}
           </CardContent>
         </Card>
 

@@ -21,6 +21,10 @@ import { RouteEditorPage } from "./pages/admin/RouteEditorPage";
 import { FormBuilder } from "./pages/admin/FormBuilder";
 import { FormEditorPage } from "./pages/admin/FormEditorPage";
 import { Reports } from "./pages/admin/Reports";
+import { ChannelManagement } from "./pages/admin/ChannelManagement";
+import { NotificationManagement } from "./pages/admin/NotificationManagement";
+import { MyRoutesPage } from "./pages/MyRoutesPage";
+import { MyRouteEditorPage } from "./pages/MyRouteEditorPage";
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +37,8 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: Home },
       { path: "route", Component: RouteFocoPage },
+      { path: "my-routes", Component: MyRoutesPage },
+      { path: "my-routes/:routeId", Component: MyRouteEditorPage },
       { path: "search-pdv", Component: RouteList },
       { path: "pos/:id", Component: PointOfSaleDetail },
       { path: "pos/:id/checkin", Component: CheckIn },
@@ -51,9 +57,11 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: AdminDashboard },
       { path: "pos-management", Component: POSManagement },
+      { path: "channels", Component: ChannelManagement },
       { path: "routes", Component: RouteManagement },
       { path: "routes/:routeId/edit", Component: RouteEditorPage },
       { path: "forms", Component: FormBuilder },
+      { path: "notifications", Component: NotificationManagement },
       { path: "forms/:formId/edit", Component: FormEditorPage },
       { path: "reports", Component: Reports },
     ],

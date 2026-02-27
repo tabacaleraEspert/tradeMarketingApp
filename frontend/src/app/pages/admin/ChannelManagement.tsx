@@ -1,0 +1,301 @@
+import { useState } from "react";
+import { Card, CardContent } from "../../components/ui/card";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Badge } from "../../components/ui/badge";
+import { Modal } from "../../components/ui/modal";
+import { Plus, Edit, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import {
+  useApiList,
+  channelsApi,
+  subchannelsApi,
+} from "@/lib/api";
+import { toast } from "sonner";
+
+export function ChannelManagement() {
+  const { data: channels, refetch: refetchChannels } = useApiList(() =>
+    channelsApi.listAll()
+  );
+  const [expandedChannelId, setExpandedChannelId] = useState<number | null>(null);
+  const [channelModal, setChannelModal] = useState<"create" | "edit" | null>(null);
+  const [subchannelModal, setSubchannelModal] = useState<"create" | "edit" | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState<number | null>(null);
+  const [selectedSubchannel, setSelectedSubchannel] = useState<{
+    SubChannelId: number;
+    ChannelId: number;
+    Name: string;
+  } | null>(null);
+  const [channelName, setChannelName] = useState("");
+  const [subchannelName, setSubchannelName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const { data: subchannels, refetch: refetchSubchannels } = useApiList(
+    () =>
+      expandedChannelId
+        ? subchannelsApi.listAll(expandedChannelId)
+        : Promise.resolve([]),
+    [expandedChannelId]
+  );
+
+  const openCreateChannel = () => {
+    setChannelName("");
+    setChannelModal("create");
+  };
+
+  const openEditChannel = (ch: { ChannelId: number; Name: string }) => {
+    setSelectedChannelId(ch.ChannelId);
+    setChannelName(ch.Name);
+    setChannelModal("edit");
+  };
+
+  const handleSaveChannel = async () => {
+    if (!channelName.trim()) {
+      toast.error("El nombre es obligatorio");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (channelModal === "create") {
+        await channelsApi.create({ Name: channelName.trim() });
+        toast.success("Canal creado");
+      } else if (selectedChannelId) {
+        await channelsApi.update(selectedChannelId, { Name: channelName.trim() });
+        toast.success("Canal actualizado");
+      }
+      setChannelModal(null);
+      refetchChannels();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteChannel = async (channelId: number) => {
+    if (!confirm("¿Desactivar este canal? Los PDVs que lo usen seguirán mostrándolo.")) return;
+    try {
+      await channelsApi.delete(channelId);
+      toast.success("Canal desactivado");
+      refetchChannels();
+      setExpandedChannelId(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  };
+
+  const openCreateSubchannel = (channelId: number) => {
+    setSelectedChannelId(channelId);
+    setSelectedSubchannel(null);
+    setSubchannelName("");
+    setSubchannelModal("create");
+  };
+
+  const openEditSubchannel = (sc: { SubChannelId: number; ChannelId: number; Name: string }) => {
+    setSelectedSubchannel(sc);
+    setSelectedChannelId(sc.ChannelId);
+    setSubchannelName(sc.Name);
+    setSubchannelModal("edit");
+  };
+
+  const handleSaveSubchannel = async () => {
+    if (!subchannelName.trim() || selectedChannelId == null) {
+      toast.error("El nombre y canal son obligatorios");
+      return;
+    }
+    setSaving(true);
+    try {
+      if (subchannelModal === "create") {
+        await subchannelsApi.create({
+          ChannelId: selectedChannelId,
+          Name: subchannelName.trim(),
+        });
+        toast.success("Subcanal creado");
+      } else if (selectedSubchannel) {
+        await subchannelsApi.update(selectedSubchannel.SubChannelId, {
+          Name: subchannelName.trim(),
+        });
+        toast.success("Subcanal actualizado");
+      }
+      setSubchannelModal(null);
+      refetchSubchannels();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteSubchannel = async (subchannelId: number) => {
+    if (!confirm("¿Desactivar este subcanal?")) return;
+    try {
+      await subchannelsApi.delete(subchannelId);
+      toast.success("Subcanal desactivado");
+      refetchSubchannels();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900 mb-2">Canales y Subcanales</h1>
+          <p className="text-slate-600">
+            Gestiona los canales y subcanales disponibles para el alta de PDVs
+          </p>
+        </div>
+        <Button onClick={openCreateChannel} className="gap-2">
+          <Plus size={20} />
+          Nuevo Canal
+        </Button>
+      </div>
+
+      <Card>
+        <CardContent className="p-4">
+          <div className="space-y-2">
+            {channels.map((ch) => (
+              <div key={ch.ChannelId} className="border border-slate-200 rounded-lg overflow-hidden">
+                <div
+                  className="flex items-center justify-between p-4 bg-white hover:bg-slate-50 cursor-pointer"
+                  onClick={() =>
+                    setExpandedChannelId(expandedChannelId === ch.ChannelId ? null : ch.ChannelId)
+                  }
+                >
+                  <div className="flex items-center gap-3">
+                    {expandedChannelId === ch.ChannelId ? (
+                      <ChevronDown size={20} className="text-slate-500" />
+                    ) : (
+                      <ChevronRight size={20} className="text-slate-500" />
+                    )}
+                    <span className="font-semibold text-slate-900">{ch.Name}</span>
+                    {!ch.IsActive && (
+                      <Badge variant="secondary">Inactivo</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openEditChannel(ch)}
+                    >
+                      <Edit size={16} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-red-600"
+                      onClick={() => handleDeleteChannel(ch.ChannelId)}
+                    >
+                      <Trash2 size={16} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => openCreateSubchannel(ch.ChannelId)}
+                    >
+                      <Plus size={16} className="mr-1" />
+                      Subcanal
+                    </Button>
+                  </div>
+                </div>
+
+                {expandedChannelId === ch.ChannelId && (
+                  <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-2">
+                    {ch.ChannelId === expandedChannelId && subchannels.length === 0 && (
+                      <p className="text-sm text-slate-500 py-2">
+                        No hay subcanales. Agrega uno con el botón "Subcanal".
+                      </p>
+                    )}
+                    {ch.ChannelId === expandedChannelId &&
+                      subchannels.map((sc) => (
+                        <div
+                          key={sc.SubChannelId}
+                          className="flex items-center justify-between py-2 px-3 bg-white rounded border border-slate-100"
+                        >
+                          <span className="text-sm font-medium text-slate-800">{sc.Name}</span>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openEditSubchannel(sc)}
+                            >
+                              <Edit size={14} />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-red-600"
+                              onClick={() => handleDeleteSubchannel(sc.SubChannelId)}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Modal Canal */}
+      <Modal
+        isOpen={channelModal !== null}
+        onClose={() => setChannelModal(null)}
+        title={channelModal === "create" ? "Nuevo Canal" : "Editar Canal"}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setChannelModal(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveChannel} disabled={saving}>
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+            <Input
+              value={channelName}
+              onChange={(e) => setChannelName(e.target.value)}
+              placeholder="Ej: Kiosco, Supermercado"
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal Subcanal */}
+      <Modal
+        isOpen={subchannelModal !== null}
+        onClose={() => setSubchannelModal(null)}
+        title={subchannelModal === "create" ? "Nuevo Subcanal" : "Editar Subcanal"}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setSubchannelModal(null)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleSaveSubchannel} disabled={saving}>
+              {saving ? "Guardando..." : "Guardar"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+            <Input
+              value={subchannelName}
+              onChange={(e) => setSubchannelName(e.target.value)}
+              placeholder="Ej: Tradicional, Cadena"
+            />
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}

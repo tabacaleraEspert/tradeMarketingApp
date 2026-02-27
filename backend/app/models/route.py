@@ -13,6 +13,16 @@ class Route(Base):
     FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=True)  # legacy, usar RouteForm
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Trade Rep crea; Admin puede editar
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    # Zona Bejerman (Litoral, GBA Sur, GBA Norte, Patagonia)
+    BejermanZone = Column(String(80), nullable=True)
+    # Frecuencia: every_15_days, weekly, specific_days
+    FrequencyType = Column(String(40), nullable=True)
+    # JSON: {"days":[1,3,5]} para specific_days (0=Dom, 1=Lun...)
+    FrequencyConfig = Column(String(200), nullable=True)
+    # Solo visible para Admin
+    EstimatedMinutes = Column(Integer, nullable=True)
 
 
 class RouteForm(Base):

@@ -8,10 +8,14 @@ class RouteBase(BaseModel):
     ZoneId: int | None = None
     FormId: int | None = None
     IsActive: bool = True
+    BejermanZone: str | None = None
+    FrequencyType: str | None = None
+    FrequencyConfig: str | None = None
+    EstimatedMinutes: int | None = None
 
 
 class RouteCreate(RouteBase):
-    pass
+    CreatedByUserId: int | None = None
 
 
 class RouteUpdate(BaseModel):
@@ -19,10 +23,16 @@ class RouteUpdate(BaseModel):
     ZoneId: int | None = None
     FormId: int | None = None
     IsActive: bool | None = None
+    BejermanZone: str | None = None
+    FrequencyType: str | None = None
+    FrequencyConfig: str | None = None
+    EstimatedMinutes: int | None = None
 
 
 class Route(RouteBase):
     RouteId: int
+    CreatedByUserId: int | None = None
+    PdvCount: int = 0  # Auto-calculado
     CreatedAt: datetime
 
     class Config:

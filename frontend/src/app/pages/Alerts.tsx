@@ -16,8 +16,8 @@ import {
 import { Label } from "../components/ui/label";
 import { ArrowLeft, AlertTriangle, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
-import { useIncidentsWithPdvNames, incidentsApi } from "@/lib/api";
-import { incidentToAlertUI } from "@/lib/api";
+import { useIncidentsWithPdvNames, useActiveNotifications, incidentsApi } from "@/lib/api";
+import { incidentToAlertUI, notificationToAlertUI } from "@/lib/api";
 
 export function Alerts() {
   const navigate = useNavigate();
@@ -32,7 +32,14 @@ export function Alerts() {
   });
 
   const { data: incidents, loading, refetch } = useIncidentsWithPdvNames();
-  const alerts = useMemo(() => incidents.map(incidentToAlertUI), [incidents]);
+  const { data: notifications } = useActiveNotifications();
+  const alerts = useMemo(
+    () => [
+      ...incidents.map(incidentToAlertUI),
+      ...notifications.map(notificationToAlertUI),
+    ],
+    [incidents, notifications]
+  );
 
   const filteredAlerts = alerts.filter((alert) => {
     const matchesFilter = filter === "all" || alert.status === filter;
@@ -47,13 +54,17 @@ export function Alerts() {
   };
 
   const getAlertTypeLabel = (type: string) => {
-    const labels = {
+    const labels: Record<string, string> = {
       "stock-out": "Quiebre de Stock",
       "missing-material": "Falta Material",
       "price-issue": "Precio Incorrecto",
       closed: "PDV Cerrado",
+      notification: "Notificación",
+      info: "Info",
+      warning: "Aviso",
+      urgent: "Urgente",
     };
-    return labels[type as keyof typeof labels] || type;
+    return labels[type] || type;
   };
 
   const getPriorityColor = (priority: string) => {

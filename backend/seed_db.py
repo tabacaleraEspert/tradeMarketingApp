@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Script para crear datos iniciales y usuario de prueba.
+Script para crear datos iniciales y usuarios de prueba.
 Ejecutar: python seed_db.py
 
-Usuario de prueba:
-  Email: admin@test.com
-  Contraseña: Admin123!
+Usuarios de prueba:
+  Admin:      admin@test.com / Admin123!
+  Trade Rep:  trade@test.com / TradeRep123!
 """
 import sys
 from pathlib import Path
@@ -50,11 +50,17 @@ def ensure_password_column(db: Session) -> None:
         db.rollback()
         raise
 
-# Usuario de prueba
-TEST_USER = {
+# Usuarios de prueba
+ADMIN_USER = {
     "email": "admin@test.com",
     "password": "Admin123!",
     "display_name": "Admin Test",
+}
+
+TRADE_REP_USER = {
+    "email": "trade@test.com",
+    "password": "TradeRep123!",
+    "display_name": "Carlos Trade Rep",
 }
 
 
@@ -83,30 +89,29 @@ def seed(db: Session) -> None:
     else:
         print(f"  - Rol ya existe: {role.Name}")
 
-    # Crear usuario de prueba
-    user = db.query(User).filter(User.Email == TEST_USER["email"]).first()
+    # Crear usuario admin
+    user = db.query(User).filter(User.Email == ADMIN_USER["email"]).first()
     if not user:
         user = User(
-            Email=TEST_USER["email"],
-            PasswordHash=bcrypt.hashpw(TEST_USER["password"].encode(), bcrypt.gensalt()).decode(),
-            DisplayName=TEST_USER["display_name"],
+            Email=ADMIN_USER["email"],
+            PasswordHash=bcrypt.hashpw(ADMIN_USER["password"].encode(), bcrypt.gensalt()).decode(),
+            DisplayName=ADMIN_USER["display_name"],
             ZoneId=zone.ZoneId,
             IsActive=True,
         )
         db.add(user)
         db.commit()
         db.refresh(user)
-        print(f"  ✓ Usuario creado: {user.Email} (ID: {user.UserId})")
+        print(f"  ✓ Usuario admin creado: {user.Email} (ID: {user.UserId})")
     else:
-        # Actualizar contraseña si el usuario ya existe
-        user.PasswordHash = bcrypt.hashpw(TEST_USER["password"].encode(), bcrypt.gensalt()).decode()
-        user.DisplayName = TEST_USER["display_name"]
+        user.PasswordHash = bcrypt.hashpw(ADMIN_USER["password"].encode(), bcrypt.gensalt()).decode()
+        user.DisplayName = ADMIN_USER["display_name"]
         user.ZoneId = zone.ZoneId
         user.IsActive = True
         db.commit()
-        print(f"  ✓ Usuario actualizado: {user.Email} (contraseña reseteada)")
+        print(f"  ✓ Usuario admin actualizado: {user.Email} (contraseña reseteada)")
 
-    # Asignar rol al usuario
+    # Asignar rol admin
     user_role = db.query(UserRole).filter(
         UserRole.UserId == user.UserId,
         UserRole.RoleId == role.RoleId,
@@ -116,6 +121,50 @@ def seed(db: Session) -> None:
         db.add(user_role)
         db.commit()
         print(f"  ✓ Rol 'admin' asignado al usuario")
+
+    # Crear rol vendedor (Trade Rep) si no existe
+    role_vendedor = db.query(Role).filter(Role.Name == "vendedor").first()
+    if not role_vendedor:
+        role_vendedor = Role(Name="vendedor")
+        db.add(role_vendedor)
+        db.commit()
+        db.refresh(role_vendedor)
+        print(f"  ✓ Rol creado: {role_vendedor.Name} (ID: {role_vendedor.RoleId})")
+    else:
+        print(f"  - Rol ya existe: {role_vendedor.Name}")
+
+    # Crear usuario Trade Rep
+    user_trade = db.query(User).filter(User.Email == TRADE_REP_USER["email"]).first()
+    if not user_trade:
+        user_trade = User(
+            Email=TRADE_REP_USER["email"],
+            PasswordHash=bcrypt.hashpw(TRADE_REP_USER["password"].encode(), bcrypt.gensalt()).decode(),
+            DisplayName=TRADE_REP_USER["display_name"],
+            ZoneId=zone.ZoneId,
+            IsActive=True,
+        )
+        db.add(user_trade)
+        db.commit()
+        db.refresh(user_trade)
+        print(f"  ✓ Usuario Trade Rep creado: {user_trade.Email} (ID: {user_trade.UserId})")
+    else:
+        user_trade.PasswordHash = bcrypt.hashpw(TRADE_REP_USER["password"].encode(), bcrypt.gensalt()).decode()
+        user_trade.DisplayName = TRADE_REP_USER["display_name"]
+        user_trade.ZoneId = zone.ZoneId
+        user_trade.IsActive = True
+        db.commit()
+        print(f"  ✓ Usuario Trade Rep actualizado: {user_trade.Email} (contraseña reseteada)")
+
+    # Asignar rol vendedor al Trade Rep
+    ur_trade = db.query(UserRole).filter(
+        UserRole.UserId == user_trade.UserId,
+        UserRole.RoleId == role_vendedor.RoleId,
+    ).first()
+    if not ur_trade:
+        ur_trade = UserRole(UserId=user_trade.UserId, RoleId=role_vendedor.RoleId)
+        db.add(ur_trade)
+        db.commit()
+        print(f"  ✓ Rol 'vendedor' asignado al Trade Rep")
 
     # Crear distribuidor de ejemplo
     dist = db.query(Distributor).filter(Distributor.Name == "Distribuidora Norte SA").first()
@@ -135,9 +184,9 @@ def main():
     try:
         seed(db)
         print("\n" + "=" * 50)
-        print("Usuario de prueba para login:")
-        print(f"  Email:      {TEST_USER['email']}")
-        print(f"  Contraseña: {TEST_USER['password']}")
+        print("Usuarios de prueba para login:")
+        print("  Admin:      {email} / {password}".format(**ADMIN_USER))
+        print("  Trade Rep:  {email} / {password}".format(**TRADE_REP_USER))
         print("=" * 50)
     finally:
         db.close()

@@ -15,9 +15,11 @@ import {
   Search,
   Filter,
   Calendar,
+  Route as RouteIcon,
 } from "lucide-react";
-import { useRouteDayPdvsForDate, routeDayPdvToPointOfSaleUI } from "@/lib/api";
+import { useRouteDayPdvsForDate, routeDayPdvToPointOfSaleUI, useRoutes } from "@/lib/api";
 import { DateSelector } from "../components/DateSelector";
+import { getCurrentUser } from "../lib/auth";
 
 type StatusFilter = "all" | "pending" | "in-progress" | "completed" | "not-visited";
 
@@ -32,6 +34,7 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
 export function RouteFocoPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const currentUser = getCurrentUser();
   const stateDate = location.state?.selectedDate;
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
@@ -41,13 +44,20 @@ export function RouteFocoPage() {
   );
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
+  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
+  const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
+
   useEffect(() => {
     if (stateDate) {
       setSelectedDate(new Date(stateDate));
     }
   }, [stateDate]);
 
-  const { data: routeDayPdvs, loading } = useRouteDayPdvsForDate(selectedDate);
+  const { data: routeDayPdvs, loading } = useRouteDayPdvsForDate(
+    selectedDate,
+    userIdForFilter
+  );
+  const { data: routes } = useRoutes();
   const pointsOfSale = useMemo(
     () => routeDayPdvs.map(routeDayPdvToPointOfSaleUI),
     [routeDayPdvs]
@@ -200,16 +210,35 @@ export function RouteFocoPage() {
                 <p className="font-semibold text-slate-700 mb-1">
                   No hay visitas planificadas
                 </p>
-                <p className="text-sm text-slate-500">
+                <p className="text-sm text-slate-500 mb-4">
                   {searchTerm
                     ? "Intenta con otros términos de búsqueda"
                     : statusFilter !== "all"
                     ? "No hay visitas con ese estado"
                     : "No hay PDVs planificados para esta fecha"}
                 </p>
+                {!searchTerm && statusFilter === "all" && routes.length > 0 && (
+                  <div className="mb-4 text-left">
+                    <p className="text-xs font-medium text-slate-600 mb-2">Rutas disponibles:</p>
+                    <div className="space-y-2">
+                      {routes.map((r) => (
+                        <div
+                          key={r.RouteId}
+                          className="flex items-center gap-2 py-2 px-3 bg-white rounded-lg border border-slate-200"
+                        >
+                          <RouteIcon size={18} className="text-slate-500 flex-shrink-0" />
+                          <span className="text-sm font-medium text-slate-800">{r.Name}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">
+                      Para planificar visitas, crea un día de ruta para esta fecha y asigna PDVs desde el panel de administración.
+                    </p>
+                  </div>
+                )}
                 <Button
                   variant="outline"
-                  className="mt-4"
+                  className="mt-2"
                   onClick={() => navigate("/search-pdv")}
                 >
                   Buscar PDV

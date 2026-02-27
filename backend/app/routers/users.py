@@ -1,9 +1,10 @@
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import bcrypt
 
 from ..database import get_db
-from ..models import User as UserModel
+from ..models import User as UserModel, Visit as VisitModel, PDV as PDVModel
 from ..schemas.user import User, UserCreate, UserUpdate
 
 
@@ -23,6 +24,52 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return user
+
+
+@router.get("/{user_id}/stats/monthly")
+def get_user_monthly_stats(user_id: int, db: Session = Depends(get_db)):
+    """Estadísticas del mes actual: visitas, cumplimiento, PDV nuevos."""
+    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    now = datetime.now(timezone.utc)
+    first_day = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if now.month == 12:
+        last_day = now.replace(day=31, hour=23, minute=59, second=59, microsecond=999999)
+    else:
+        last_day = (first_day + timedelta(days=32)).replace(day=1) - timedelta(microseconds=1)
+
+    # Visitas del mes (por OpenedAt)
+    visits = (
+        db.query(VisitModel)
+        .filter(
+            VisitModel.UserId == user_id,
+            VisitModel.OpenedAt >= first_day,
+            VisitModel.OpenedAt <= last_day,
+        )
+        .all()
+    )
+    total_visits = len(visits)
+    completed_visits = sum(
+        1 for v in visits if v.Status and v.Status.upper() in ("CLOSED", "COMPLETED")
+    )
+    compliance = round((completed_visits / total_visits * 100) if total_visits > 0 else 0)
+
+    # PDV nuevos del mes (en la zona del usuario, por CreatedAt)
+    pdv_q = db.query(PDVModel).filter(
+        PDVModel.CreatedAt >= first_day,
+        PDVModel.CreatedAt <= last_day,
+    )
+    if user.ZoneId:
+        pdv_q = pdv_q.filter(PDVModel.ZoneId == user.ZoneId)
+    new_pdvs = pdv_q.count()
+
+    return {
+        "visits": total_visits,
+        "compliance": compliance,
+        "new_pdvs": new_pdvs,
+    }
 
 
 @router.post("", response_model=User, status_code=201)

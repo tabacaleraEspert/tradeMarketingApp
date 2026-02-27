@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { KPICard } from "../../components/ui/kpi-card";
 import { Card, CardContent } from "../../components/ui/card";
 import { StatusChip } from "../../components/ui/status-chip";
@@ -33,6 +34,16 @@ export function AdminDashboard() {
   const { data: forms } = useApiList(() => formsApi.list());
   const { data: visits } = useApiList(() => visitsApi.list());
   const { data: incidents } = useApiList(() => incidentsApi.list());
+
+  const hasInProgressVisits = visits.some(
+    (v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS"
+  );
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!hasInProgressVisits) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(id);
+  }, [hasInProgressVisits]);
 
   const openIncidents = incidents.filter(
     (i) => i.Status === "OPEN" || i.Status === "IN_PROGRESS"
@@ -70,6 +81,19 @@ export function AdminDashboard() {
     },
   ];
 
+  const formatDuration = (openedAt: string, closedAt: string | null) => {
+    const start = new Date(openedAt).getTime();
+    const end = closedAt ? new Date(closedAt).getTime() : Date.now();
+    const ms = end - start;
+    const mins = Math.floor(ms / 60000);
+    const hours = Math.floor(mins / 60);
+    const remainingMins = mins % 60;
+    if (hours > 0) {
+      return `${hours}h ${remainingMins}min`;
+    }
+    return `${mins}min`;
+  };
+
   const recentActivity =
     visits.length > 0
       ? visits.slice(0, 5).map((v) => ({
@@ -83,6 +107,8 @@ export function AdminDashboard() {
             hour: "2-digit",
             minute: "2-digit",
           }),
+          duration: formatDuration(v.OpenedAt, v.ClosedAt),
+          isInProgress: v.Status === "OPEN" || v.Status === "IN_PROGRESS",
           status: (v.Status === "OPEN" || v.Status === "IN_PROGRESS"
             ? "in-progress"
             : "completed") as const,
@@ -105,6 +131,17 @@ export function AdminDashboard() {
     },
     {} as Record<number, number>
   );
+  const completedVisits = visits.filter((v) => v.ClosedAt != null);
+  const avgDurationMs =
+    completedVisits.length > 0
+      ? completedVisits.reduce((acc, v) => {
+          const start = new Date(v.OpenedAt).getTime();
+          const end = new Date(v.ClosedAt!).getTime();
+          return acc + (end - start);
+        }, 0) / completedVisits.length
+      : 0;
+  const avgDurationMins = Math.round(avgDurationMs / 60000);
+
   const topPerformers = activeUsers
     .map((u) => ({
       name: u.DisplayName,
@@ -168,7 +205,15 @@ export function AdminDashboard() {
                         {activity.action} en <span className="font-medium">{activity.pos}</span>
                       </p>
                     </div>
-                    <StatusChip status={activity.status} size="sm" />
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-1.5 px-2 py-1 bg-slate-200/80 rounded-md">
+                        <Clock size={14} className="text-slate-600" />
+                        <span className="text-xs font-medium text-slate-700">
+                          {activity.duration}
+                        </span>
+                      </div>
+                      <StatusChip status={activity.status} size="sm" />
+                    </div>
                     <p className="text-xs text-slate-500 min-w-[80px] text-right">
                       {activity.time}
                     </p>
@@ -325,10 +370,16 @@ export function AdminDashboard() {
                   <div className="flex items-center gap-2">
                     <Clock size={20} className="text-purple-600" />
                     <span className="text-sm font-medium text-slate-700">
-                      Tiempo promedio
+                      Tiempo promedio visita
                     </span>
                   </div>
-                  <span className="text-lg font-bold text-purple-600">28min</span>
+                  <span className="text-lg font-bold text-purple-600">
+                    {completedVisits.length > 0
+                      ? avgDurationMins >= 60
+                        ? `${Math.floor(avgDurationMins / 60)}h ${avgDurationMins % 60}min`
+                        : `${avgDurationMins}min`
+                      : "-"}
+                  </span>
                 </div>
               </div>
             </CardContent>

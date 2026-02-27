@@ -27,11 +27,48 @@ from ..schemas.route import (
 
 router = APIRouter(prefix="/routes", tags=["Rutas"])
 
+# Zonas Bejerman (hardcodeadas; futuro: DB externa)
+BEJERMAN_ZONES = ["Litoral", "GBA Sur", "GBA Norte", "Patagonia"]
+
+
+def _route_to_response(r: RouteModel, db: Session) -> Route:
+    pdv_count = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == r.RouteId).count()
+    data = {
+        "RouteId": r.RouteId,
+        "Name": r.Name,
+        "ZoneId": r.ZoneId,
+        "FormId": r.FormId,
+        "IsActive": r.IsActive,
+        "BejermanZone": getattr(r, "BejermanZone", None),
+        "FrequencyType": getattr(r, "FrequencyType", None),
+        "FrequencyConfig": getattr(r, "FrequencyConfig", None),
+        "EstimatedMinutes": getattr(r, "EstimatedMinutes", None),
+        "CreatedByUserId": getattr(r, "CreatedByUserId", None),
+        "PdvCount": pdv_count,
+        "CreatedAt": r.CreatedAt,
+    }
+    return Route.model_validate(data)
+
+
+# --- Zonas Bejerman ---
+@router.get("/bejerman-zones")
+def list_bejerman_zones():
+    return {"zones": BEJERMAN_ZONES}
+
 
 # --- Route ---
 @router.get("", response_model=list[Route])
-def list_routes(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    return db.query(RouteModel).order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
+def list_routes(
+    skip: int = 0,
+    limit: int = 100,
+    created_by: int | None = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(RouteModel)
+    if created_by is not None:
+        q = q.filter(RouteModel.CreatedByUserId == created_by)
+    routes = q.order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
+    return [_route_to_response(r, db) for r in routes]
 
 
 @router.get("/{route_id}", response_model=Route)
@@ -39,12 +76,22 @@ def get_route(route_id: int, db: Session = Depends(get_db)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    return r
+    return _route_to_response(r, db)
 
 
 @router.post("", response_model=Route, status_code=201)
 def create_route(data: RouteCreate, db: Session = Depends(get_db)):
-    r = RouteModel(Name=data.Name, ZoneId=data.ZoneId, FormId=data.FormId, IsActive=data.IsActive)
+    r = RouteModel(
+        Name=data.Name,
+        ZoneId=data.ZoneId,
+        FormId=data.FormId,
+        IsActive=data.IsActive,
+        CreatedByUserId=data.CreatedByUserId,
+        BejermanZone=data.BejermanZone,
+        FrequencyType=data.FrequencyType,
+        FrequencyConfig=data.FrequencyConfig,
+        EstimatedMinutes=data.EstimatedMinutes,
+    )
     db.add(r)
     db.flush()
     if data.FormId is not None:
@@ -52,7 +99,7 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db)):
         db.add(rf)
     db.commit()
     db.refresh(r)
-    return r
+    return _route_to_response(r, db)
 
 
 @router.patch("/{route_id}", response_model=Route)
@@ -65,7 +112,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
         setattr(r, k, v)
     db.commit()
     db.refresh(r)
-    return r
+    return _route_to_response(r, db)
 
 
 @router.delete("/{route_id}", status_code=204)

@@ -20,8 +20,10 @@ import {
   useForms,
   useUsers,
   pdvsApi,
+  BEJERMAN_ZONES,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { getCurrentUser } from "../../lib/auth";
 
 export function RouteEditorPage() {
   const { routeId } = useParams();
@@ -41,6 +43,8 @@ export function RouteEditorPage() {
     new Date().toISOString().split("T")[0]
   );
 
+  const currentUser = getCurrentUser();
+  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
   const { data: pdvs } = usePdvs(route?.ZoneId ?? undefined);
   const { data: zones } = useZones();
   const { data: forms } = useForms();
@@ -177,7 +181,14 @@ export function RouteEditorPage() {
     }
   };
 
-  const handleUpdateRoute = async (data: { Name?: string; ZoneId?: number }) => {
+  const handleUpdateRoute = async (data: {
+    Name?: string;
+    ZoneId?: number;
+    BejermanZone?: string;
+    FrequencyType?: string;
+    FrequencyConfig?: string;
+    EstimatedMinutes?: number;
+  }) => {
     if (!id) return;
     try {
       const updated = await routesApi.update(id, data);
@@ -246,6 +257,46 @@ export function RouteEditorPage() {
                 ))}
               </select>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Zona Bejerman</label>
+              <select
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                value={route.BejermanZone ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value || undefined;
+                  setRoute((r) => (r ? { ...r, BejermanZone: v ?? null } : null));
+                  handleUpdateRoute({ BejermanZone: v });
+                }}
+              >
+                <option value="">Sin zona</option>
+                {BEJERMAN_ZONES.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {isAdmin && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  Tiempo estimado (min)
+                </label>
+                <Input
+                  type="number"
+                  value={route.EstimatedMinutes ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : undefined;
+                    setRoute((r) => (r ? { ...r, EstimatedMinutes: v ?? null } : null));
+                  }}
+                  onBlur={() =>
+                    handleUpdateRoute({
+                      EstimatedMinutes: route.EstimatedMinutes ?? undefined,
+                    })
+                  }
+                  placeholder="Ej: 120"
+                />
+              </div>
+            )}
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-slate-700 mb-1">
                 Formularios de relevamiento

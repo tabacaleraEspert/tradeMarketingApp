@@ -22,14 +22,14 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md" }:
 
   return (
     <>
-      {/* Overlay */}
+      {/* Overlay - z-[1000] para quedar por encima de mapas Leaflet (z-index ~700) */}
       <div
-        className="fixed inset-0 bg-black/50 z-40 animate-fade-in"
+        className="fixed inset-0 bg-black/50 z-[1000] animate-fade-in"
         onClick={onClose}
       />
 
       {/* Modal */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4">
         <div
           className={`bg-white rounded-lg shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-scale-in`}
           onClick={(e) => e.stopPropagation()}

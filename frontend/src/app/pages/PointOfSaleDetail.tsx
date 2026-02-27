@@ -21,8 +21,14 @@ import {
   Navigation,
   Edit,
   Trash2,
+  Plus,
+  Cake,
+  MessageSquare,
 } from "lucide-react";
-import { pdvsApi, visitsApi, useZones, useDistributors } from "@/lib/api";
+import { pdvsApi, visitsApi, useZones, useDistributors, useChannels, useSubChannels } from "@/lib/api";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { GpsCaptureButton } from "../components/GpsCaptureButton";
+import { LocationMap } from "../components/LocationMap";
 import { toast } from "sonner";
 
 export function PointOfSaleDetail() {
@@ -38,17 +44,21 @@ export function PointOfSaleDetail() {
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
-    channel: "",
+    channelId: "" as number | "",
+    subChannelId: "" as number | "",
     address: "",
-    contact: "",
-    phone: "",
     zoneId: "" as number | "",
     distributorId: "" as number | "",
     isActive: true,
+    lat: null as number | null,
+    lon: null as number | null,
+    contacts: [] as { ContactName: string; ContactPhone?: string; Birthday?: string }[],
   });
 
   const { data: zones } = useZones();
   const { data: distributors } = useDistributors();
+  const { data: channels } = useChannels();
+  const { data: subchannels } = useSubChannels(formData.channelId || null);
 
   const loadData = () => {
     if (!id) return;
@@ -60,15 +70,26 @@ export function PointOfSaleDetail() {
       setPos(p);
       setVisits(v);
       if (p) {
+        const contactsFromPdv = p.Contacts?.length
+          ? p.Contacts.map((c) => ({
+              ContactName: c.ContactName,
+              ContactPhone: c.ContactPhone || undefined,
+              Birthday: c.Birthday || undefined,
+            }))
+          : p.ContactName
+          ? [{ ContactName: p.ContactName, ContactPhone: p.ContactPhone || undefined }]
+          : [];
         setFormData({
           name: p.Name,
-          channel: p.Channel,
+          channelId: p.ChannelId ?? "",
+          subChannelId: p.SubChannelId ?? "",
           address: p.Address || "",
-          contact: p.ContactName || "",
-          phone: p.ContactPhone || "",
           zoneId: p.ZoneId ?? "",
           distributorId: p.DistributorId ?? "",
           isActive: p.IsActive,
+          lat: p.Lat != null ? Number(p.Lat) : null,
+          lon: p.Lon != null ? Number(p.Lon) : null,
+          contacts: contactsFromPdv,
         });
       }
     }).finally(() => setLoading(false));
@@ -80,36 +101,56 @@ export function PointOfSaleDetail() {
 
   const openEditModal = () => {
     if (pos) {
+      const contactsFromPdv = pos.Contacts?.length
+        ? pos.Contacts.map((c) => ({
+            ContactName: c.ContactName,
+            ContactPhone: c.ContactPhone || undefined,
+            Birthday: c.Birthday || undefined,
+          }))
+        : pos.ContactName
+        ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone || undefined }]
+        : [];
       setFormData({
         name: pos.Name,
-        channel: pos.Channel,
+        channelId: pos.ChannelId ?? "",
+        subChannelId: pos.SubChannelId ?? "",
         address: pos.Address || "",
-        contact: pos.ContactName || "",
-        phone: pos.ContactPhone || "",
         zoneId: pos.ZoneId ?? "",
         distributorId: pos.DistributorId ?? "",
         isActive: pos.IsActive,
+        lat: pos.Lat != null ? Number(pos.Lat) : null,
+        lon: pos.Lon != null ? Number(pos.Lon) : null,
+        contacts: contactsFromPdv.length > 0 ? contactsFromPdv : [{ ContactName: "", ContactPhone: "", Birthday: "" }],
       });
       setIsEditModalOpen(true);
     }
   };
 
   const handleSave = async () => {
-    if (!id || !formData.name || !formData.channel) {
+    if (!id || !formData.name || !formData.channelId) {
       toast.error("Nombre y canal son obligatorios");
       return;
     }
     setSaving(true);
     try {
+      const contactsToSend = formData.contacts
+        .filter((c) => c.ContactName.trim())
+        .map((c) => ({
+          ContactName: c.ContactName.trim(),
+          ContactPhone: c.ContactPhone?.trim() || undefined,
+          Birthday: c.Birthday || undefined,
+        }));
       await pdvsApi.update(Number(id), {
         Name: formData.name,
-        Channel: formData.channel,
+        ChannelId: Number(formData.channelId),
+        SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         Address: formData.address || undefined,
-        ContactName: formData.contact || undefined,
-        ContactPhone: formData.phone || undefined,
         ZoneId: formData.zoneId || undefined,
         DistributorId: formData.distributorId || undefined,
         IsActive: formData.isActive,
+        Lat: formData.lat ?? undefined,
+        Lon: formData.lon ?? undefined,
+        Contacts: contactsToSend,
       });
       toast.success("PDV actualizado");
       setIsEditModalOpen(false);
@@ -151,6 +192,9 @@ export function PointOfSaleDetail() {
   };
 
   const posVisits = visits;
+  const lastClosedVisit = [...posVisits]
+    .filter((v) => v.Status === "CLOSED" || v.Status === "COMPLETED")
+    .sort((a, b) => new Date(b.ClosedAt ?? b.OpenedAt).getTime() - new Date(a.ClosedAt ?? a.OpenedAt).getTime())[0];
   const lastVisit = [...posVisits].sort(
     (a, b) => new Date(b.OpenedAt).getTime() - new Date(a.OpenedAt).getTime()
   )[0];
@@ -187,7 +231,7 @@ export function PointOfSaleDetail() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-slate-900">{pos.Name}</h1>
-            <p className="text-sm text-slate-600">{pos.Channel}</p>
+            <p className="text-sm text-slate-600">{pos.ChannelName || pos.Channel || "-"}</p>
           </div>
           <div className="flex items-center gap-2">
             <Badge
@@ -216,6 +260,21 @@ export function PointOfSaleDetail() {
       </div>
 
       <div className="p-4 space-y-4">
+        {/* Recordatorio próxima visita - al entrar al PDV */}
+        {!isVisitInProgress && lastClosedVisit?.CloseReason && (
+          <Card className="bg-amber-50 border-amber-200">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <MessageSquare size={22} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="font-semibold text-amber-900 mb-1">Recordatorio próxima visita</h3>
+                  <p className="text-sm text-amber-800">{lastClosedVisit.CloseReason}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Main Info Card */}
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -235,6 +294,17 @@ export function PointOfSaleDetail() {
               </div>
             </div>
 
+            {pos.Lat != null && pos.Lon != null && (
+              <div className="mt-3">
+                <LocationMap
+                  lat={Number(pos.Lat)}
+                  lon={Number(pos.Lon)}
+                  height="180px"
+                  popupText={pos.Name}
+                />
+              </div>
+            )}
+
             <div className="flex items-start gap-2">
               <Building2 size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
               <div>
@@ -243,21 +313,31 @@ export function PointOfSaleDetail() {
               </div>
             </div>
 
-            <div className="flex items-start gap-2">
-              <User size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-slate-500">Contacto</p>
-                <p className="font-medium text-slate-900">{pos.ContactName || "-"}</p>
+            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, Birthday: null }] : []).map((c, i) => (
+              <div key={i} className="space-y-1 p-2 bg-slate-50 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <User size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-slate-500">Contacto</p>
+                    <p className="font-medium text-slate-900">{c.ContactName}</p>
+                  </div>
+                </div>
+                {c.ContactPhone && (
+                  <div className="flex items-center gap-2 ml-6">
+                    <Phone size={14} className="text-slate-500" />
+                    <span className="text-sm text-slate-700">{c.ContactPhone}</span>
+                  </div>
+                )}
+                {c.Birthday && (
+                  <div className="flex items-center gap-2 ml-6">
+                    <Cake size={14} className="text-slate-500" />
+                    <span className="text-sm text-slate-700">
+                      Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { day: "numeric", month: "long" })}
+                    </span>
+                  </div>
+                )}
               </div>
-            </div>
-
-            <div className="flex items-start gap-2">
-              <Phone size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm text-slate-500">Teléfono</p>
-                <p className="font-medium text-slate-900">{pos.ContactPhone || "-"}</p>
-              </div>
-            </div>
+            ))}
 
             <Button variant="outline" className="w-full mt-2" size="sm">
               <Navigation size={16} className="mr-2" />
@@ -334,11 +414,14 @@ export function PointOfSaleDetail() {
               <Button
                 className="w-full h-14 text-base font-semibold"
                 size="lg"
-                onClick={() =>
+                onClick={() => {
+                  const openVisit = posVisits.find(
+                    (v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS"
+                  );
                   navigate(`/pos/${id}/survey`, {
-                    state: routeDayId ? { routeDayId } : undefined,
-                  })
-                }
+                    state: { routeDayId, visitId: openVisit?.VisitId },
+                  });
+                }}
               >
                 <FileText className="mr-2" size={20} />
                 Completar Relevamiento
@@ -346,7 +429,14 @@ export function PointOfSaleDetail() {
               <Button
                 variant="outline"
                 className="w-full h-12"
-                onClick={() => navigate(`/pos/${id}/photos`)}
+                onClick={() => {
+                  const openVisit = posVisits.find(
+                    (v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS"
+                  );
+                  navigate(`/pos/${id}/photos`, {
+                    state: { routeDayId, visitId: openVisit?.VisitId },
+                  });
+                }}
               >
                 <Camera className="mr-2" size={18} />
                 Cargar Fotos
@@ -406,11 +496,44 @@ export function PointOfSaleDetail() {
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Canal</label>
-              <Input
-                placeholder="Ej: Kiosco"
-                value={formData.channel}
-                onChange={(e) => setFormData((f) => ({ ...f, channel: e.target.value }))}
-              />
+              <Select
+                value={formData.channelId ? String(formData.channelId) : ""}
+                onValueChange={(v) =>
+                  setFormData((f) => ({ ...f, channelId: v ? Number(v) : "", subChannelId: "" }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar canal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {channels.map((ch) => (
+                    <SelectItem key={ch.ChannelId} value={String(ch.ChannelId)}>
+                      {ch.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Sub-canal</label>
+              <Select
+                value={formData.subChannelId ? String(formData.subChannelId) : ""}
+                onValueChange={(v) =>
+                  setFormData((f) => ({ ...f, subChannelId: v ? Number(v) : "" }))
+                }
+                disabled={!formData.channelId}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={formData.channelId ? "Seleccionar subcanal" : "Primero selecciona canal"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {subchannels.map((sc) => (
+                    <SelectItem key={sc.SubChannelId} value={String(sc.SubChannelId)}>
+                      {sc.Name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -421,25 +544,108 @@ export function PointOfSaleDetail() {
               value={formData.address}
               onChange={(e) => setFormData((f) => ({ ...f, address: e.target.value }))}
             />
+            <GpsCaptureButton
+              onCapture={({ lat, lon }) =>
+                setFormData((f) => ({ ...f, lat, lon }))
+              }
+              className="w-full mt-2"
+            >
+              Capturar ubicación GPS
+            </GpsCaptureButton>
+            {formData.lat != null && formData.lon != null && (
+              <>
+                <p className="text-xs text-slate-500 mt-1">
+                  Coordenadas: {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}
+                </p>
+                <LocationMap
+                  lat={Number(formData.lat)}
+                  lon={Number(formData.lon)}
+                  height="160px"
+                  className="mt-2"
+                  popupText="Ubicación del PDV"
+                />
+              </>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Contacto</label>
-              <Input
-                placeholder="Nombre del contacto"
-                value={formData.contact}
-                onChange={(e) => setFormData((f) => ({ ...f, contact: e.target.value }))}
-              />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-slate-700">Contactos</label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setFormData((f) => ({
+                    ...f,
+                    contacts: [...f.contacts, { ContactName: "", ContactPhone: "", Birthday: "" }],
+                  }))
+                }
+              >
+                <Plus size={14} className="mr-1" />
+                Agregar
+              </Button>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Teléfono</label>
-              <Input
-                placeholder="+54 11 1234-5678"
-                value={formData.phone}
-                onChange={(e) => setFormData((f) => ({ ...f, phone: e.target.value }))}
-              />
-            </div>
+            {formData.contacts.map((c, i) => (
+              <div key={i} className="flex gap-2 mb-2 p-2 bg-slate-50 rounded-lg">
+                <Input
+                  placeholder="Nombre"
+                  value={c.ContactName}
+                  onChange={(e) =>
+                    setFormData((f) => ({
+                      ...f,
+                      contacts: f.contacts.map((ct, j) =>
+                        j === i ? { ...ct, ContactName: e.target.value } : ct
+                      ),
+                    }))
+                  }
+                  className="flex-1"
+                />
+                <Input
+                  placeholder="Teléfono"
+                  value={c.ContactPhone || ""}
+                  onChange={(e) =>
+                    setFormData((f) => ({
+                      ...f,
+                      contacts: f.contacts.map((ct, j) =>
+                        j === i ? { ...ct, ContactPhone: e.target.value } : ct
+                      ),
+                    }))
+                  }
+                  className="flex-1"
+                />
+                <Input
+                  type="date"
+                  placeholder="Cumpleaños"
+                  value={c.Birthday || ""}
+                  onChange={(e) =>
+                    setFormData((f) => ({
+                      ...f,
+                      contacts: f.contacts.map((ct, j) =>
+                        j === i ? { ...ct, Birthday: e.target.value } : ct
+                      ),
+                    }))
+                  }
+                  className="w-36"
+                />
+                {formData.contacts.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600"
+                    onClick={() =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.filter((_, j) => j !== i),
+                      }))
+                    }
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                )}
+              </div>
+            ))}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
