@@ -43,9 +43,9 @@ export function Profile() {
   const roleBadge = getRoleBadge(currentUser.role as "vendedor" | "supervisor" | "admin");
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 pb-20">
+      <div className="bg-gradient-to-r from-[#A48242] to-[#8B6E38] text-white p-6 pb-20">
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate("/")}
@@ -72,25 +72,25 @@ export function Profile() {
         {/* Contact Info */}
         <Card>
           <CardContent className="p-4 space-y-3">
-            <h3 className="font-semibold text-slate-900 mb-3">Información de Contacto</h3>
+            <h3 className="font-semibold text-foreground mb-3">Información de Contacto</h3>
             
             <div className="flex items-center gap-3">
-              <div className="bg-blue-100 rounded-full p-2">
-                <Mail size={18} className="text-blue-600" />
+              <div className="bg-espert-gold/10 rounded-full p-2">
+                <Mail size={18} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <p className="text-xs text-slate-500">Email</p>
-                <p className="text-sm font-medium text-slate-900">{currentUser.email}</p>
+                <p className="text-xs text-muted-foreground">Email</p>
+                <p className="text-sm font-medium text-foreground">{currentUser.email}</p>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="bg-purple-100 rounded-full p-2">
-                <Phone size={18} className="text-purple-600" />
+              <div className="bg-espert-gold/10 rounded-full p-2">
+                <Phone size={18} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <p className="text-xs text-slate-500">Teléfono</p>
-                <p className="text-sm font-medium text-slate-900">+54 11 1234-5678</p>
+                <p className="text-xs text-muted-foreground">Teléfono</p>
+                <p className="text-sm font-medium text-foreground">+54 11 1234-5678</p>
               </div>
             </div>
 
@@ -99,8 +99,8 @@ export function Profile() {
                 <MapPin size={18} className="text-green-600" />
               </div>
               <div className="flex-1">
-                <p className="text-xs text-slate-500">Zona Asignada</p>
-                <p className="text-sm font-medium text-slate-900">{currentUser.zone}</p>
+                <p className="text-xs text-muted-foreground">Zona Asignada</p>
+                <p className="text-sm font-medium text-foreground">{currentUser.zone}</p>
               </div>
             </div>
 
@@ -109,8 +109,8 @@ export function Profile() {
                 <Briefcase size={18} className="text-orange-600" />
               </div>
               <div className="flex-1">
-                <p className="text-xs text-slate-500">ID de Usuario</p>
-                <p className="text-sm font-medium text-slate-900 font-mono">
+                <p className="text-xs text-muted-foreground">ID de Usuario</p>
+                <p className="text-sm font-medium text-foreground font-mono">
                   USR-{currentUser.id.padStart(6, "0")}
                 </p>
               </div>
@@ -121,41 +121,41 @@ export function Profile() {
         {/* Stats */}
         <Card>
           <CardContent className="p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Estadísticas del Mes</h3>
+            <h3 className="font-semibold text-foreground mb-3">Estadísticas del Mes</h3>
             {statsLoading ? (
               <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
-                  <p className="text-2xl font-bold text-slate-300">-</p>
-                  <p className="text-xs text-slate-500 mt-1">Visitas</p>
+                <div className="text-center p-3 bg-muted rounded-lg">
+                  <p className="text-2xl font-bold text-muted-foreground">-</p>
+                  <p className="text-xs text-muted-foreground mt-1">Visitas</p>
                 </div>
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
-                  <p className="text-2xl font-bold text-slate-300">-</p>
-                  <p className="text-xs text-slate-500 mt-1">Cumplimiento</p>
+                <div className="text-center p-3 bg-muted rounded-lg">
+                  <p className="text-2xl font-bold text-muted-foreground">-</p>
+                  <p className="text-xs text-muted-foreground mt-1">Cumplimiento</p>
                 </div>
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
-                  <p className="text-2xl font-bold text-slate-300">-</p>
-                  <p className="text-xs text-slate-500 mt-1">PDV Nuevos</p>
+                <div className="text-center p-3 bg-muted rounded-lg">
+                  <p className="text-2xl font-bold text-muted-foreground">-</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDV Nuevos</p>
                 </div>
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
-                  <p className="text-2xl font-bold text-blue-600">
+                <div className="text-center p-3 bg-muted rounded-lg">
+                  <p className="text-2xl font-bold text-espert-gold">
                     {stats?.visits ?? 0}
                   </p>
-                  <p className="text-xs text-slate-600 mt-1">Visitas</p>
+                  <p className="text-xs text-muted-foreground mt-1">Visitas</p>
                 </div>
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
+                <div className="text-center p-3 bg-muted rounded-lg">
                   <p className="text-2xl font-bold text-green-600">
                     {stats?.compliance ?? 0}%
                   </p>
-                  <p className="text-xs text-slate-600 mt-1">Cumplimiento</p>
+                  <p className="text-xs text-muted-foreground mt-1">Cumplimiento</p>
                 </div>
-                <div className="text-center p-3 bg-slate-50 rounded-lg">
-                  <p className="text-2xl font-bold text-purple-600">
+                <div className="text-center p-3 bg-muted rounded-lg">
+                  <p className="text-2xl font-bold text-espert-gold">
                     {stats?.new_pdvs ?? 0}
                   </p>
-                  <p className="text-xs text-slate-600 mt-1">PDV Nuevos</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDV Nuevos</p>
                 </div>
               </div>
             )}
@@ -167,11 +167,11 @@ export function Profile() {
           <Card className="cursor-pointer hover:shadow-md transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="bg-slate-100 rounded-full p-2">
-                  <Settings size={20} className="text-slate-600" />
+                <div className="bg-muted rounded-full p-2">
+                  <Settings size={20} className="text-muted-foreground" />
                 </div>
-                <span className="flex-1 font-medium text-slate-900">Configuración</span>
-                <ChevronRight size={20} className="text-slate-400" />
+                <span className="flex-1 font-medium text-foreground">Configuración</span>
+                <ChevronRight size={20} className="text-muted-foreground" />
               </div>
             </CardContent>
           </Card>
@@ -179,21 +179,21 @@ export function Profile() {
           <Card className="cursor-pointer hover:shadow-md transition-shadow">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="bg-blue-100 rounded-full p-2">
-                  <HelpCircle size={20} className="text-blue-600" />
+                <div className="bg-espert-gold/10 rounded-full p-2">
+                  <HelpCircle size={20} className="text-espert-gold" />
                 </div>
-                <span className="flex-1 font-medium text-slate-900">Ayuda y Soporte</span>
-                <ChevronRight size={20} className="text-slate-400" />
+                <span className="flex-1 font-medium text-foreground">Ayuda y Soporte</span>
+                <ChevronRight size={20} className="text-muted-foreground" />
               </div>
             </CardContent>
           </Card>
         </div>
 
         {/* App Info */}
-        <Card className="bg-slate-50">
+        <Card className="bg-muted">
           <CardContent className="p-4">
-            <div className="text-center text-sm text-slate-600">
-              <p className="font-semibold text-slate-900 mb-1">Trade Marketing App</p>
+            <div className="text-center text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground mb-1">Trade Marketing App</p>
               <p>Versión 2.1.0</p>
               <p className="mt-2">© 2026 Todos los derechos reservados</p>
             </div>

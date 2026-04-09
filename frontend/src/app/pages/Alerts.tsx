@@ -71,7 +71,7 @@ export function Alerts() {
     const colors = {
       high: "bg-red-100 text-red-700 border-red-200",
       medium: "bg-yellow-100 text-yellow-700 border-yellow-200",
-      low: "bg-blue-100 text-blue-700 border-blue-200",
+      low: "bg-espert-gold/10 text-espert-gold border-espert-gold/30",
     };
     return colors[priority as keyof typeof colors] || "";
   };
@@ -117,25 +117,25 @@ export function Alerts() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-4">
           <button
             onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Alertas e Incidencias</h1>
-            <p className="text-sm text-slate-600">{filteredAlerts.length} registros</p>
+            <h1 className="text-xl font-bold text-foreground">Alertas e Incidencias</h1>
+            <p className="text-sm text-muted-foreground">{filteredAlerts.length} registros</p>
           </div>
         </div>
 
         {/* Search */}
         <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
           <Input
             placeholder="Buscar por PDV o descripción..."
             value={searchTerm}
@@ -257,14 +257,14 @@ export function Alerts() {
           {loading ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <p className="text-slate-500">Cargando incidencias...</p>
+                <p className="text-muted-foreground">Cargando incidencias...</p>
               </CardContent>
             </Card>
           ) : filteredAlerts.length === 0 ? (
             <Card>
               <CardContent className="p-8 text-center">
-                <AlertTriangle size={48} className="mx-auto mb-4 text-slate-300" />
-                <p className="text-slate-500">No se encontraron incidencias</p>
+                <AlertTriangle size={48} className="mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground">No se encontraron incidencias</p>
               </CardContent>
             </Card>
           ) : (
@@ -276,7 +276,7 @@ export function Alerts() {
                     ? "border-l-red-500"
                     : alert.priority === "medium"
                     ? "border-l-yellow-500"
-                    : "border-l-blue-500"
+                    : "border-l-espert-gold"
                 }`}
               >
                 <CardContent className="p-4">
@@ -289,16 +289,16 @@ export function Alerts() {
                             ? "bg-red-100"
                             : alert.priority === "medium"
                             ? "bg-yellow-100"
-                            : "bg-blue-100"
+                            : "bg-espert-gold/10"
                         }`}
                       >
                         {getAlertIcon(alert.type)}
                       </div>
                       <div className="flex-1">
-                        <h3 className="font-semibold text-slate-900 mb-1">
+                        <h3 className="font-semibold text-foreground mb-1">
                           {getAlertTypeLabel(alert.type)}
                         </h3>
-                        <p className="text-sm text-slate-600 mb-2">{alert.posName}</p>
+                        <p className="text-sm text-muted-foreground mb-2">{alert.posName}</p>
                       </div>
                     </div>
                     <Badge variant={getStatusBadgeVariant(alert.status)}>
@@ -307,10 +307,10 @@ export function Alerts() {
                   </div>
 
                   {/* Description */}
-                  <p className="text-sm text-slate-700 mb-3 pl-12">{alert.description}</p>
+                  <p className="text-sm text-muted-foreground mb-3 pl-12">{alert.description}</p>
 
                   {/* Footer */}
-                  <div className="flex items-center justify-between pl-12 text-xs text-slate-500">
+                  <div className="flex items-center justify-between pl-12 text-xs text-muted-foreground">
                     <span>
                       {new Date(alert.createdAt).toLocaleDateString("es-AR", {
                         day: "numeric",
@@ -326,7 +326,7 @@ export function Alerts() {
                           ? "border-red-300 text-red-700"
                           : alert.priority === "medium"
                           ? "border-yellow-300 text-yellow-700"
-                          : "border-blue-300 text-blue-700"
+                          : "border-espert-gold/40 text-espert-gold"
                       }
                     >
                       Prioridad:{" "}
@@ -340,7 +340,7 @@ export function Alerts() {
 
                   {/* Resolved Date */}
                   {alert.resolvedAt && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-green-700 pl-12">
+                    <div className="mt-3 pt-3 border-t border-border text-xs text-green-700 pl-12">
                       Resuelta el{" "}
                       {new Date(alert.resolvedAt).toLocaleDateString("es-AR", {
                         day: "numeric",

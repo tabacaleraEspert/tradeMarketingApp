@@ -18,6 +18,7 @@ class UserUpdate(BaseModel):
     DisplayName: str | None = None
     ZoneId: int | None = None
     IsActive: bool | None = None
+    Password: str | None = None
 
 
 class User(UserBase):

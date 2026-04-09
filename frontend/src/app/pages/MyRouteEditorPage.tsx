@@ -236,8 +236,8 @@ export function MyRouteEditorPage() {
 
   if (loading || !route) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">Cargando...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
       </div>
     );
   }
@@ -245,18 +245,18 @@ export function MyRouteEditorPage() {
   const availableForms = forms.filter((f) => !routeForms.some((rf) => rf.FormId === f.FormId));
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+    <div className="min-h-screen bg-background pb-20">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/my-routes")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Editar Ruta</h1>
-            <p className="text-sm text-slate-600">{routeDraft?.Name ?? route.Name}</p>
+            <h1 className="text-xl font-bold text-foreground">Editar Ruta</h1>
+            <p className="text-sm text-muted-foreground">{routeDraft?.Name ?? route.Name}</p>
           </div>
         </div>
       </div>
@@ -266,7 +266,7 @@ export function MyRouteEditorPage() {
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Datos de la ruta</h3>
+              <h3 className="font-semibold text-foreground">Datos de la ruta</h3>
               {routeDraft && (
                 <Button
                   variant={routeMetadataDirty ? "default" : "outline"}
@@ -281,7 +281,7 @@ export function MyRouteEditorPage() {
             </div>
             <div className="space-y-3">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Nombre</label>
                 <Input
                   value={routeDraft?.Name ?? ""}
                   onChange={(e) =>
@@ -291,9 +291,9 @@ export function MyRouteEditorPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Zona Bejerman</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Zona Bejerman</label>
                 <select
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
                   value={routeDraft?.BejermanZone ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || undefined;
@@ -309,9 +309,9 @@ export function MyRouteEditorPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Frecuencia</label>
+                <label className="block text-sm font-medium text-muted-foreground mb-1">Frecuencia</label>
                 <select
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
                   value={routeDraft?.FrequencyType ?? ""}
                   onChange={(e) => {
                     const v = e.target.value || undefined;
@@ -334,7 +334,7 @@ export function MyRouteEditorPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
                 <MapPin size={20} />
                 Puntos de venta ({routePdvs.length})
               </h3>
@@ -354,18 +354,18 @@ export function MyRouteEditorPage() {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowAddPdv(false)}
                     />
-                    <div className="absolute right-0 top-full mt-2 w-72 max-h-64 overflow-y-auto bg-white rounded-lg shadow-xl border border-slate-200 p-2 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-72 max-h-64 overflow-y-auto bg-card rounded-lg shadow-xl border border-border p-2 z-50">
                       {availablePdvs.length === 0 ? (
-                        <p className="text-sm text-slate-500 p-2">No hay PDVs disponibles</p>
+                        <p className="text-sm text-muted-foreground p-2">No hay PDVs disponibles</p>
                       ) : (
                         availablePdvs.map((p) => (
                           <button
                             key={p.PdvId}
                             onClick={() => handleAddPdv(p.PdvId)}
                             disabled={saving}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm"
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-muted text-sm"
                           >
-                            {p.Name} <span className="text-slate-400">({p.ChannelName || p.Channel})</span>
+                            {p.Name} <span className="text-muted-foreground">({p.ChannelName || p.Channel})</span>
                           </button>
                         ))
                       )}
@@ -376,9 +376,9 @@ export function MyRouteEditorPage() {
             </div>
 
             {routePdvs.length === 0 ? (
-              <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center">
-                <MapPin size={40} className="mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-600 font-medium">Sin puntos de venta</p>
+              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                <MapPin size={40} className="mx-auto text-muted-foreground mb-2" />
+                <p className="text-muted-foreground font-medium">Sin puntos de venta</p>
                 <Button
                   variant="outline"
                   className="mt-4"
@@ -409,7 +409,7 @@ export function MyRouteEditorPage() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-900 flex items-center gap-2">
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
                 <Calendar size={20} />
                 Mis días asignados ({routeDays.filter((d) => d.AssignedUserId === userId).length})
               </h3>
@@ -429,15 +429,15 @@ export function MyRouteEditorPage() {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowAddDay(false)}
                     />
-                    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-xl border border-slate-200 p-4 z-50 space-y-3">
-                      <p className="text-sm font-medium text-slate-700">
+                    <div className="absolute right-0 top-full mt-2 w-72 bg-card rounded-lg shadow-xl border border-border p-4 z-50 space-y-3">
+                      <p className="text-sm font-medium text-muted-foreground">
                         Agregar fecha a mi agenda
                       </p>
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">Fecha</label>
+                        <label className="block text-xs text-muted-foreground mb-1">Fecha</label>
                         <input
                           type="date"
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                          className="w-full px-3 py-2 border border-border rounded-lg"
                           value={newDayDate}
                           onChange={(e) => setNewDayDate(e.target.value)}
                         />
@@ -456,10 +456,10 @@ export function MyRouteEditorPage() {
             </div>
 
             {routeDays.filter((d) => d.AssignedUserId === userId).length === 0 ? (
-              <div className="border-2 border-dashed border-slate-200 rounded-lg p-6 text-center">
-                <Calendar size={40} className="mx-auto text-slate-300 mb-2" />
-                <p className="text-slate-600 font-medium">Sin días asignados</p>
-                <p className="text-sm text-slate-500 mt-1">
+              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                <Calendar size={40} className="mx-auto text-muted-foreground mb-2" />
+                <p className="text-muted-foreground font-medium">Sin días asignados</p>
+                <p className="text-sm text-muted-foreground mt-1">
                   Agrega fechas para planificar tu ruta
                 </p>
                 <Button
@@ -479,10 +479,10 @@ export function MyRouteEditorPage() {
                   .map((d) => (
                     <div
                       key={d.RouteDayId}
-                      className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg"
+                      className="flex items-center gap-3 p-3 bg-muted rounded-lg"
                     >
-                      <Calendar size={18} className="text-slate-400" />
-                      <span className="text-sm font-medium text-slate-700">
+                      <Calendar size={18} className="text-muted-foreground" />
+                      <span className="text-sm font-medium text-muted-foreground">
                         {new Date(d.WorkDate).toLocaleDateString("es-AR", {
                           weekday: "short",
                           day: "numeric",
@@ -511,7 +511,7 @@ export function MyRouteEditorPage() {
         {/* Formularios */}
         <Card>
           <CardContent className="p-4">
-            <h3 className="font-semibold text-slate-900 mb-2">Formularios de relevamiento</h3>
+            <h3 className="font-semibold text-foreground mb-2">Formularios de relevamiento</h3>
             <div className="flex flex-wrap gap-2 mb-2">
               {routeForms.map((rf) => (
                 <Badge
@@ -524,7 +524,7 @@ export function MyRouteEditorPage() {
                     type="button"
                     onClick={() => handleRemoveForm(rf.FormId)}
                     disabled={saving}
-                    className="ml-1 p-0.5 hover:bg-slate-300 rounded"
+                    className="ml-1 p-0.5 hover:bg-secondary rounded"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -532,7 +532,7 @@ export function MyRouteEditorPage() {
               ))}
             </div>
             <select
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              className="w-full px-3 py-2 border border-border rounded-lg"
               value=""
               onChange={(e) => {
                 const formId = e.target.value ? Number(e.target.value) : 0;
@@ -576,20 +576,20 @@ function PdvRow({
 
   if (!pdv) {
     return (
-      <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-        <span className="text-slate-400">#{sortOrder}</span>
-        <span className="text-slate-500">PDV #{pdvId} (cargando...)</span>
+      <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+        <span className="text-muted-foreground">#{sortOrder}</span>
+        <span className="text-muted-foreground">PDV #{pdvId} (cargando...)</span>
       </div>
     );
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg">
-      <GripVertical size={18} className="text-slate-400" />
-      <span className="w-8 text-sm font-medium text-slate-500">#{sortOrder}</span>
+    <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
+      <GripVertical size={18} className="text-muted-foreground" />
+      <span className="w-8 text-sm font-medium text-muted-foreground">#{sortOrder}</span>
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-slate-900 truncate">{pdv.Name}</p>
-        <p className="text-sm text-slate-500">{pdv.Address || pdv.City || pdv.ChannelName}</p>
+        <p className="font-medium text-foreground truncate">{pdv.Name}</p>
+        <p className="text-sm text-muted-foreground">{pdv.Address || pdv.City || pdv.ChannelName}</p>
       </div>
       <Badge variant="outline">{pdv.ChannelName || pdv.Channel}</Badge>
       <Button variant="ghost" size="sm" onClick={onRemove} disabled={disabled}>

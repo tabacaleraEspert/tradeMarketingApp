@@ -34,8 +34,15 @@ export interface PdvContact {
   PdvId: number;
   ContactName: string;
   ContactPhone: string | null;
+  ContactRole: string | null;       // dueño, empleado, encargado
+  DecisionPower: string | null;     // alto, medio, bajo
   Birthday: string | null;
   CreatedAt: string;
+}
+
+export interface PdvDistributorInfo {
+  DistributorId: number;
+  Name: string;
 }
 
 export interface Pdv {
@@ -56,6 +63,7 @@ export interface Pdv {
   ContactName: string | null;
   ContactPhone: string | null;
   Contacts: PdvContact[];
+  Distributors: PdvDistributorInfo[];
   DefaultMaterialExternalId: string | null;
   IsActive: boolean;
   CreatedAt: string;
@@ -87,6 +95,8 @@ export interface Route {
   FrequencyType: string | null;
   FrequencyConfig: string | null;
   EstimatedMinutes: number | null;
+  AssignedUserId: number | null;
+  AssignedUserName: string | null;
   CreatedByUserId: number | null;
   PdvCount: number;
   CreatedAt: string;
@@ -158,6 +168,7 @@ export interface FormOption {
   Value: string;
   Label: string;
   SortOrder: number;
+  ImageUrl: string | null;
 }
 
 export interface Visit {
@@ -198,4 +209,74 @@ export interface Notification {
   CreatedAt: string;
   CreatedBy: number | null;
   ExpiresAt: string | null;
+}
+
+export interface VisitAnswer {
+  AnswerId: number;
+  VisitId: number;
+  QuestionId: number;
+  ValueText: string | null;
+  ValueNumber: number | null;
+  ValueBool: boolean | null;
+  OptionId: number | null;
+  ValueJson: string | null;
+  CreatedAt: string;
+}
+
+export interface VisitAction {
+  VisitActionId: number;
+  VisitId: number;
+  ActionType: string;        // cobertura, pop, canje_sueltos, promo, otra
+  Description: string | null;
+  DetailsJson: string | null;
+  PhotoRequired: boolean;
+  PhotoTaken: boolean;
+  IsMandatory: boolean;
+  MandatoryActivityId: number | null;
+  Status: string;            // PENDING, DONE, BACKLOG
+  CreatedAt: string;
+}
+
+export interface MandatoryActivity {
+  MandatoryActivityId: number;
+  Name: string;
+  ActionType: string;
+  Description: string | null;
+  DetailsJson: string | null;
+  PhotoRequired: boolean;
+  ChannelId: number | null;
+  RouteId: number | null;
+  IsActive: boolean;
+  CreatedAt: string | null;
+}
+
+export interface MarketNews {
+  MarketNewsId: number;
+  VisitId: number;
+  PdvId: number;
+  Tags: string | null;
+  Notes: string;
+  CreatedBy: number | null;
+  CreatedAt: string;
+}
+
+export interface ValidateCloseResult {
+  valid: boolean;
+  missing: Array<{
+    questionId?: number;
+    actionId?: number;
+    label: string;
+    formId?: number;
+  }>;
+}
+
+export interface DaySummary {
+  date: string;
+  planned: number;
+  visited: number;
+  completed: number;
+  compliance: number;
+  avgDuration: number;
+  actionsByType: Record<string, number>;
+  pendingItems: Array<{ pdvName: string; description: string }>;
 }

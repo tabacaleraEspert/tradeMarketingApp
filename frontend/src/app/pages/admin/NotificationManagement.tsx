@@ -69,10 +69,10 @@ export function NotificationManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
             Notificaciones
           </h1>
-          <p className="text-slate-600">
+          <p className="text-muted-foreground">
             Crea notificaciones que verán los Trade Rep (como incidencias)
           </p>
         </div>
@@ -90,14 +90,14 @@ export function NotificationManagement() {
       </div>
 
       {loading ? (
-        <p className="text-slate-600">Cargando...</p>
+        <p className="text-muted-foreground">Cargando...</p>
       ) : (
         <div className="grid gap-4">
           {notifications.length === 0 ? (
             <Card>
               <CardContent className="p-12 text-center">
-                <Bell size={48} className="mx-auto mb-4 text-slate-300" />
-                <p className="text-slate-600 mb-2">No hay notificaciones</p>
+                <Bell size={48} className="mx-auto mb-4 text-muted-foreground" />
+                <p className="text-muted-foreground mb-2">No hay notificaciones</p>
                 <Button onClick={() => setIsCreateModalOpen(true)}>
                   Crear primera notificación
                 </Button>
@@ -110,7 +110,7 @@ export function NotificationManagement() {
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <h3 className="text-lg font-bold text-slate-900">
+                        <h3 className="text-lg font-bold text-foreground">
                           {n.Title}
                         </h3>
                         <Badge variant={n.IsActive ? "default" : "secondary"}>
@@ -121,8 +121,8 @@ export function NotificationManagement() {
                           {getPriorityLabel(n.Priority)}
                         </Badge>
                       </div>
-                      <p className="text-slate-600 text-sm">{n.Message}</p>
-                      <p className="text-xs text-slate-400 mt-2">
+                      <p className="text-muted-foreground text-sm">{n.Message}</p>
+                      <p className="text-xs text-muted-foreground mt-2">
                         {new Date(n.CreatedAt).toLocaleString("es-AR")}
                       </p>
                     </div>
@@ -189,7 +189,7 @@ export function NotificationManagement() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Título *
             </label>
             <Input
@@ -199,7 +199,7 @@ export function NotificationManagement() {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Mensaje *
             </label>
             <Textarea
@@ -211,11 +211,11 @@ export function NotificationManagement() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="block text-sm font-medium text-muted-foreground mb-1">
                 Tipo
               </label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                className="w-full px-3 py-2 border border-border rounded-lg"
                 value={form.Type}
                 onChange={(e) => setForm((f) => ({ ...f, Type: e.target.value }))}
               >
@@ -225,11 +225,11 @@ export function NotificationManagement() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="block text-sm font-medium text-muted-foreground mb-1">
                 Prioridad
               </label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                className="w-full px-3 py-2 border border-border rounded-lg"
                 value={form.Priority}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, Priority: Number(e.target.value) }))
@@ -250,7 +250,7 @@ export function NotificationManagement() {
                   setForm((f) => ({ ...f, IsActive: e.target.checked }))
                 }
               />
-              <span className="text-sm font-medium text-slate-700">
+              <span className="text-sm font-medium text-muted-foreground">
                 Activa (visible para Trade Rep)
               </span>
             </label>

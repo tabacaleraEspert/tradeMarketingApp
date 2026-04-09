@@ -4,8 +4,10 @@ import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
-import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare } from "lucide-react";
-import { pdvsApi, visitsApi } from "@/lib/api";
+import { Badge } from "../components/ui/badge";
+import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare, UserCircle, AlertCircle } from "lucide-react";
+import { pdvsApi, visitsApi, incidentsApi } from "@/lib/api";
+import type { Incident } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
 
@@ -21,7 +23,11 @@ export function CheckIn() {
   const [isCheckedIn, setIsCheckedIn] = useState(false);
   const [currentVisitId, setCurrentVisitId] = useState<number | null>(visitIdFromState ?? null);
   const [reminderForNext, setReminderForNext] = useState("");
-  const [gpsStatus] = useState<"ok" | "out-of-range">("ok");
+  const [gpsStatus, setGpsStatus] = useState<"checking" | "ok" | "out-of-range" | "no-pdv-coords" | "denied" | "unavailable">("checking");
+  const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const GPS_PERIMETER_METERS = 200;
+  const [pendingIncidents, setPendingIncidents] = useState<Incident[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -42,9 +48,54 @@ export function CheckIn() {
         const last = visits[0];
         setLastReminder(last?.CloseReason || null);
       })
+      .catch(() => {});
+
+    // Load pending incidents for this PDV
+    incidentsApi
+      .list({ pdv_id: pdvId, status: "OPEN" })
+      .then(setPendingIncidents)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [id]);
+
+  // Haversine distance in meters
+  const distanceMetersBetween = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+
+  // Verify GPS proximity to PDV
+  useEffect(() => {
+    if (!pdv) return;
+    if (pdv.Lat == null || pdv.Lon == null) {
+      setGpsStatus("no-pdv-coords");
+      return;
+    }
+    if (!navigator.geolocation) {
+      setGpsStatus("unavailable");
+      return;
+    }
+    setGpsStatus("checking");
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setUserCoords({ lat: latitude, lon: longitude });
+        const d = distanceMetersBetween(latitude, longitude, pdv.Lat as number, pdv.Lon as number);
+        setDistanceMeters(d);
+        setGpsStatus(d <= GPS_PERIMETER_METERS ? "ok" : "out-of-range");
+      },
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) setGpsStatus("denied");
+        else setGpsStatus("unavailable");
+      },
+      { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [pdv]);
 
   const handleCheckIn = async () => {
     if (!id || !pdv) return;
@@ -56,6 +107,8 @@ export function CheckIn() {
         RouteDayId: routeDayId ?? undefined,
         Status: "OPEN",
       });
+      // Silently swallow — userCoords persisted via separate VisitCheck flow (future)
+      void userCoords;
       setCurrentVisitId(visit.VisitId);
       setIsCheckedIn(true);
       toast.success("Check-in registrado correctamente");
@@ -94,28 +147,28 @@ export function CheckIn() {
 
   if (loading || !pdv) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">{loading ? "Cargando..." : "PDV no encontrado"}</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">{loading ? "Cargando..." : "PDV no encontrado"}</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(`/pos/${id}`)}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">
+            <h1 className="text-xl font-bold text-foreground">
               {isCheckedIn ? "Check-out" : "Check-in"}
             </h1>
-            <p className="text-sm text-slate-600">{pdv.Name}</p>
+            <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
         </div>
       </div>
@@ -136,42 +189,147 @@ export function CheckIn() {
           </Card>
         )}
 
+        {/* Pending Incidents (Step 3) */}
+        {!isCheckedIn && pendingIncidents.length > 0 && (
+          <Card className="bg-red-50 border-red-200">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <AlertCircle size={18} className="text-red-600" />
+                <h3 className="font-semibold text-red-900">Tareas Pendientes ({pendingIncidents.length})</h3>
+              </div>
+              <p className="text-xs text-red-700 mb-2">Revisar antes de entrar al local</p>
+              <div className="space-y-2">
+                {pendingIncidents.map((inc) => (
+                  <div key={inc.IncidentId} className="flex items-start gap-2 p-2 bg-card rounded-lg border border-red-100">
+                    <Badge variant={inc.Priority === 1 ? "destructive" : "outline"} className="text-xs shrink-0 mt-0.5">
+                      {inc.Priority === 1 ? "Alta" : inc.Priority === 2 ? "Media" : "Baja"}
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{inc.Type}</p>
+                      {inc.Notes && <p className="text-xs text-muted-foreground truncate">{inc.Notes}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Contact Info (Step 4) */}
+        {!isCheckedIn && pdv.Contacts && pdv.Contacts.length > 0 && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <UserCircle size={18} className="text-muted-foreground" />
+                <h3 className="font-semibold text-foreground">Contacto del PDV</h3>
+              </div>
+              <div className="space-y-2">
+                {pdv.Contacts.map((contact, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-muted">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{contact.ContactName}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {contact.ContactRole && (
+                          <Badge variant="outline" className="text-xs">{contact.ContactRole}</Badge>
+                        )}
+                        {contact.DecisionPower && (
+                          <Badge variant={contact.DecisionPower === "alto" ? "default" : "secondary"} className="text-xs">
+                            Decisión: {contact.DecisionPower}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {contact.ContactPhone && (
+                      <a href={`tel:${contact.ContactPhone}`} className="text-espert-gold text-sm">{contact.ContactPhone}</a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Location Card */}
         <Card>
           <CardContent className="p-4">
             <div className="flex items-start gap-3 mb-4">
-              <div className="bg-blue-100 rounded-full p-3">
-                <MapPin size={24} className="text-blue-600" />
+              <div className="bg-espert-gold/10 rounded-full p-3">
+                <MapPin size={24} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <h3 className="font-semibold text-slate-900 mb-1">{pdv.Name}</h3>
-                <p className="text-sm text-slate-600">{pdv.Address || pdv.City || "-"}</p>
+                <h3 className="font-semibold text-foreground mb-1">{pdv.Name}</h3>
+                <p className="text-sm text-muted-foreground">{pdv.Address || pdv.City || "-"}</p>
               </div>
             </div>
 
             {/* GPS Status */}
             <div
-              className={`flex items-center gap-2 p-3 rounded-lg ${
+              className={`flex items-center gap-2 p-3 rounded-lg border ${
                 gpsStatus === "ok"
-                  ? "bg-green-50 border border-green-200"
-                  : "bg-red-50 border border-red-200"
+                  ? "bg-green-50 border-green-200"
+                  : gpsStatus === "checking"
+                  ? "bg-muted border-border"
+                  : gpsStatus === "no-pdv-coords"
+                  ? "bg-amber-50 border-amber-200"
+                  : "bg-red-50 border-red-200"
               }`}
             >
-              {gpsStatus === "ok" ? (
+              {gpsStatus === "ok" && (
                 <>
                   <Navigation2 size={20} className="text-green-600" />
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-green-900">Ubicación Confirmada</p>
-                    <p className="text-xs text-green-700">GPS dentro del perímetro</p>
+                    <p className="text-xs text-green-700">
+                      Dentro del perímetro ({distanceMeters !== null ? `${Math.round(distanceMeters)}m del PDV` : ""})
+                    </p>
                   </div>
                   <CheckCircle2 size={20} className="text-green-600" />
                 </>
-              ) : (
+              )}
+              {gpsStatus === "checking" && (
+                <>
+                  <Navigation2 size={20} className="text-muted-foreground animate-pulse" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-foreground">Verificando ubicación...</p>
+                    <p className="text-xs text-muted-foreground">Obteniendo coordenadas GPS</p>
+                  </div>
+                </>
+              )}
+              {gpsStatus === "out-of-range" && (
                 <>
                   <AlertTriangle size={20} className="text-red-600" />
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-red-900">Fuera de Rango</p>
-                    <p className="text-xs text-red-700">Ubicación fuera del perímetro del PDV</p>
+                    <p className="text-xs text-red-700">
+                      {distanceMeters !== null ? `A ${Math.round(distanceMeters)}m del PDV (máx. ${GPS_PERIMETER_METERS}m)` : "Fuera del perímetro"}
+                    </p>
+                  </div>
+                </>
+              )}
+              {gpsStatus === "no-pdv-coords" && (
+                <>
+                  <AlertTriangle size={20} className="text-amber-600" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-amber-900">PDV sin coordenadas</p>
+                    <p className="text-xs text-amber-700">Este PDV no tiene ubicación registrada</p>
+                  </div>
+                </>
+              )}
+              {gpsStatus === "denied" && (
+                <>
+                  <AlertTriangle size={20} className="text-red-600" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-red-900">Permiso denegado</p>
+                    <p className="text-xs text-red-700">Habilitá la ubicación en el navegador</p>
+                  </div>
+                </>
+              )}
+              {gpsStatus === "unavailable" && (
+                <>
+                  <AlertTriangle size={20} className="text-red-600" />
+                  <div className="flex-1">
+                    <p className="text-sm font-semibold text-red-900">GPS no disponible</p>
+                    <p className="text-xs text-red-700">No se pudo obtener la ubicación</p>
                   </div>
                 </>
               )}
@@ -183,20 +341,20 @@ export function CheckIn() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="bg-purple-100 rounded-full p-3">
-                <Clock size={24} className="text-purple-600" />
+              <div className="bg-espert-gold/10 rounded-full p-3">
+                <Clock size={24} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-slate-500">Hora Actual</p>
-                <p className="text-2xl font-bold text-slate-900">{currentTime}</p>
+                <p className="text-sm text-muted-foreground">Hora Actual</p>
+                <p className="text-2xl font-bold text-foreground">{currentTime}</p>
               </div>
             </div>
 
             {isCheckedIn && (
-              <div className="pt-3 border-t border-slate-100">
+              <div className="pt-3 border-t border-border">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">Check-in realizado:</span>
-                  <span className="font-semibold text-slate-900">{currentTime}</span>
+                  <span className="text-muted-foreground">Check-in realizado:</span>
+                  <span className="font-semibold text-foreground">{currentTime}</span>
                 </div>
               </div>
             )}
@@ -207,7 +365,7 @@ export function CheckIn() {
         {isCheckedIn && (
           <Card>
             <CardContent className="p-4">
-              <Label className="text-sm font-semibold text-slate-900 mb-2 block">
+              <Label className="text-sm font-semibold text-foreground mb-2 block">
                 Recordatorio próxima visita
               </Label>
               <Textarea
@@ -223,20 +381,20 @@ export function CheckIn() {
 
         {/* Visit Info */}
         {!isCheckedIn && (
-          <Card className="bg-blue-50 border-blue-200">
+          <Card className="bg-espert-gold/10 border-espert-gold">
             <CardContent className="p-4">
-              <h3 className="font-semibold text-blue-900 mb-2">Información de Visita</h3>
-              <ul className="space-y-2 text-sm text-blue-800">
+              <h3 className="font-semibold text-foreground mb-2">Información de Visita</h3>
+              <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-start gap-2">
-                  <span className="text-blue-600 font-bold">•</span>
+                  <span className="text-espert-gold font-bold">•</span>
                   <span>Asegúrate de estar dentro del perímetro del punto de venta</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-blue-600 font-bold">•</span>
+                  <span className="text-espert-gold font-bold">•</span>
                   <span>La hora de check-in será registrada automáticamente</span>
                 </li>
                 <li className="flex items-start gap-2">
-                  <span className="text-blue-600 font-bold">•</span>
+                  <span className="text-espert-gold font-bold">•</span>
                   <span>Después del check-in podrás completar el relevamiento</span>
                 </li>
               </ul>
@@ -251,7 +409,7 @@ export function CheckIn() {
               className="w-full h-14 text-base font-semibold"
               size="lg"
               onClick={handleCheckIn}
-              disabled={gpsStatus !== "ok" || saving}
+              disabled={saving || gpsStatus === "checking" || gpsStatus === "out-of-range" || gpsStatus === "denied" || gpsStatus === "unavailable"}
             >
               <CheckCircle2 className="mr-2" size={20} />
               {saving ? "Registrando..." : "Confirmar Check-in"}
@@ -280,10 +438,26 @@ export function CheckIn() {
             </>
           )}
 
-          {gpsStatus !== "ok" && (
+          {gpsStatus === "out-of-range" && (
             <p className="text-center text-sm text-red-600">
               Debes estar dentro del perímetro del PDV para hacer check-in
             </p>
+          )}
+          {gpsStatus === "no-pdv-coords" && (
+            <p className="text-center text-xs text-amber-700">
+              Sin coordenadas del PDV — check-in habilitado de todas formas
+            </p>
+          )}
+
+          {/* Bypass GPS - solo para demo/presentación */}
+          {!isCheckedIn && (gpsStatus === "checking" || gpsStatus === "out-of-range" || gpsStatus === "denied" || gpsStatus === "unavailable") && (
+            <button
+              onClick={handleCheckIn}
+              disabled={saving}
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 py-2 transition-colors"
+            >
+              Bypass GPS (demo)
+            </button>
           )}
         </div>
       </div>

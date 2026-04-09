@@ -12,16 +12,16 @@ interface KPICardProps {
 
 export function KPICard({ title, value, subtitle, icon, trend, color = "blue" }: KPICardProps) {
   const colorClasses = {
-    blue: "from-blue-500 to-blue-600",
+    blue: "from-[#A48242] to-[#8B6E38]",
     green: "from-green-500 to-green-600",
     red: "from-red-500 to-red-600",
     yellow: "from-yellow-500 to-yellow-600",
-    purple: "from-purple-500 to-purple-600",
-    slate: "from-slate-500 to-slate-600",
+    purple: "from-[#A48242] to-[#8B6E38]",
+    slate: "from-[#53565A] to-[#3a3d40]",
   };
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-shadow overflow-hidden">
+    <div className="bg-white rounded-lg border border-border shadow-sm hover:shadow-md transition-shadow overflow-hidden">
       <div className={`bg-gradient-to-r ${colorClasses[color]} p-4 text-white`}>
         <div className="flex items-center justify-between mb-2">
           <p className="text-sm font-medium opacity-90">{title}</p>
@@ -45,8 +45,8 @@ export function KPICard({ title, value, subtitle, icon, trend, color = "blue" }:
         </div>
       </div>
       {subtitle && (
-        <div className="px-4 py-3 bg-slate-50 border-t border-slate-100">
-          <p className="text-xs text-slate-600">{subtitle}</p>
+        <div className="px-4 py-3 bg-muted border-t border-border">
+          <p className="text-xs text-muted-foreground">{subtitle}</p>
         </div>
       )}
     </div>

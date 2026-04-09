@@ -18,7 +18,7 @@ export function StatusChip({ status, label, size = "md" }: StatusChipProps) {
         };
       case "in-progress":
         return {
-          color: "bg-blue-100 text-blue-800 border-blue-200",
+          color: "bg-espert-gold/10 text-espert-gold border-espert-gold/30",
           label: label || "En Curso",
         };
       case "completed":
@@ -28,7 +28,7 @@ export function StatusChip({ status, label, size = "md" }: StatusChipProps) {
         };
       case "not-synced":
         return {
-          color: "bg-slate-100 text-slate-800 border-slate-200",
+          color: "bg-muted text-foreground border-border",
           label: label || "Sin Sync",
         };
       case "alert":

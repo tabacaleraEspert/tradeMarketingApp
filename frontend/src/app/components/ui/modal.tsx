@@ -31,15 +31,15 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md" }:
       {/* Modal */}
       <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4">
         <div
-          className={`bg-white rounded-lg shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-scale-in`}
+          className={`bg-card rounded-lg shadow-2xl w-full ${sizeClasses[size]} max-h-[90vh] flex flex-col animate-scale-in`}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-slate-200">
-            <h2 className="text-xl font-bold text-slate-900">{title}</h2>
+          <div className="flex items-center justify-between p-6 border-b border-border">
+            <h2 className="text-xl font-bold text-foreground">{title}</h2>
             <button
               onClick={onClose}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
               <X size={20} />
             </button>
@@ -50,7 +50,7 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md" }:
 
           {/* Footer */}
           {footer && (
-            <div className="flex items-center justify-end gap-3 p-6 border-t border-slate-200">
+            <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
               {footer}
             </div>
           )}
@@ -133,7 +133,7 @@ export function ConfirmModal({
         </>
       }
     >
-      <p className="text-slate-600">{message}</p>
+      <p className="text-muted-foreground">{message}</p>
     </Modal>
   );
 }

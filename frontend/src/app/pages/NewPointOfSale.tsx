@@ -8,7 +8,7 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search } from "lucide-react";
+import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { pdvsApi, distributorsApi, ApiError } from "@/lib/api";
 import { useChannels, useSubChannels } from "@/lib/api";
@@ -57,6 +57,65 @@ export function NewPointOfSale() {
   });
 
   const [geocoding, setGeocoding] = useState(false);
+  const [capturingLocation, setCapturingLocation] = useState(false);
+  const [capturedGps, setCapturedGps] = useState<{ lat: number; lon: number } | null>(null);
+  const ADDRESS_MAX_DISTANCE_M = 300;
+
+  // Haversine distance in meters
+  const distanceMetersBetween = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  };
+
+  const addressDistance =
+    capturedGps && formData.lat != null && formData.lon != null
+      ? distanceMetersBetween(capturedGps.lat, capturedGps.lon, Number(formData.lat), Number(formData.lon))
+      : null;
+  const addressOutOfRange = addressDistance !== null && addressDistance > ADDRESS_MAX_DISTANCE_M;
+
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("GPS no disponible en este navegador");
+      return;
+    }
+    if (!isMapsLoaded || typeof google === "undefined" || !google.maps) {
+      toast.error("Espera a que cargue el mapa");
+      return;
+    }
+    setCapturingLocation(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setCapturedGps({ lat: latitude, lon: longitude });
+        // Reverse geocode
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode(
+          { location: { lat: latitude, lng: longitude } },
+          (results, status) => {
+            setCapturingLocation(false);
+            if (status === "OK" && results?.[0]) {
+              const addr = results[0].formatted_address;
+              setFormData((f) => ({ ...f, address: addr, lat: latitude, lon: longitude }));
+              toast.success("Ubicación capturada");
+            } else {
+              setFormData((f) => ({ ...f, lat: latitude, lon: longitude }));
+              toast.warning("Ubicación capturada, pero no se pudo obtener la dirección");
+            }
+          }
+        );
+      },
+      (err) => {
+        setCapturingLocation(false);
+        if (err.code === err.PERMISSION_DENIED) toast.error("Permiso de ubicación denegado");
+        else toast.error("No se pudo obtener la ubicación");
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    );
+  };
 
   const handleGeocodeAddress = () => {
     const addr = formData.address?.trim();
@@ -115,6 +174,13 @@ export function NewPointOfSale() {
       return;
     }
 
+    if (addressOutOfRange) {
+      toast.error(
+        `La dirección está a ${Math.round(addressDistance!)}m de la ubicación capturada (máx. ${ADDRESS_MAX_DISTANCE_M}m)`
+      );
+      return;
+    }
+
     setLoading(true);
     try {
       const contactsToSend = contacts
@@ -146,19 +212,19 @@ export function NewPointOfSale() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="min-h-screen bg-background pb-24">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Alta de Nuevo PDV</h1>
-            <p className="text-sm text-slate-600">Registro rápido en campo</p>
+            <h1 className="text-xl font-bold text-foreground">Alta de Nuevo PDV</h1>
+            <p className="text-sm text-muted-foreground">Registro rápido en campo</p>
           </div>
         </div>
       </div>
@@ -168,7 +234,7 @@ export function NewPointOfSale() {
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center gap-2 mb-2">
-              <h3 className="font-semibold text-slate-900">Información Básica</h3>
+              <h3 className="font-semibold text-foreground">Información Básica</h3>
               <Badge variant="destructive" className="text-xs">Obligatorio</Badge>
             </div>
 
@@ -189,6 +255,22 @@ export function NewPointOfSale() {
               <Label htmlFor="address">
                 Dirección <span className="text-red-600">*</span>
               </Label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleUseCurrentLocation}
+                disabled={capturingLocation || !isMapsLoaded}
+                className="w-full"
+              >
+                <Crosshair size={16} className="mr-2" />
+                {capturingLocation ? "Obteniendo ubicación..." : "Usar mi ubicación actual"}
+              </Button>
+              {capturedGps && (
+                <p className="text-xs text-muted-foreground">
+                  Ubicación capturada: {capturedGps.lat.toFixed(6)}, {capturedGps.lon.toFixed(6)}
+                </p>
+              )}
               <AddressAutocomplete
                 id="address"
                 value={formData.address}
@@ -211,9 +293,23 @@ export function NewPointOfSale() {
                   {geocoding ? "Buscando..." : "Buscar ubicación en mapa"}
                 </Button>
               )}
+              {addressOutOfRange && (
+                <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertTriangle size={16} className="text-red-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-700">
+                    La dirección está a <strong>{Math.round(addressDistance!)}m</strong> de tu ubicación capturada.
+                    Máximo permitido: {ADDRESS_MAX_DISTANCE_M}m.
+                  </p>
+                </div>
+              )}
+              {addressDistance !== null && !addressOutOfRange && (
+                <p className="text-xs text-green-700">
+                  Dirección a {Math.round(addressDistance)}m de la ubicación capturada ✓
+                </p>
+              )}
               {formData.lat != null && formData.lon != null && (
                 <>
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Coordenadas: {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}
                   </p>
                   <LocationMap
@@ -282,7 +378,7 @@ export function NewPointOfSale() {
         {/* Distributor */}
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-slate-900">Distribuidor</h3>
+            <h3 className="font-semibold text-foreground">Distribuidor</h3>
 
             <div className="space-y-2">
               <Label htmlFor="distributor">Distribuidor Asociado</Label>
@@ -309,7 +405,7 @@ export function NewPointOfSale() {
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Contactos</h3>
+              <h3 className="font-semibold text-foreground">Contactos</h3>
               <Button type="button" variant="outline" size="sm" onClick={addContact}>
                 <Plus size={16} className="mr-1" />
                 Agregar
@@ -317,9 +413,9 @@ export function NewPointOfSale() {
             </div>
 
             {contacts.map((contact, index) => (
-              <div key={index} className="p-3 bg-slate-50 rounded-lg space-y-2 border border-slate-200">
+              <div key={index} className="p-3 bg-muted rounded-lg space-y-2 border border-border">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-slate-600">Contacto {index + 1}</span>
+                  <span className="text-sm font-medium text-muted-foreground">Contacto {index + 1}</span>
                   {contacts.length > 1 && (
                     <Button
                       type="button"
@@ -360,7 +456,7 @@ export function NewPointOfSale() {
         <Card>
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-900">Fotos Iniciales</h3>
+              <h3 className="font-semibold text-foreground">Fotos Iniciales</h3>
               <Badge variant="outline">{photos.length} fotos</Badge>
             </div>
 
@@ -387,7 +483,7 @@ export function NewPointOfSale() {
         {/* Observations */}
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-slate-900">Observaciones</h3>
+            <h3 className="font-semibold text-foreground">Observaciones</h3>
 
             <div className="space-y-2">
               <Label htmlFor="observations">Información Adicional</Label>
@@ -403,8 +499,8 @@ export function NewPointOfSale() {
         </Card>
 
         {/* Submit Button */}
-        <div className="fixed bottom-20 left-0 right-0 bg-white border-t border-slate-200 p-4">
-          <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={loading}>
+        <div className="sticky bottom-0 bg-card border-t border-border p-3">
+          <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={loading || addressOutOfRange}>
             <Send className="mr-2" size={18} />
             {loading ? "Creando..." : "Crear PDV"}
           </Button>

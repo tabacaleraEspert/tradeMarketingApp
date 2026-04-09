@@ -62,19 +62,19 @@ export function Sync() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Sincronización</h1>
-            <p className="text-sm text-slate-600">Estado de datos offline/online</p>
+            <h1 className="text-xl font-bold text-foreground">Sincronización</h1>
+            <p className="text-sm text-muted-foreground">Estado de datos offline/online</p>
           </div>
         </div>
       </div>
@@ -127,12 +127,12 @@ export function Sync() {
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3 mb-4">
-              <div className="bg-blue-100 rounded-full p-3">
-                <Clock size={24} className="text-blue-600" />
+              <div className="bg-espert-gold/10 rounded-full p-3">
+                <Clock size={24} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-slate-900">Última Sincronización</p>
-                <p className="text-sm text-slate-600">
+                <p className="font-semibold text-foreground">Última Sincronización</p>
+                <p className="text-sm text-muted-foreground">
                   {formatLastSync(syncStatus.lastSync)}
                 </p>
               </div>
@@ -147,8 +147,8 @@ export function Sync() {
             {isSyncing && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-600">Sincronizando...</span>
-                  <span className="font-semibold text-blue-600">{syncProgress}%</span>
+                  <span className="text-muted-foreground">Sincronizando...</span>
+                  <span className="font-semibold text-espert-gold">{syncProgress}%</span>
                 </div>
                 <Progress value={syncProgress} />
               </div>
@@ -158,7 +158,7 @@ export function Sync() {
 
         {/* Pending Items */}
         <div className="space-y-3">
-          <h3 className="font-semibold text-slate-900">Datos Pendientes de Sincronización</h3>
+          <h3 className="font-semibold text-foreground">Datos Pendientes de Sincronización</h3>
 
           {/* Pending Records */}
           <Card>
@@ -168,8 +168,8 @@ export function Sync() {
                   <FileText size={20} className="text-yellow-600" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-slate-900">Registros de Relevamiento</p>
-                  <p className="text-sm text-slate-600">
+                  <p className="font-semibold text-foreground">Registros de Relevamiento</p>
+                  <p className="text-sm text-muted-foreground">
                     Formularios y datos de visitas
                   </p>
                 </div>
@@ -187,12 +187,12 @@ export function Sync() {
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="bg-purple-100 rounded-full p-2.5">
-                  <Camera size={20} className="text-purple-600" />
+                <div className="bg-espert-gold/10 rounded-full p-2.5">
+                  <Camera size={20} className="text-espert-gold" />
                 </div>
                 <div className="flex-1">
-                  <p className="font-semibold text-slate-900">Fotos Pendientes</p>
-                  <p className="text-sm text-slate-600">
+                  <p className="font-semibold text-foreground">Fotos Pendientes</p>
+                  <p className="text-sm text-muted-foreground">
                     Evidencia fotográfica sin subir
                   </p>
                 </div>
@@ -207,14 +207,14 @@ export function Sync() {
           </Card>
 
           {/* Summary */}
-          <Card className="bg-slate-50">
+          <Card className="bg-muted">
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <AlertCircle size={18} className="text-slate-500" />
-                  <span className="text-sm text-slate-700">Total pendiente</span>
+                  <AlertCircle size={18} className="text-muted-foreground" />
+                  <span className="text-sm text-muted-foreground">Total pendiente</span>
                 </div>
-                <span className="text-lg font-bold text-slate-900">
+                <span className="text-lg font-bold text-foreground">
                   {syncStatus.pendingRecords + syncStatus.pendingPhotos} items
                 </span>
               </div>
@@ -242,23 +242,23 @@ export function Sync() {
         </Button>
 
         {/* Info Cards */}
-        <Card className="bg-blue-50 border-blue-200">
+        <Card className="bg-espert-gold/10 border-espert-gold/30">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="text-blue-600 mt-0.5 flex-shrink-0" />
+              <CheckCircle2 size={20} className="text-espert-gold mt-0.5 flex-shrink-0" />
               <div>
-                <p className="font-semibold text-blue-900 mb-2">Modo Offline</p>
-                <ul className="space-y-1 text-sm text-blue-800">
+                <p className="font-semibold text-foreground mb-2">Modo Offline</p>
+                <ul className="space-y-1 text-sm text-espert-gold">
                   <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
+                    <span className="text-espert-gold font-bold">•</span>
                     <span>Todos los datos se guardan localmente en tu dispositivo</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
+                    <span className="text-espert-gold font-bold">•</span>
                     <span>Se sincronizarán automáticamente al recuperar conexión</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-blue-600 font-bold">•</span>
+                    <span className="text-espert-gold font-bold">•</span>
                     <span>Puedes continuar trabajando sin interrupciones</span>
                   </li>
                 </ul>

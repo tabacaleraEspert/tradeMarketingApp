@@ -293,20 +293,20 @@ export function FormEditorPage() {
   if (loading || !form) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
-        <p className="text-slate-600">Cargando...</p>
+        <p className="text-muted-foreground">Cargando...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-20">
+      <div className="bg-card border-b border-border sticky top-0 z-20">
         <div className="max-w-3xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between gap-4">
             <button
               onClick={() => navigate("/admin/forms")}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-muted rounded-lg transition-colors"
             >
               <ArrowLeft size={24} />
             </button>
@@ -314,13 +314,13 @@ export function FormEditorPage() {
               <Input
                 value={formDraft?.Name ?? ""}
                 onChange={(e) => setFormDraft((d) => (d ? { ...d, Name: e.target.value } : null))}
-                className="text-xl font-bold border-0 border-b-2 border-transparent hover:border-slate-200 focus:border-blue-500 focus:ring-0"
+                className="text-xl font-bold border-0 border-b-2 border-transparent hover:border-border focus:border-espert-gold focus:ring-0"
                 placeholder="Nombre del formulario"
               />
               <Input
                 value={formDraft?.Channel ?? ""}
                 onChange={(e) => setFormDraft((d) => (d ? { ...d, Channel: e.target.value || null } : null))}
-                className="text-sm text-slate-500 mt-1 border-0 bg-transparent"
+                className="text-sm text-muted-foreground mt-1 border-0 bg-transparent"
                 placeholder="Canal o descripción (opcional)"
               />
             </div>
@@ -364,7 +364,7 @@ export function FormEditorPage() {
           <FormPreview questions={questions} />
         ) : (
           <>
-            <p className="text-sm text-slate-500 mb-6">
+            <p className="text-sm text-muted-foreground mb-6">
               Haz clic en una pregunta para editarla. Los cambios se guardan al hacer clic en <strong>Guardar</strong> en cada tarjeta.
             </p>
             {/* Questions */}
@@ -437,15 +437,15 @@ export function FormEditorPage() {
                     className="fixed inset-0 z-40"
                     onClick={() => setShowAddMenu(false)}
                   />
-                  <div className="absolute left-0 right-0 top-full mt-2 bg-white rounded-lg shadow-xl border border-slate-200 p-4 z-50 grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="absolute left-0 right-0 top-full mt-2 bg-card rounded-lg shadow-xl border border-border p-4 z-50 grid grid-cols-2 sm:grid-cols-3 gap-2">
                     {QUESTION_TYPES.map(({ type, icon: Icon, label }) => (
                       <button
                         key={type}
                         onClick={() => addQuestion(type)}
                         disabled={saving}
-                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-slate-50 text-left transition-colors"
+                        className="flex items-center gap-3 p-3 rounded-lg hover:bg-muted text-left transition-colors"
                       >
-                        <Icon size={20} className="text-slate-500" />
+                        <Icon size={20} className="text-muted-foreground" />
                         <span className="text-sm font-medium">{label}</span>
                       </button>
                     ))}
@@ -574,21 +574,21 @@ function QuestionCard({
 
   return (
     <Card
-      className={`overflow-hidden transition-all ${isEditing ? "ring-2 ring-blue-500" : ""}`}
+      className={`overflow-hidden transition-all ${isEditing ? "ring-2 ring-espert-gold" : ""}`}
       onClick={!isEditing ? onEdit : undefined}
     >
       <CardContent className="p-0">
         <div className="flex items-start gap-2 p-4">
           <div className="flex flex-col gap-0 pt-1">
-            <GripVertical size={18} className="text-slate-400 cursor-move" />
+            <GripVertical size={18} className="text-muted-foreground cursor-move" />
             {onMoveUp && (
-              <button onClick={(e) => { e.stopPropagation(); onMoveUp(); }} className="p-0.5 hover:bg-slate-100 rounded">
-                <ChevronUp size={16} className="text-slate-500" />
+              <button onClick={(e) => { e.stopPropagation(); onMoveUp(); }} className="p-0.5 hover:bg-muted rounded">
+                <ChevronUp size={16} className="text-muted-foreground" />
               </button>
             )}
             {onMoveDown && (
-              <button onClick={(e) => { e.stopPropagation(); onMoveDown(); }} className="p-0.5 hover:bg-slate-100 rounded">
-                <ChevronDown size={16} className="text-slate-500" />
+              <button onClick={(e) => { e.stopPropagation(); onMoveDown(); }} className="p-0.5 hover:bg-muted rounded">
+                <ChevronDown size={16} className="text-muted-foreground" />
               </button>
             )}
           </div>
@@ -602,7 +602,7 @@ function QuestionCard({
                 onClick={(e) => e.stopPropagation()}
               />
             ) : (
-              <p className="font-medium text-slate-900 mb-1">{displayLabel}</p>
+              <p className="font-medium text-foreground mb-1">{displayLabel}</p>
             )}
             <div className="flex items-center gap-2">
               <Badge variant="outline" className="text-xs">
@@ -617,7 +617,7 @@ function QuestionCard({
           {isEditing && (
             <div className="flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Obligatoria</span>
+                <span className="text-xs text-muted-foreground">Obligatoria</span>
                 <Switch
                   checked={draftRequired}
                   onCheckedChange={setDraftRequired}
@@ -638,18 +638,32 @@ function QuestionCard({
         </div>
 
         {isEditing && (
-          <div className="px-4 pb-4 pt-0 space-y-4 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+          <div className="px-4 pb-4 pt-0 space-y-4 border-t border-border" onClick={(e) => e.stopPropagation()}>
             {/* Options */}
             {hasOptions && question.options && (
               <div className="space-y-2">
                 <Label className="text-sm">Opciones</Label>
                 {question.options.map((opt) => (
-                  <div key={opt.OptionId} className="flex items-center gap-2">
+                  <div key={opt.OptionId} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/30">
+                    {opt.ImageUrl && (
+                      <img src={opt.ImageUrl} alt="" className="w-8 h-8 object-contain rounded bg-card shrink-0" />
+                    )}
                     <Input
                       value={draftOptions[opt.OptionId] ?? opt.Label}
                       onChange={(e) => setDraftOptions((prev) => ({ ...prev, [opt.OptionId]: e.target.value }))}
                       className="flex-1"
                       placeholder="Etiqueta"
+                    />
+                    <Input
+                      value={opt.ImageUrl ?? ""}
+                      onChange={(e) => {
+                        // Update image URL via API immediately
+                        if (opt.OptionId > 0) {
+                          formsApi.updateOption(opt.OptionId, { ImageUrl: e.target.value || undefined });
+                        }
+                      }}
+                      className="w-40 text-xs"
+                      placeholder="URL imagen (opcional)"
                     />
                     <Button
                       variant="ghost"
@@ -693,7 +707,7 @@ function QuestionCard({
             <div className="space-y-2">
               <Label className="text-sm">Mostrar esta pregunta si...</Label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                className="w-full px-3 py-2 border border-border rounded-lg"
                 value={draftShowIf?.questionId ?? ""}
                 onChange={(e) => {
                   const qId = Number(e.target.value);
@@ -723,7 +737,7 @@ function QuestionCard({
               {draftShowIf && (
                 <>
                   <select
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    className="w-full px-3 py-2 border border-border rounded-lg"
                     value={draftShowIf.operator}
                     onChange={(e) =>
                       setDraftShowIf((prev) => prev ? { ...prev, operator: e.target.value as ConditionalRule["operator"] } : null)
@@ -741,7 +755,7 @@ function QuestionCard({
                     if (hasOptions && targetQ?.options?.length) {
                       return (
                         <select
-                          className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                          className="w-full px-3 py-2 border border-border rounded-lg"
                           value={draftShowIf.value ?? ""}
                           onChange={(e) => setDraftShowIf((prev) => prev ? { ...prev, value: e.target.value } : null)}
                         >
@@ -773,31 +787,44 @@ function QuestionCard({
 }
 
 function FormPreview({ questions }: { questions: QuestionWithOptions[] }) {
+  const [previewAnswers, setPreviewAnswers] = useState<Record<number, any>>({});
+  const [previewPhotos, setPreviewPhotos] = useState<Record<string, string>>({});
+
+  const setAnswer = (qId: number, val: any) => setPreviewAnswers((p) => ({ ...p, [qId]: val }));
+
   return (
     <div className="space-y-6">
       {questions.map((q) => {
         const typeInfo = QUESTION_TYPES.find((t) => t.type === q.QType);
         const Icon = typeInfo?.icon ?? Type;
         return (
-          <Card key={q.QuestionId}>
-            <CardContent className="p-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-2">
-                <Icon size={16} />
-                {q.Label}
-                {q.IsRequired && <span className="text-red-500">*</span>}
-              </label>
-              {q.QType === "text" && <Input placeholder="Tu respuesta" />}
+          <Card key={q.QuestionId} className="overflow-hidden">
+            <CardContent className="p-5">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-espert-gold/10 flex items-center justify-center shrink-0">
+                  <Icon size={16} className="text-espert-gold" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">
+                    {q.Label}
+                    {q.IsRequired && <span className="text-red-500 ml-1">*</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{typeInfo?.label}</p>
+                </div>
+              </div>
+
+              {q.QType === "text" && <Input placeholder="Tu respuesta" className="bg-muted/50" />}
               {q.QType === "textarea" && (
                 <textarea
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg min-h-[100px]"
+                  className="w-full px-3 py-2 border border-border rounded-lg min-h-[100px] bg-muted/50 focus:outline-none focus:ring-2 focus:ring-espert-gold"
                   placeholder="Tu respuesta"
                 />
               )}
-              {q.QType === "number" && <Input type="number" placeholder="0" />}
-              {q.QType === "email" && <Input type="email" placeholder="email@ejemplo.com" />}
-              {q.QType === "phone" && <Input type="tel" placeholder="+54 11 1234-5678" />}
+              {q.QType === "number" && <Input type="number" placeholder="0" className="bg-muted/50" />}
+              {q.QType === "email" && <Input type="email" placeholder="email@ejemplo.com" className="bg-muted/50" />}
+              {q.QType === "phone" && <Input type="tel" placeholder="+54 11 1234-5678" className="bg-muted/50" />}
               {q.QType === "select" && (
-                <select className="w-full px-3 py-2 border border-slate-300 rounded-lg">
+                <select className="w-full px-3 py-2 border border-border rounded-lg bg-muted/50 focus:outline-none focus:ring-2 focus:ring-espert-gold">
                   <option value="">Seleccionar...</option>
                   {(q.options || []).map((o) => (
                     <option key={o.OptionId} value={o.Value}>{o.Label}</option>
@@ -807,56 +834,152 @@ function FormPreview({ questions }: { questions: QuestionWithOptions[] }) {
               {q.QType === "radio" && (
                 <div className="space-y-2">
                   {(q.options || []).map((o) => (
-                    <label key={o.OptionId} className="flex items-center gap-2">
-                      <input type="radio" name={`q-${q.QuestionId}`} className="w-4 h-4" />
-                      <span>{o.Label}</span>
+                    <label key={o.OptionId} className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer transition-colors">
+                      <input type="radio" name={`q-${q.QuestionId}`} className="w-4 h-4 accent-[#A48242]" />
+                      <span className="text-sm font-medium">{o.Label}</span>
                     </label>
                   ))}
                 </div>
               )}
-              {q.QType === "checkbox" && (
-                <div className="space-y-2">
-                  {(q.options || []).map((o) => (
-                    <label key={o.OptionId} className="flex items-center gap-2">
-                      <input type="checkbox" className="w-4 h-4" />
-                      <span>{o.Label}</span>
-                    </label>
-                  ))}
-                </div>
-              )}
-              {q.QType === "checkbox_price" && (
-                <div className="space-y-2">
-                  <p className="text-xs text-slate-500 mb-1">
-                    Al marcar una opción se habilita el campo de precio en la misma línea.
-                  </p>
-                  {(q.options || []).map((o) => (
-                    <div key={o.OptionId} className="flex items-center gap-3">
-                      <label className="flex items-center gap-2 cursor-pointer shrink-0">
-                        <input type="checkbox" className="w-4 h-4" />
-                        <span>{o.Label}</span>
-                      </label>
-                      <Input type="number" placeholder="Precio" className="w-24" readOnly />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {q.QType === "date" && <Input type="date" />}
+
+              {/* Checkbox as visual cards */}
+              {q.QType === "checkbox" && (() => {
+                const checked = (previewAnswers[q.QuestionId] as string[]) ?? [];
+                return (
+                  <div className="grid grid-cols-2 gap-2">
+                    {(q.options || []).map((o) => {
+                      const isChecked = checked.includes(o.Value);
+                      const photoKey = `${q.QuestionId}_${o.OptionId}`;
+                      return (
+                        <div
+                          key={o.OptionId}
+                          onClick={() => {
+                            const next = isChecked ? checked.filter((v) => v !== o.Value) : [...checked, o.Value];
+                            setAnswer(q.QuestionId, next);
+                          }}
+                          className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all ${
+                            isChecked ? "border-espert-gold bg-espert-gold/5" : "border-border hover:border-espert-gold/40"
+                          }`}
+                        >
+                          {/* Checkmark */}
+                          <div className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-xs ${
+                            isChecked ? "bg-espert-gold text-white" : "border-2 border-border"
+                          }`}>
+                            {isChecked && "✓"}
+                          </div>
+                          {/* Image */}
+                          {o.ImageUrl ? (
+                            <img src={o.ImageUrl} alt={o.Label} className="w-full h-20 object-contain rounded-lg mb-2 bg-muted" />
+                          ) : (
+                            <div className="w-full h-20 rounded-lg mb-2 bg-muted/60 flex items-center justify-center">
+                              <Image size={24} className="text-muted-foreground/40" />
+                            </div>
+                          )}
+                          <p className="text-sm font-medium text-center">{o.Label}</p>
+                          {/* Photo capture button */}
+                          {isChecked && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); }}
+                              className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-muted text-xs text-muted-foreground hover:bg-muted/80 transition-colors"
+                            >
+                              <Image size={12} />
+                              {previewPhotos[photoKey] ? "Foto tomada" : "Tomar foto"}
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Checkbox with price as cards */}
+              {q.QType === "checkbox_price" && (() => {
+                const obj = (previewAnswers[q.QuestionId] as Record<string, number | null>) ?? {};
+                return (
+                  <div className="space-y-2">
+                    {(q.options || []).map((o) => {
+                      const isChecked = o.Value in obj;
+                      return (
+                        <div
+                          key={o.OptionId}
+                          className={`rounded-xl border-2 p-3 transition-all ${
+                            isChecked ? "border-espert-gold bg-espert-gold/5" : "border-border"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <label className="flex items-center gap-3 cursor-pointer flex-1">
+                              <input
+                                type="checkbox"
+                                className="w-5 h-5 accent-[#A48242] rounded"
+                                checked={isChecked}
+                                onChange={(e) => {
+                                  const next = { ...obj };
+                                  if (e.target.checked) next[o.Value] = null;
+                                  else delete next[o.Value];
+                                  setAnswer(q.QuestionId, next);
+                                }}
+                              />
+                              {o.ImageUrl && (
+                                <img src={o.ImageUrl} alt={o.Label} className="w-10 h-10 object-contain rounded bg-muted" />
+                              )}
+                              <span className="font-medium text-sm">{o.Label}</span>
+                            </label>
+                            {isChecked && (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-xs text-muted-foreground">$</span>
+                                <Input type="number" placeholder="Precio" className="w-24 h-8 text-sm bg-muted/50" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {q.QType === "date" && <Input type="date" className="bg-muted/50" />}
+
               {q.QType === "scale" && (() => {
                 const rules = parseRulesJson(q.RulesJson) as { scale?: typeof SCALE_DEFAULT } | null;
                 const scale = rules?.scale || SCALE_DEFAULT;
                 const min = scale.min ?? 1;
                 const max = scale.max ?? 5;
+                const val = (previewAnswers[q.QuestionId] as number) ?? min;
+                const steps = Array.from({ length: max - min + 1 }, (_, i) => min + i);
                 return (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-500">{min}</span>
-                    <input type="range" min={min} max={max} defaultValue={min} className="flex-1" />
-                    <span className="text-sm text-slate-500">{max}</span>
+                  <div className="space-y-3">
+                    <div className="flex gap-2 justify-between">
+                      {steps.map((n) => (
+                        <button
+                          key={n}
+                          onClick={() => setAnswer(q.QuestionId, n)}
+                          className={`flex-1 h-12 rounded-xl font-semibold text-sm transition-all ${
+                            val === n
+                              ? "bg-espert-gold text-white shadow-md scale-105"
+                              : "bg-muted text-muted-foreground hover:bg-muted/80"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                    {(scale as any).minLabel && (
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{(scale as any).minLabel}</span>
+                        <span>{(scale as any).maxLabel}</span>
+                      </div>
+                    )}
                   </div>
                 );
               })()}
+
               {q.QType === "photo" && (
-                <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center text-slate-500">
-                  Área para capturar foto
+                <div className="border-2 border-dashed border-espert-gold/30 rounded-xl p-8 text-center bg-espert-gold/5 cursor-pointer hover:bg-espert-gold/10 transition-colors">
+                  <Image size={32} className="mx-auto text-espert-gold/60 mb-2" />
+                  <p className="text-sm font-medium text-espert-gold">Tomar foto</p>
+                  <p className="text-xs text-muted-foreground mt-1">Toca para abrir la cámara</p>
                 </div>
               )}
             </CardContent>
@@ -864,7 +987,7 @@ function FormPreview({ questions }: { questions: QuestionWithOptions[] }) {
         );
       })}
       {questions.length === 0 && (
-        <p className="text-center text-slate-500 py-12">Sin preguntas aún</p>
+        <p className="text-center text-muted-foreground py-12">Sin preguntas aún</p>
       )}
     </div>
   );

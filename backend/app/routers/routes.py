@@ -7,7 +7,10 @@ from ..models import (
     RoutePdv as RoutePdvModel,
     RouteDay as RouteDayModel,
     RouteDayPdv as RouteDayPdvModel,
+    PDV as PDVModel,
+    User as UserModel,
 )
+from ..models.channel import Channel as ChannelModel
 from ..schemas.route import (
     Route,
     RouteCreate,
@@ -33,6 +36,12 @@ BEJERMAN_ZONES = ["Litoral", "GBA Sur", "GBA Norte", "Patagonia"]
 
 def _route_to_response(r: RouteModel, db: Session) -> Route:
     pdv_count = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == r.RouteId).count()
+    assigned_user_id = getattr(r, "AssignedUserId", None)
+    assigned_user_name = None
+    if assigned_user_id:
+        user = db.query(UserModel).filter(UserModel.UserId == assigned_user_id).first()
+        if user:
+            assigned_user_name = user.DisplayName
     data = {
         "RouteId": r.RouteId,
         "Name": r.Name,
@@ -43,6 +52,8 @@ def _route_to_response(r: RouteModel, db: Session) -> Route:
         "FrequencyType": getattr(r, "FrequencyType", None),
         "FrequencyConfig": getattr(r, "FrequencyConfig", None),
         "EstimatedMinutes": getattr(r, "EstimatedMinutes", None),
+        "AssignedUserId": assigned_user_id,
+        "AssignedUserName": assigned_user_name,
         "CreatedByUserId": getattr(r, "CreatedByUserId", None),
         "PdvCount": pdv_count,
         "CreatedAt": r.CreatedAt,
@@ -54,6 +65,91 @@ def _route_to_response(r: RouteModel, db: Session) -> Route:
 @router.get("/bejerman-zones")
 def list_bejerman_zones():
     return {"zones": BEJERMAN_ZONES}
+
+
+# --- Route Map Overview ---
+@router.get("/map-overview")
+def routes_map_overview(db: Session = Depends(get_db)):
+    """All routes with their PDV coordinates for map visualization."""
+    routes = db.query(RouteModel).filter(RouteModel.IsActive.is_(True)).all()
+    ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
+
+    all_routed_pdv_ids: set[int] = set()
+    route_list = []
+    for r in routes:
+        route_pdvs = (
+            db.query(RoutePdvModel)
+            .filter(RoutePdvModel.RouteId == r.RouteId)
+            .order_by(RoutePdvModel.SortOrder)
+            .all()
+        )
+        pdv_ids = [rp.PdvId for rp in route_pdvs]
+        all_routed_pdv_ids.update(pdv_ids)
+        if not pdv_ids:
+            continue
+        pdvs = db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()
+        pdv_map = {p.PdvId: p for p in pdvs}
+
+        # Assigned user
+        assigned_user_id = getattr(r, "AssignedUserId", None)
+        assigned_user_name = None
+        if assigned_user_id:
+            user = db.query(UserModel).filter(UserModel.UserId == assigned_user_id).first()
+            if user:
+                assigned_user_name = user.DisplayName
+
+        pdv_list = []
+        for rp in route_pdvs:
+            p = pdv_map.get(rp.PdvId)
+            if not p:
+                continue
+            pdv_list.append({
+                "pdvId": p.PdvId,
+                "name": p.Name,
+                "address": p.Address or p.City or "",
+                "lat": float(p.Lat) if p.Lat is not None else None,
+                "lon": float(p.Lon) if p.Lon is not None else None,
+                "channel": ch_map.get(p.ChannelId, p.Channel or ""),
+                "sortOrder": rp.SortOrder,
+            })
+
+        route_list.append({
+            "routeId": r.RouteId,
+            "name": r.Name,
+            "assignedUserName": assigned_user_name,
+            "bejermanZone": getattr(r, "BejermanZone", None),
+            "frequencyType": getattr(r, "FrequencyType", None),
+            "frequencyConfig": getattr(r, "FrequencyConfig", None),
+            "pdvs": pdv_list,
+        })
+
+    # PDVs without any route (for coverage gaps)
+    unrouted = (
+        db.query(PDVModel)
+        .filter(
+            PDVModel.IsActive.is_(True),
+            PDVModel.Lat.isnot(None),
+            ~PDVModel.PdvId.in_(all_routed_pdv_ids) if all_routed_pdv_ids else True,
+        )
+        .all()
+    )
+    unrouted_list = [
+        {
+            "pdvId": p.PdvId,
+            "name": p.Name,
+            "address": p.Address or p.City or "",
+            "lat": float(p.Lat) if p.Lat is not None else None,
+            "lon": float(p.Lon) if p.Lon is not None else None,
+            "channel": ch_map.get(p.ChannelId, p.Channel or ""),
+        }
+        for p in unrouted
+        if p.Lat is not None
+    ]
+
+    return {
+        "routes": route_list,
+        "unroutedPdvs": unrouted_list,
+    }
 
 
 # --- Route ---
@@ -200,10 +296,14 @@ def create_route_day(route_id: int, data: RouteDayCreate, db: Session = Depends(
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    # Use route's assigned user if not specified
+    user_id = data.AssignedUserId or getattr(r, "AssignedUserId", None)
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Se requiere un Trade Marketer asignado")
     rd = RouteDayModel(
         RouteId=route_id,
         WorkDate=data.WorkDate,
-        AssignedUserId=data.AssignedUserId,
+        AssignedUserId=user_id,
         Status=data.Status,
     )
     db.add(rd)

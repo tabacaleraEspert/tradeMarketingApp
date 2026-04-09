@@ -1,81 +1,179 @@
 @custom-variant dark (&:is(.dark *));
 
+/* Google Maps Places Autocomplete dropdown */
+.pac-container {
+  z-index: 10000 !important;
+  background-color: #fff !important;
+  border-radius: 8px !important;
+  border: 1px solid #e5e5e5 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12) !important;
+  font-family: 'Inter', sans-serif !important;
+  margin-top: 4px !important;
+}
+
+.pac-item {
+  padding: 8px 12px !important;
+  cursor: pointer !important;
+  border-top: 1px solid #f0f0f0 !important;
+  font-size: 14px !important;
+  color: #000 !important;
+}
+
+.pac-item:first-child {
+  border-top: none !important;
+}
+
+.pac-item:hover,
+.pac-item-selected {
+  background-color: #f5f0e8 !important;
+}
+
+.pac-icon {
+  margin-right: 8px !important;
+}
+
+.pac-item-query {
+  font-weight: 600 !important;
+  color: #000 !important;
+}
+
+/* Google Maps InfoWindow */
+.gm-style-iw,
+.gm-style-iw-c {
+  background-color: #fff !important;
+}
+
+.gm-style-iw-d {
+  overflow: auto !important;
+}
+
+.gm-style-iw-tc::after {
+  background-color: #fff !important;
+}
+
+/*
+ * Espert Brand Identity
+ * Primary: Negro #000000, Blanco #FFFFFF
+ * Secondary: Gris Oscuro #53565A, Dorado #A48242
+ * Neutral: Gris #979B9B
+ * Typography: Gotham → Inter (web fallback)
+ */
+
 :root {
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
-  --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
-  --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
-  --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+
+  /* ── Light Mode (Día) ── */
+  --background: #F7F7F5;
+  --foreground: #1A1A1A;
+  --card: #FFFFFF;
+  --card-foreground: #1A1A1A;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1A1A;
+
+  /* Espert black as primary */
+  --primary: #000000;
+  --primary-foreground: #FFFFFF;
+
+  /* Dorado Espert as accent/secondary */
+  --secondary: #F5F0E8;
+  --secondary-foreground: #6B5324;
+
+  --muted: #ECECEA;
+  --muted-foreground: #53565A;
+
+  --accent: #A48242;
+  --accent-foreground: #FFFFFF;
+
+  --destructive: #C53030;
+  --destructive-foreground: #FFFFFF;
+
+  --border: rgba(0, 0, 0, 0.08);
   --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
-  --font-weight-medium: 500;
+  --input-background: #F0F0EE;
+  --switch-background: #C4C4C2;
+  --font-weight-medium: 600;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --ring: #A48242;
+
+  /* Charts - Espert palette */
+  --chart-1: #A48242;
+  --chart-2: #53565A;
+  --chart-3: #000000;
+  --chart-4: #979B9B;
+  --chart-5: #C9A962;
+
+  --radius: 0.5rem;
+
+  /* Sidebar (admin) */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #1A1A1A;
+  --sidebar-primary: #000000;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F5F0E8;
+  --sidebar-accent-foreground: #1A1A1A;
+  --sidebar-border: rgba(0, 0, 0, 0.06);
+  --sidebar-ring: #A48242;
+
+  /* Espert brand tokens */
+  --espert-gold: #A48242;
+  --espert-gold-light: #C9A962;
+  --espert-gold-dark: #6B5324;
+  --espert-gray: #979B9B;
+  --espert-gray-dark: #53565A;
+  --espert-black: #000000;
+  --espert-white: #FFFFFF;
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  /* ── Dark Mode (Noche) ── */
+  --background: #0D0D0D;
+  --foreground: #F0EDE8;
+  --card: #1A1A18;
+  --card-foreground: #F0EDE8;
+  --popover: #1A1A18;
+  --popover-foreground: #F0EDE8;
+
+  --primary: #F0EDE8;
+  --primary-foreground: #0D0D0D;
+
+  --secondary: #2A2620;
+  --secondary-foreground: #C9A962;
+
+  --muted: #252520;
+  --muted-foreground: #979B9B;
+
+  --accent: #A48242;
+  --accent-foreground: #FFFFFF;
+
+  --destructive: #E53E3E;
+  --destructive-foreground: #FFFFFF;
+
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.06);
+  --input-background: #1E1E1C;
+  --switch-background: #3A3A38;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --ring: #A48242;
+
+  --chart-1: #C9A962;
+  --chart-2: #979B9B;
+  --chart-3: #F0EDE8;
+  --chart-4: #A48242;
+  --chart-5: #6B5324;
+
+  --sidebar: #141412;
+  --sidebar-foreground: #F0EDE8;
+  --sidebar-primary: #C9A962;
+  --sidebar-primary-foreground: #0D0D0D;
+  --sidebar-accent: #2A2620;
+  --sidebar-accent-foreground: #F0EDE8;
+  --sidebar-border: rgba(255, 255, 255, 0.06);
+  --sidebar-ring: #A48242;
+
+  --espert-gold: #C9A962;
+  --espert-gold-light: #D4BA7A;
+  --espert-gold-dark: #A48242;
 }
 
 @theme inline {
@@ -117,6 +215,15 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Espert custom colors */
+  --color-espert-gold: var(--espert-gold);
+  --color-espert-gold-light: var(--espert-gold-light);
+  --color-espert-gold-dark: var(--espert-gold-dark);
+  --color-espert-gray: var(--espert-gray);
+  --color-espert-gray-dark: var(--espert-gray-dark);
+  --color-espert-black: var(--espert-black);
+  --color-espert-white: var(--espert-white);
 }
 
 @layer base {
@@ -126,12 +233,9 @@
 
   body {
     @apply bg-background text-foreground;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-
-  /**
-  * Default typography styles for HTML elements (h1-h4, p, label, button, input).
-  * These are in @layer base, so Tailwind utility classes (like text-sm, text-lg) automatically override them.
-  */
 
   html {
     font-size: var(--font-size);
@@ -139,36 +243,38 @@
 
   h1 {
     font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.02em;
   }
 
   h2 {
     font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    font-weight: 600;
+    line-height: 1.4;
+    letter-spacing: -0.01em;
   }
 
   h3 {
     font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
-    line-height: 1.5;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   h4 {
     font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
+    font-weight: 600;
     line-height: 1.5;
   }
 
   label {
-    font-size: var(--text-base);
+    font-size: var(--text-sm);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
   button {
-    font-size: var(--text-base);
+    font-size: var(--text-sm);
     font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
@@ -178,4 +284,9 @@
     font-weight: var(--font-weight-normal);
     line-height: 1.5;
   }
+}
+
+/* Smooth theme transition */
+body {
+  transition: background-color 0.3s ease, color 0.3s ease;
 }

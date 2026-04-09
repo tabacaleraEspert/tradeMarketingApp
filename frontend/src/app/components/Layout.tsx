@@ -6,7 +6,6 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Redirect to login if not authenticated (simple check for demo)
   useEffect(() => {
     const isAuthenticated = localStorage.getItem("isAuthenticated");
     if (!isAuthenticated && location.pathname !== "/login") {
@@ -19,21 +18,23 @@ export function Layout() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-slate-50">
+    <div className="flex flex-col h-screen bg-background pt-[env(safe-area-inset-top)]">
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <Outlet />
+        <div className="max-w-lg mx-auto">
+          <Outlet />
+        </div>
       </main>
 
-      {/* Bottom Navigation */}
-      <nav className="bg-white border-t border-slate-200 px-2 py-2 safe-area-bottom">
+      {/* Bottom Navigation - Espert brand */}
+      <nav className="bg-card border-t border-border px-2 py-2 safe-area-bottom">
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button
             onClick={() => navigate("/")}
             className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
               isActive("/") && location.pathname === "/"
-                ? "text-blue-600 bg-blue-50"
-                : "text-slate-600"
+                ? "text-espert-gold bg-secondary"
+                : "text-muted-foreground"
             }`}
           >
             <Home size={24} />
@@ -44,8 +45,8 @@ export function Layout() {
             onClick={() => navigate("/search-pdv")}
             className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
               isActive("/search-pdv") || isActive("/route") || location.pathname.includes("/pos")
-                ? "text-blue-600 bg-blue-50"
-                : "text-slate-600"
+                ? "text-espert-gold bg-secondary"
+                : "text-muted-foreground"
             }`}
           >
             <MapPin size={24} />
@@ -55,7 +56,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/alerts")}
             className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
-              isActive("/alerts") ? "text-blue-600 bg-blue-50" : "text-slate-600"
+              isActive("/alerts") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
             <AlertCircle size={24} />
@@ -65,7 +66,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/sync")}
             className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
-              isActive("/sync") ? "text-blue-600 bg-blue-50" : "text-slate-600"
+              isActive("/sync") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
             <RefreshCw size={24} />
@@ -75,7 +76,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/profile")}
             className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
-              isActive("/profile") ? "text-blue-600 bg-blue-50" : "text-slate-600"
+              isActive("/profile") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
             <User size={24} />

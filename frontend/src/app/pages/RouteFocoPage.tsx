@@ -16,10 +16,16 @@ import {
   Filter,
   Calendar,
   Route as RouteIcon,
+  CheckCircle2,
+  ChevronRight,
 } from "lucide-react";
-import { useRouteDayPdvsForDate, routeDayPdvToPointOfSaleUI, useRoutes } from "@/lib/api";
+import { useRouteDayPdvsForDate, routeDayPdvToPointOfSaleUI, useRoutes, usePdvs } from "@/lib/api";
+import { useJsApiLoader, GoogleMap, MarkerF, PolylineF } from "@react-google-maps/api";
 import { DateSelector } from "../components/DateSelector";
 import { getCurrentUser } from "../lib/auth";
+
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const LIBRARIES: ("places")[] = ["places"];
 
 type StatusFilter = "all" | "pending" | "in-progress" | "completed" | "not-visited";
 
@@ -31,11 +37,25 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "not-visited", label: "No Visitada" },
 ];
 
+const STATUS_COLORS: Record<string, string> = {
+  completed: "#22c55e",
+  "in-progress": "#f59e0b",
+  pending: "#A48242",
+  "not-visited": "#ef4444",
+};
+
 export function RouteFocoPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const currentUser = getCurrentUser();
   const stateDate = location.state?.selectedDate;
+
+  const { isLoaded: mapsLoaded } = useJsApiLoader({
+    id: "google-map-script-places",
+    googleMapsApiKey: GOOGLE_MAPS_KEY || " ",
+    libraries: LIBRARIES,
+    preventGoogleFontsLoading: true,
+  });
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -43,6 +63,8 @@ export function RouteFocoPage() {
     () => (stateDate ? new Date(stateDate) : new Date())
   );
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
+
+  const completedPdvId = (location.state as { completedPdvId?: number } | null)?.completedPdvId;
 
   const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
@@ -74,6 +96,15 @@ export function RouteFocoPage() {
     });
   }, [pointsOfSale, searchTerm, statusFilter]);
 
+  // Find next PDV to visit (first pending after the last completed)
+  const nextPdv = useMemo(() => {
+    const pending = pointsOfSale.filter((p) => p.status === "pending" || p.status === "not-visited");
+    return pending[0] || null;
+  }, [pointsOfSale]);
+
+  const completedVisits = pointsOfSale.filter((p) => p.status === "completed").length;
+  const allCompleted = pointsOfSale.length > 0 && completedVisits === pointsOfSale.length;
+
   const getStatusLabel = (status: string) => {
     const labels = {
       pending: "Pendiente",
@@ -100,250 +131,231 @@ export function RouteFocoPage() {
       medium: "bg-yellow-500",
       low: "bg-green-500",
     };
-    return colors[priority as keyof typeof colors] || "bg-gray-500";
+    return colors[priority as keyof typeof colors] || "bg-secondary";
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "completed": return "bg-green-500";
+      case "in-progress": return "bg-amber-500";
+      case "pending": return "bg-muted-foreground/30";
+      case "not-visited": return "bg-muted-foreground/30";
+      default: return "bg-muted-foreground/30";
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft size={24} />
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10 space-y-3">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate("/")} className="p-1.5 hover:bg-muted rounded-lg">
+            <ArrowLeft size={22} />
           </button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Ruta Foco del Día</h1>
-            <p className="text-sm text-slate-600 mt-0.5">
-              {filteredPOS.length} de {pointsOfSale.length} visitas planificadas
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-foreground">Ruta del Día</h1>
+            <p className="text-xs text-muted-foreground">
+              {completedVisits}/{pointsOfSale.length} completadas
             </p>
           </div>
-          <button
-            onClick={() => setIsDateSelectorOpen(true)}
-            className="flex items-center gap-2 px-3 py-2 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors text-blue-700"
-          >
-            <Calendar size={18} />
-            <span className="text-sm font-medium">
-              {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
-            </span>
+          {/* View toggle compact */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button onClick={() => setViewMode("list")}
+              className={`p-1.5 transition-colors ${viewMode === "list" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"}`}>
+              <List size={18} />
+            </button>
+            <button onClick={() => setViewMode("map")}
+              className={`p-1.5 transition-colors ${viewMode === "map" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"}`}>
+              <Map size={18} />
+            </button>
+          </div>
+          <button onClick={() => setIsDateSelectorOpen(true)}
+            className="px-2 py-1 bg-[#A48242]/10 rounded-lg text-[#A48242] text-sm font-medium">
+            {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
           </button>
         </div>
 
-        {/* Search */}
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <Input
-            placeholder="Buscar por nombre o dirección..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
-          />
+        {/* Search + filters */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+          <Input placeholder="Buscar..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 h-9 text-sm" />
         </div>
-
-        {/* Status filters */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1">
-          <Filter size={16} className="text-slate-500 flex-shrink-0" />
+        <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
           {STATUS_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setStatusFilter(opt.value)}
-              className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                statusFilter === opt.value
-                  ? "bg-blue-600 text-white"
-                  : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-              }`}
-            >
+            <button key={opt.value} onClick={() => setStatusFilter(opt.value)}
+              className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap ${
+                statusFilter === opt.value ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+              }`}>
               {opt.label}
             </button>
           ))}
         </div>
       </div>
 
-      <DateSelector
-        isOpen={isDateSelectorOpen}
-        onClose={() => setIsDateSelectorOpen(false)}
-        selectedDate={selectedDate}
-        onDateSelect={setSelectedDate}
-      />
+      <DateSelector isOpen={isDateSelectorOpen} onClose={() => setIsDateSelectorOpen(false)} selectedDate={selectedDate} onDateSelect={setSelectedDate} />
 
-      {/* View Toggle */}
-      <div className="sticky top-[200px] z-10 px-4 py-2 bg-slate-50">
-        <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
-          <button
-            onClick={() => setViewMode("list")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-              viewMode === "list" ? "bg-blue-600 text-white" : "text-slate-600"
-            }`}
-          >
-            <List size={18} />
-            <span className="text-sm font-medium">Lista</span>
-          </button>
-          <button
-            onClick={() => setViewMode("map")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-              viewMode === "map" ? "bg-blue-600 text-white" : "text-slate-600"
-            }`}
-          >
-            <Map size={18} />
-            <span className="text-sm font-medium">Mapa</span>
-          </button>
-        </div>
-      </div>
+      {/* All completed banner */}
+      {allCompleted && (
+        <button onClick={() => navigate("/end-of-day")} className="mx-4 mt-3 flex items-center gap-3 p-3 bg-green-50 border border-green-200 rounded-xl">
+          <CheckCircle2 size={20} className="text-green-600 shrink-0" />
+          <div className="flex-1 text-left">
+            <p className="font-semibold text-green-900 text-sm">Ruta completada</p>
+            <p className="text-[10px] text-green-700">Toca para ver el cierre del día</p>
+          </div>
+          <ChevronRight size={16} className="text-green-400" />
+        </button>
+      )}
 
       {/* Content */}
       {viewMode === "list" ? (
-        <div className="p-4 space-y-3">
+        <div className="flex-1 overflow-auto">
           {loading ? (
-            <Card className="border-dashed border-2 border-slate-300 bg-slate-50">
-              <CardContent className="p-8 text-center">
-                <p className="text-slate-600">Cargando ruta...</p>
-              </CardContent>
-            </Card>
+            <div className="p-8 text-center text-muted-foreground text-sm">Cargando ruta...</div>
           ) : filteredPOS.length === 0 ? (
-            <Card className="border-dashed border-2 border-slate-300 bg-slate-50">
-              <CardContent className="p-12 text-center">
-                <div className="bg-slate-200 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-                  <MapPin size={32} className="text-slate-400" />
-                </div>
-                <p className="font-semibold text-slate-700 mb-1">
-                  No hay visitas planificadas
-                </p>
-                <p className="text-sm text-slate-500 mb-4">
-                  {searchTerm
-                    ? "Intenta con otros términos de búsqueda"
-                    : statusFilter !== "all"
-                    ? "No hay visitas con ese estado"
-                    : "No hay PDVs planificados para esta fecha"}
-                </p>
-                {!searchTerm && statusFilter === "all" && routes.length > 0 && (
-                  <div className="mb-4 text-left">
-                    <p className="text-xs font-medium text-slate-600 mb-2">Rutas disponibles:</p>
-                    <div className="space-y-2">
-                      {routes.map((r) => (
-                        <div
-                          key={r.RouteId}
-                          className="flex items-center gap-2 py-2 px-3 bg-white rounded-lg border border-slate-200"
-                        >
-                          <RouteIcon size={18} className="text-slate-500 flex-shrink-0" />
-                          <span className="text-sm font-medium text-slate-800">{r.Name}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-2">
-                      Para planificar visitas, crea un día de ruta para esta fecha y asigna PDVs desde el panel de administración.
-                    </p>
-                  </div>
-                )}
-                <Button
-                  variant="outline"
-                  className="mt-2"
-                  onClick={() => navigate("/search-pdv")}
-                >
-                  Buscar PDV
-                </Button>
-              </CardContent>
-            </Card>
+            <div className="p-8 text-center">
+              <MapPin size={32} className="mx-auto text-muted-foreground mb-2 opacity-40" />
+              <p className="font-medium text-foreground text-sm">Sin visitas planificadas</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                {searchTerm ? "Probá con otros términos" : statusFilter !== "all" ? "Sin visitas con ese estado" : "Sin PDVs para esta fecha"}
+              </p>
+              {!searchTerm && statusFilter === "all" && (
+                <Button variant="outline" size="sm" className="mt-3" onClick={() => navigate("/search-pdv")}>Buscar PDV</Button>
+              )}
+            </div>
           ) : (
-            filteredPOS.map((pos) => (
-              <Card
-                key={pos.id}
-                className="cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden"
-                onClick={() =>
-                  navigate(`/pos/${pos.id}`, {
-                    state: pos.routeDayId ? { routeDayId: pos.routeDayId } : undefined,
-                  })
-                }
-              >
-                <div className={`absolute left-0 top-0 bottom-0 w-1 ${getPriorityColor(pos.priority)}`} />
-                <CardContent className="p-4 pl-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-bold text-slate-900 mb-1">{pos.name}</h3>
-                      <p className="text-sm text-slate-600 flex items-start gap-1">
-                        <MapPin size={14} className="mt-0.5 flex-shrink-0" />
-                        <span>{pos.address}</span>
-                      </p>
+            <div className="divide-y divide-border">
+              {filteredPOS.map((pos, idx) => (
+                <button
+                  key={pos.id}
+                  onClick={() => navigate(`/pos/${pos.id}`, { state: pos.routeDayId ? { routeDayId: pos.routeDayId } : undefined })}
+                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors"
+                >
+                  {/* Order number with status color */}
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                    pos.status === "completed" ? "bg-green-100 text-green-700" :
+                    pos.status === "in-progress" ? "bg-amber-100 text-amber-700" :
+                    "bg-muted text-muted-foreground"
+                  }`}>
+                    {idx + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-foreground text-sm truncate">{pos.name}</p>
                     </div>
-                    <Badge variant={getStatusVariant(pos.status)} className="ml-2 whitespace-nowrap">
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">{pos.address}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Badge className={`text-[10px] px-1.5 py-0 border-0 ${
+                      pos.status === "completed" ? "bg-green-100 text-green-700" :
+                      pos.status === "in-progress" ? "bg-amber-100 text-amber-700" :
+                      "bg-muted text-muted-foreground"
+                    }`}>
                       {getStatusLabel(pos.status)}
                     </Badge>
+                    <ChevronRight size={16} className="text-muted-foreground" />
                   </div>
-
-                  <div className="flex items-center gap-1 mb-3">
-                    <Badge variant="outline" className="text-xs">
-                      {pos.channel}
-                    </Badge>
-                    {pos.estimatedTime && (
-                      <Badge variant="outline" className="text-xs">
-                        <Clock size={12} className="mr-1" />
-                        {pos.estimatedTime}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100">
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Cumplimiento</p>
-                      <div className="flex items-center justify-center gap-1">
-                        <TrendingUp size={14} className="text-green-600" />
-                        <span className="text-sm font-semibold text-slate-900">
-                          {pos.compliance}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Prioridad</p>
-                      <span className="text-sm font-semibold text-slate-900 capitalize">
-                        {pos.priority === "high"
-                          ? "Alta"
-                          : pos.priority === "medium"
-                          ? "Media"
-                          : "Baja"}
-                      </span>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Incidencias</p>
-                      <div className="flex items-center justify-center gap-1">
-                        {pos.recentIssues && pos.recentIssues > 0 ? (
-                          <>
-                            <AlertCircle size={14} className="text-red-600" />
-                            <span className="text-sm font-semibold text-red-600">
-                              {pos.recentIssues}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-sm font-semibold text-green-600">0</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    className="w-full mt-3"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigate(`/pos/${pos.id}`, {
-                        state: pos.routeDayId ? { routeDayId: pos.routeDayId } : undefined,
-                      });
-                    }}
-                  >
-                    Ver Detalle
-                  </Button>
-                </CardContent>
-              </Card>
-            ))
+                </button>
+              ))}
+            </div>
           )}
         </div>
       ) : (
-        <div className="h-[calc(100vh-280px)] bg-slate-200 flex items-center justify-center">
-          <div className="text-center p-8">
-            <Map size={48} className="mx-auto mb-4 text-slate-400" />
-            <p className="text-slate-600 font-medium">Vista de Mapa</p>
-            <p className="text-sm text-slate-500 mt-2">
-              Integración con mapa interactivo
-            </p>
+        <div className="h-[calc(100vh-280px)]">
+          {!GOOGLE_MAPS_KEY || !mapsLoaded ? (
+            <div className="h-full bg-muted flex items-center justify-center">
+              <p className="text-muted-foreground">Cargando mapa...</p>
+            </div>
+          ) : (() => {
+            const pdvsWithCoords = filteredPOS.filter((p) => p.lat !== 0 && p.lng !== 0);
+            const center = pdvsWithCoords.length > 0
+              ? {
+                  lat: pdvsWithCoords.reduce((s, p) => s + p.lat, 0) / pdvsWithCoords.length,
+                  lng: pdvsWithCoords.reduce((s, p) => s + p.lng, 0) / pdvsWithCoords.length,
+                }
+              : { lat: -34.6, lng: -58.45 };
+            const path = pdvsWithCoords.map((p) => ({ lat: p.lat, lng: p.lng }));
+
+            return (
+              <GoogleMap
+                mapContainerStyle={{ width: "100%", height: "100%" }}
+                center={center}
+                zoom={pdvsWithCoords.length <= 1 ? 15 : 13}
+                options={{
+                  disableDefaultUI: true,
+                  zoomControl: true,
+                  styles: [
+                    { featureType: "poi", stylers: [{ visibility: "off" }] },
+                    { featureType: "transit", stylers: [{ visibility: "off" }] },
+                  ],
+                }}
+              >
+                {/* Route line */}
+                {path.length >= 2 && (
+                  <PolylineF
+                    path={path}
+                    options={{
+                      strokeColor: "#A48242",
+                      strokeOpacity: 0.6,
+                      strokeWeight: 3,
+                      geodesic: true,
+                    }}
+                  />
+                )}
+
+                {/* PDV markers */}
+                {pdvsWithCoords.map((pos, idx) => {
+                  const color = STATUS_COLORS[pos.status] || "#A48242";
+                  return (
+                    <MarkerF
+                      key={pos.id}
+                      position={{ lat: pos.lat, lng: pos.lng }}
+                      onClick={() =>
+                        navigate(`/pos/${pos.id}`, {
+                          state: pos.routeDayId ? { routeDayId: pos.routeDayId } : undefined,
+                        })
+                      }
+                      label={{
+                        text: String(idx + 1),
+                        color: "#fff",
+                        fontWeight: "bold",
+                        fontSize: "12px",
+                      }}
+                      icon={{
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: color,
+                        fillOpacity: 1,
+                        strokeColor: "#fff",
+                        strokeWeight: 2,
+                        scale: 15,
+                      }}
+                      title={`#${idx + 1} ${pos.name} — ${pos.status === "completed" ? "Completada" : pos.status === "in-progress" ? "En curso" : "Pendiente"}`}
+                    />
+                  );
+                })}
+              </GoogleMap>
+            );
+          })()}
+
+          {/* Map legend overlay */}
+          <div className="relative -mt-12 mx-4 mb-2 z-10">
+            <div className="bg-white/90 backdrop-blur rounded-lg shadow-lg px-3 py-2 flex items-center justify-center gap-4 text-xs">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-[#A48242] inline-block" />
+                Pendiente
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block" />
+                En curso
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+                Completada
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+                No visitada
+              </span>
+            </div>
           </div>
         </div>
       )}

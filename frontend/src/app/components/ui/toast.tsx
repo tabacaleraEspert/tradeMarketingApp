@@ -31,7 +31,7 @@ export function Toast({ message, type = "info", duration = 3000, onClose }: Toas
       case "warning":
         return <AlertCircle size={20} className="text-yellow-600" />;
       case "info":
-        return <Info size={20} className="text-blue-600" />;
+        return <Info size={20} className="text-espert-gold" />;
     }
   };
 
@@ -44,7 +44,7 @@ export function Toast({ message, type = "info", duration = 3000, onClose }: Toas
       case "warning":
         return "bg-yellow-50 border-yellow-200 text-yellow-900";
       case "info":
-        return "bg-blue-50 border-blue-200 text-blue-900";
+        return "bg-espert-gold/10 border-espert-gold/30 text-foreground";
     }
   };
 

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from .database import engine, Base, get_db
 from .models import User as UserModel, UserRole, Role, Zone
-from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications
+from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities
 
 app = FastAPI(
     title="Trade Marketing API",
@@ -43,6 +43,10 @@ app.include_router(forms.router)
 app.include_router(visits.router)
 app.include_router(incidents.router)
 app.include_router(notifications.router)
+app.include_router(visit_actions.router)
+app.include_router(market_news.router)
+app.include_router(reports.router)
+app.include_router(mandatory_activities.router)
 
 
 # ============ AUTH ============

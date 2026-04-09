@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="gold512" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D4B876"/>
+      <stop offset="40%" stop-color="#C9A962"/>
+      <stop offset="100%" stop-color="#8B6E38"/>
+    </linearGradient>
+    <linearGradient id="shine512" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D4B876" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#A48242" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <!-- Deep black background -->
+  <rect width="512" height="512" rx="110" fill="#0A0A09"/>
+  <!-- Outer gold border -->
+  <rect x="6" y="6" width="500" height="500" rx="106" fill="none" stroke="url(#gold512)" stroke-width="2" opacity="0.4"/>
+  <!-- Inner subtle border -->
+  <rect x="16" y="16" width="480" height="480" rx="98" fill="none" stroke="#A48242" stroke-width="0.5" opacity="0.2"/>
+  <!-- Top shine effect -->
+  <ellipse cx="256" cy="60" rx="200" ry="80" fill="url(#shine512)"/>
+  <!-- Diamond accent -->
+  <path d="M256 52 L268 72 L256 92 L244 72 Z" fill="url(#gold512)" opacity="0.6" filter="url(#glow)"/>
+  <!-- Main TM text with glow -->
+  <text x="256" y="285" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="188" fill="url(#gold512)" letter-spacing="10" filter="url(#glow)">TM</text>
+  <!-- Decorative line left -->
+  <rect x="80" y="310" width="120" height="2" rx="1" fill="url(#gold512)" opacity="0.3"/>
+  <!-- Center diamond separator -->
+  <path d="M256 305 L262 312 L256 319 L250 312 Z" fill="#C9A962" opacity="0.5"/>
+  <!-- Decorative line right -->
+  <rect x="312" y="310" width="120" height="2" rx="1" fill="url(#gold512)" opacity="0.3"/>
+  <!-- ESPERT text -->
+  <text x="256" y="372" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="48" fill="#C9A962" letter-spacing="16">ESPERT</text>
+  <!-- Trade Marketing subtitle -->
+  <text x="256" y="420" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="24" fill="#979B9B" letter-spacing="6">TRADE MARKETING</text>
+</svg>

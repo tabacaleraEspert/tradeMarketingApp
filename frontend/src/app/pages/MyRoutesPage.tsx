@@ -81,18 +81,18 @@ export function MyRoutesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+    <div className="min-h-screen bg-background">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Mis Rutas Foco</h1>
-            <p className="text-sm text-slate-600 mt-0.5">
+            <h1 className="text-xl font-bold text-foreground">Mis Rutas Foco</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
               Crea y gestiona tus rutas
             </p>
           </div>
@@ -105,14 +105,14 @@ export function MyRoutesPage() {
 
       <div className="p-4 max-w-2xl mx-auto">
         {loading ? (
-          <p className="text-slate-600">Cargando...</p>
+          <p className="text-muted-foreground">Cargando...</p>
         ) : myRoutes.length === 0 ? (
-          <Card className="border-dashed border-2 border-slate-300 bg-slate-50">
+          <Card className="border-dashed border-2 border-border bg-muted">
             <CardContent className="p-12 text-center">
-              <p className="font-semibold text-slate-700 mb-1">
+              <p className="font-semibold text-muted-foreground mb-1">
                 No tienes rutas creadas
               </p>
-              <p className="text-sm text-slate-500 mb-4">
+              <p className="text-sm text-muted-foreground mb-4">
                 Crea tu primera ruta para planificar visitas
               </p>
               <Button onClick={() => setIsCreateModalOpen(true)}>
@@ -132,17 +132,17 @@ export function MyRoutesPage() {
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-bold text-slate-900">{route.Name}</h3>
+                      <h3 className="font-bold text-foreground">{route.Name}</h3>
                       <div className="flex items-center gap-2 mt-1">
                         {route.BejermanZone && (
                           <Badge variant="outline">{route.BejermanZone}</Badge>
                         )}
-                        <span className="text-sm text-slate-500">
+                        <span className="text-sm text-muted-foreground">
                           {route.PdvCount} PDV
                         </span>
                       </div>
                     </div>
-                    <Edit size={18} className="text-slate-400" />
+                    <Edit size={18} className="text-muted-foreground" />
                   </div>
                 </CardContent>
               </Card>
@@ -172,7 +172,7 @@ export function MyRoutesPage() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Nombre de la Ruta
             </label>
             <Input
@@ -183,11 +183,11 @@ export function MyRoutesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Zona Bejerman
             </label>
             <select
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
               value={formBejermanZone}
               onChange={(e) => setFormBejermanZone(e.target.value)}
             >
@@ -201,11 +201,11 @@ export function MyRoutesPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
+            <label className="block text-sm font-medium text-muted-foreground mb-1">
               Frecuencia
             </label>
             <select
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
               value={formFrequencyType}
               onChange={(e) => setFormFrequencyType(e.target.value)}
             >
@@ -220,7 +220,7 @@ export function MyRoutesPage() {
 
           {formFrequencyType === "specific_days" && (
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
+              <label className="block text-sm font-medium text-muted-foreground mb-1">
                 Días (ej: 1,3,5 = Lun, Mié, Vie)
               </label>
               <Input
@@ -232,17 +232,17 @@ export function MyRoutesPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+            <label className="block text-sm font-medium text-muted-foreground mb-2">
               PDVs de la ruta ({selectedPdvIds.length} seleccionados)
             </label>
             <div className="max-h-48 overflow-y-auto border rounded-lg p-2 space-y-1">
               {pdvs.length === 0 ? (
-                <p className="text-sm text-slate-500">No hay PDVs</p>
+                <p className="text-sm text-muted-foreground">No hay PDVs</p>
               ) : (
                 pdvs.map((p) => (
                   <label
                     key={p.PdvId}
-                    className="flex items-center gap-2 p-2 hover:bg-slate-50 rounded cursor-pointer"
+                    className="flex items-center gap-2 p-2 hover:bg-muted rounded cursor-pointer"
                   >
                     <input
                       type="checkbox"

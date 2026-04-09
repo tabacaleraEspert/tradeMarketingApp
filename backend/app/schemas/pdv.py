@@ -14,7 +14,7 @@ class PdvBase(BaseModel):
     Address: str | None = None
     City: str | None = None
     ZoneId: int | None = None
-    DistributorId: int | None = None
+    DistributorId: int | None = None  # Legacy single distributor
     Lat: Decimal | None = None
     Lon: Decimal | None = None
     ContactName: str | None = None  # Legacy
@@ -31,7 +31,8 @@ class PdvCreate(BaseModel):
     Address: str | None = None
     City: str | None = None
     ZoneId: int | None = None
-    DistributorId: int | None = None
+    DistributorId: int | None = None  # Legacy compat
+    DistributorIds: list[int] | None = None
     Lat: Decimal | None = None
     Lon: Decimal | None = None
     Contacts: list[PdvContactCreate] | None = None
@@ -47,7 +48,8 @@ class PdvUpdate(BaseModel):
     Address: str | None = None
     City: str | None = None
     ZoneId: int | None = None
-    DistributorId: int | None = None
+    DistributorId: int | None = None  # Legacy compat
+    DistributorIds: list[int] | None = None
     Lat: Decimal | None = None
     Lon: Decimal | None = None
     ContactName: str | None = None
@@ -57,11 +59,20 @@ class PdvUpdate(BaseModel):
     IsActive: bool | None = None
 
 
+class DistributorInfo(BaseModel):
+    DistributorId: int
+    Name: str
+
+    class Config:
+        from_attributes = True
+
+
 class Pdv(PdvBase):
     PdvId: int
-    ChannelName: str | None = None  # Nombre del canal (Channel.Name)
-    SubChannelName: str | None = None  # Nombre del subcanal
+    ChannelName: str | None = None
+    SubChannelName: str | None = None
     Contacts: list[PdvContact] = []
+    Distributors: list[DistributorInfo] = []
     CreatedAt: datetime
     UpdatedAt: datetime
 

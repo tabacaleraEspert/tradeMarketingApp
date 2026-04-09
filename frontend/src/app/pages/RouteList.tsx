@@ -1,310 +1,202 @@
 import { useState, useMemo } from "react";
 import { useNavigate } from "react-router";
-import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
-  MapPin,
-  Clock,
-  TrendingUp,
-  AlertCircle,
-  ArrowLeft,
-  Map,
-  List,
-  Search,
-  Filter,
+  MapPin, ArrowLeft, Map, List, Search, ChevronRight, Store,
 } from "lucide-react";
-import { usePdvs, pdvToPointOfSaleUI } from "@/lib/api";
+import { usePdvs } from "@/lib/api";
+import { useJsApiLoader, GoogleMap, MarkerF } from "@react-google-maps/api";
 
-type ActiveFilter = "all" | "active" | "inactive";
-
-const ACTIVE_OPTIONS: { value: ActiveFilter; label: string }[] = [
-  { value: "all", label: "Todos" },
-  { value: "active", label: "Activos" },
-  { value: "inactive", label: "Inactivos" },
-];
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const LIBRARIES: ("places")[] = ["places"];
 
 export function RouteList() {
   const navigate = useNavigate();
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
-  const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
   const [channelFilter, setChannelFilter] = useState<string>("all");
 
   const { data: pdvs, loading } = usePdvs();
+
+  const { isLoaded: mapsLoaded } = useJsApiLoader({
+    id: "google-map-script-places",
+    googleMapsApiKey: GOOGLE_MAPS_KEY || " ",
+    libraries: LIBRARIES,
+    preventGoogleFontsLoading: true,
+  });
+
   const channels = useMemo(
-    () => ["all", ...Array.from(new Set(pdvs.map((p) => p.Channel).filter(Boolean))).sort()],
+    () => Array.from(new Set(pdvs.map((p) => p.ChannelName || p.Channel).filter(Boolean))).sort(),
     [pdvs]
   );
 
   const filteredPdvs = useMemo(() => {
     return pdvs.filter((p) => {
-      const matchesSearch =
-        p.Name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.Address || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.City || "").toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesActive =
-        activeFilter === "all" ||
-        (activeFilter === "active" && p.IsActive) ||
-        (activeFilter === "inactive" && !p.IsActive);
-      const matchesChannel =
-        channelFilter === "all" || p.Channel === channelFilter;
-      return matchesSearch && matchesActive && matchesChannel;
+      if (!p.IsActive) return false;
+      const search = searchTerm.toLowerCase();
+      const matchesSearch = !search ||
+        p.Name.toLowerCase().includes(search) ||
+        (p.Address || "").toLowerCase().includes(search) ||
+        (p.City || "").toLowerCase().includes(search);
+      const ch = p.ChannelName || p.Channel || "";
+      const matchesChannel = channelFilter === "all" || ch === channelFilter;
+      return matchesSearch && matchesChannel;
     });
-  }, [pdvs, searchTerm, activeFilter, channelFilter]);
+  }, [pdvs, searchTerm, channelFilter]);
 
-  const pointsOfSale = useMemo(
-    () => filteredPdvs.map(pdvToPointOfSaleUI),
+  const pdvsWithCoords = useMemo(
+    () => filteredPdvs.filter((p) => p.Lat != null && p.Lon != null),
     [filteredPdvs]
   );
 
-  const getStatusLabel = (status: string) => {
-    const labels = {
-      pending: "Pendiente",
-      "in-progress": "En Curso",
-      completed: "Completa",
-      "not-visited": "No Visitada",
+  const mapCenter = useMemo(() => {
+    if (pdvsWithCoords.length === 0) return { lat: -34.6, lng: -58.45 };
+    return {
+      lat: pdvsWithCoords.reduce((s, p) => s + Number(p.Lat), 0) / pdvsWithCoords.length,
+      lng: pdvsWithCoords.reduce((s, p) => s + Number(p.Lon), 0) / pdvsWithCoords.length,
     };
-    return labels[status as keyof typeof labels] || status;
-  };
-
-  const getStatusVariant = (status: string) => {
-    const variants = {
-      pending: "default" as const,
-      "in-progress": "default" as const,
-      completed: "secondary" as const,
-      "not-visited": "destructive" as const,
-    };
-    return variants[status as keyof typeof variants] || "default";
-  };
-
-  const getPriorityColor = (priority: string) => {
-    const colors = {
-      high: "bg-red-500",
-      medium: "bg-yellow-500",
-      low: "bg-green-500",
-    };
-    return colors[priority as keyof typeof colors] || "bg-gray-500";
-  };
+  }, [pdvsWithCoords]);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
-        <div className="flex items-center gap-3 mb-4">
-          <button
-            onClick={() => navigate("/")}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
-          >
-            <ArrowLeft size={24} />
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10 space-y-3">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate("/")} className="p-1.5 hover:bg-muted rounded-lg">
+            <ArrowLeft size={22} />
           </button>
-          <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Buscar PDV</h1>
-            <p className="text-sm text-slate-600 mt-0.5">
-              {pointsOfSale.length} de {pdvs.length} puntos de venta
-            </p>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-lg font-bold text-foreground">Buscar PDV</h1>
+          </div>
+          {/* View toggle - compact */}
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-1.5 transition-colors ${viewMode === "list" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              <List size={18} />
+            </button>
+            <button
+              onClick={() => setViewMode("map")}
+              className={`p-1.5 transition-colors ${viewMode === "map" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"}`}
+            >
+              <Map size={18} />
+            </button>
           </div>
         </div>
 
         {/* Search */}
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
           <Input
-            placeholder="Buscar por nombre o dirección..."
+            placeholder="Buscar por nombre, dirección o ciudad..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+            className="pl-9 h-9 text-sm"
           />
         </div>
 
-        {/* Filters */}
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1">
-            <Filter size={16} className="text-slate-500 flex-shrink-0" />
-            {ACTIVE_OPTIONS.map((opt) => (
+        {/* Channel chips */}
+        <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
+          <button
+            onClick={() => setChannelFilter("all")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              channelFilter === "all" ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            Todos ({pdvs.filter((p) => p.IsActive).length})
+          </button>
+          {channels.map((ch) => {
+            const count = pdvs.filter((p) => p.IsActive && (p.ChannelName || p.Channel) === ch).length;
+            return (
               <button
-                key={opt.value}
-                onClick={() => setActiveFilter(opt.value)}
-                className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                  activeFilter === opt.value
-                    ? "bg-blue-600 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                key={ch}
+                onClick={() => setChannelFilter(ch)}
+                className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                  channelFilter === ch ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
                 }`}
               >
-                {opt.label}
+                {ch} ({count})
               </button>
-            ))}
-          </div>
-          {channels.length > 2 && (
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 -mx-1">
-              <span className="text-xs text-slate-500 flex-shrink-0">Canal:</span>
-              {channels.map((ch) => (
-                <button
-                  key={ch}
-                  onClick={() => setChannelFilter(ch)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
-                    channelFilter === ch
-                      ? "bg-blue-600 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {ch === "all" ? "Todos" : ch}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* View Toggle */}
-      <div className="sticky top-[180px] z-10 px-4 py-2 bg-slate-50">
-        <div className="flex items-center gap-2 bg-white rounded-lg p-1 shadow-sm">
-          <button
-            onClick={() => setViewMode("list")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-              viewMode === "list" ? "bg-blue-600 text-white" : "text-slate-600"
-            }`}
-          >
-            <List size={18} />
-            <span className="text-sm font-medium">Lista</span>
-          </button>
-          <button
-            onClick={() => setViewMode("map")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md transition-colors ${
-              viewMode === "map" ? "bg-blue-600 text-white" : "text-slate-600"
-            }`}
-          >
-            <Map size={18} />
-            <span className="text-sm font-medium">Mapa</span>
-          </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Content */}
       {viewMode === "list" ? (
-        <div className="p-4 space-y-3">
+        <div className="flex-1 overflow-auto">
           {loading ? (
-            <Card className="border-dashed border-2 border-slate-300 bg-slate-50">
-              <CardContent className="p-8 text-center">
-                <p className="text-slate-600">Cargando PDVs...</p>
-              </CardContent>
-            </Card>
-          ) : pointsOfSale.length === 0 ? (
-            <Card className="border-dashed border-2 border-slate-300 bg-slate-50">
-              <CardContent className="p-12 text-center">
-                <div className="bg-slate-200 rounded-full w-16 h-16 flex items-center justify-center mx-auto mb-4">
-                  <Search size={32} className="text-slate-400" />
-                </div>
-                <p className="font-semibold text-slate-700 mb-1">
-                  No se encontraron puntos de venta
-                </p>
-                <p className="text-sm text-slate-500">
-                  {searchTerm || activeFilter !== "all" || channelFilter !== "all"
-                    ? "Intenta con otros filtros o términos de búsqueda"
-                    : "No hay PDVs registrados"}
-                </p>
-              </CardContent>
-            </Card>
+            <div className="p-8 text-center text-muted-foreground text-sm">Cargando...</div>
+          ) : filteredPdvs.length === 0 ? (
+            <div className="p-12 text-center">
+              <Search size={32} className="mx-auto text-muted-foreground mb-2 opacity-40" />
+              <p className="font-medium text-foreground text-sm">Sin resultados</p>
+              <p className="text-xs text-muted-foreground mt-1">Probá con otros filtros</p>
+            </div>
           ) : (
-            pointsOfSale.map((pos) => (
-              <Card
-                key={pos.id}
-                className="cursor-pointer hover:shadow-md transition-shadow relative overflow-hidden"
-                onClick={() => navigate(`/pos/${pos.id}`)}
-              >
-                {/* Priority Indicator */}
-                <div className={`absolute left-0 top-0 bottom-0 w-1 ${getPriorityColor(pos.priority)}`} />
-                
-                <CardContent className="p-4 pl-5">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1">
-                      <h3 className="font-bold text-slate-900 mb-1">{pos.name}</h3>
-                      <p className="text-sm text-slate-600 flex items-start gap-1">
-                        <MapPin size={14} className="mt-0.5 flex-shrink-0" />
-                        <span>{pos.address}</span>
-                      </p>
-                    </div>
-                    {pos.isActive !== undefined ? (
-                      <Badge
-                        variant={pos.isActive ? "default" : "secondary"}
-                        className="ml-2 whitespace-nowrap"
-                      >
-                        {pos.isActive ? "Activo" : "Inactivo"}
-                      </Badge>
-                    ) : (
-                      <Badge variant={getStatusVariant(pos.status)} className="ml-2 whitespace-nowrap">
-                        {getStatusLabel(pos.status)}
-                      </Badge>
-                    )}
+            <div className="divide-y divide-border">
+              {filteredPdvs.map((pdv) => (
+                <button
+                  key={pdv.PdvId}
+                  onClick={() => navigate(`/pos/${pdv.PdvId}`)}
+                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-[#A48242]/10 flex items-center justify-center shrink-0">
+                    <Store size={18} className="text-[#A48242]" />
                   </div>
-
-                  <div className="flex items-center gap-1 mb-3">
-                    <Badge variant="outline" className="text-xs">
-                      {pos.channel}
-                    </Badge>
-                    {pos.estimatedTime && (
-                      <Badge variant="outline" className="text-xs">
-                        <Clock size={12} className="mr-1" />
-                        {pos.estimatedTime}
-                      </Badge>
-                    )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {pdv.Address || pdv.City || "Sin dirección"}
+                    </p>
                   </div>
-
-                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-slate-100">
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Cumplimiento</p>
-                      <div className="flex items-center justify-center gap-1">
-                        <TrendingUp size={14} className="text-green-600" />
-                        <span className="text-sm font-semibold text-slate-900">
-                          {pos.compliance}%
-                        </span>
-                      </div>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Prioridad</p>
-                      <span className="text-sm font-semibold text-slate-900 capitalize">
-                        {pos.priority === "high"
-                          ? "Alta"
-                          : pos.priority === "medium"
-                          ? "Media"
-                          : "Baja"}
-                      </span>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-xs text-slate-500 mb-0.5">Incidencias</p>
-                      <div className="flex items-center justify-center gap-1">
-                        {pos.recentIssues && pos.recentIssues > 0 ? (
-                          <>
-                            <AlertCircle size={14} className="text-red-600" />
-                            <span className="text-sm font-semibold text-red-600">
-                              {pos.recentIssues}
-                            </span>
-                          </>
-                        ) : (
-                          <span className="text-sm font-semibold text-green-600">0</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button className="w-full mt-3" onClick={(e) => { e.stopPropagation(); navigate(`/pos/${pos.id}`); }}>
-                    Ver Detalle
-                  </Button>
-                </CardContent>
-              </Card>
-            ))
+                  <Badge variant="outline" className="text-[10px] shrink-0">
+                    {pdv.ChannelName || pdv.Channel || "-"}
+                  </Badge>
+                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+                </button>
+              ))}
+            </div>
           )}
         </div>
       ) : (
-        <div className="h-[calc(100vh-280px)] bg-slate-200 flex items-center justify-center">
-          <div className="text-center p-8">
-            <Map size={48} className="mx-auto mb-4 text-slate-400" />
-            <p className="text-slate-600 font-medium">Vista de Mapa</p>
-            <p className="text-sm text-slate-500 mt-2">
-              Integración con mapa interactivo
-            </p>
-          </div>
+        <div className="flex-1">
+          {!GOOGLE_MAPS_KEY || !mapsLoaded ? (
+            <div className="h-full flex items-center justify-center text-muted-foreground">Cargando mapa...</div>
+          ) : (
+            <GoogleMap
+              mapContainerStyle={{ width: "100%", height: "100%" }}
+              center={mapCenter}
+              zoom={pdvsWithCoords.length <= 1 ? 15 : 12}
+              options={{
+                disableDefaultUI: true,
+                zoomControl: true,
+                styles: [
+                  { featureType: "poi", stylers: [{ visibility: "off" }] },
+                  { featureType: "transit", stylers: [{ visibility: "off" }] },
+                ],
+              }}
+            >
+              {pdvsWithCoords.map((pdv) => (
+                <MarkerF
+                  key={pdv.PdvId}
+                  position={{ lat: Number(pdv.Lat), lng: Number(pdv.Lon) }}
+                  onClick={() => navigate(`/pos/${pdv.PdvId}`)}
+                  icon={{
+                    path: google.maps.SymbolPath.CIRCLE,
+                    fillColor: "#A48242",
+                    fillOpacity: 1,
+                    strokeColor: "#fff",
+                    strokeWeight: 2,
+                    scale: 10,
+                  }}
+                  title={`${pdv.Name} — ${pdv.Address || ""}`}
+                />
+              ))}
+            </GoogleMap>
+          )}
         </div>
       )}
     </div>

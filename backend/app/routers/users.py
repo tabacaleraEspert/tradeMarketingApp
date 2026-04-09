@@ -5,6 +5,7 @@ import bcrypt
 
 from ..database import get_db
 from ..models import User as UserModel, Visit as VisitModel, PDV as PDVModel
+from ..models.user import UserRole as UserRoleModel, Role as RoleModel
 from ..schemas.user import User, UserCreate, UserUpdate
 
 
@@ -95,7 +96,12 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    for k, v in data.model_dump(exclude_unset=True).items():
+    dump = data.model_dump(exclude_unset=True)
+    if "Password" in dump:
+        pwd = dump.pop("Password")
+        if pwd:
+            user.PasswordHash = hash_password(pwd)
+    for k, v in dump.items():
         setattr(user, k, v)
     db.commit()
     db.refresh(user)
@@ -109,3 +115,35 @@ def delete_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     db.delete(user)
     db.commit()
+
+
+# ── User Role ─────────────────────────────────────────────
+
+@router.get("/{user_id}/role")
+def get_user_role(user_id: int, db: Session = Depends(get_db)):
+    ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).first()
+    if not ur:
+        return {"userId": user_id, "roleId": None, "roleName": None}
+    role = db.query(RoleModel).filter(RoleModel.RoleId == ur.RoleId).first()
+    return {"userId": user_id, "roleId": ur.RoleId, "roleName": role.Name if role else None}
+
+
+@router.put("/{user_id}/role")
+def set_user_role(user_id: int, data: dict, db: Session = Depends(get_db)):
+    """Payload: { roleId: int }"""
+    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    role_id = data.get("roleId")
+    if not role_id:
+        raise HTTPException(status_code=400, detail="roleId requerido")
+    # Upsert
+    ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).first()
+    if ur:
+        ur.RoleId = role_id
+    else:
+        ur = UserRoleModel(UserId=user_id, RoleId=role_id)
+        db.add(ur)
+    db.commit()
+    role = db.query(RoleModel).filter(RoleModel.RoleId == role_id).first()
+    return {"userId": user_id, "roleId": role_id, "roleName": role.Name if role else None}

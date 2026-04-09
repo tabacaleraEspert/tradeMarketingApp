@@ -21,3 +21,10 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def override_engine(new_engine):
+    """Override engine and SessionLocal for testing."""
+    global engine, SessionLocal
+    engine = new_engine
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=new_engine)

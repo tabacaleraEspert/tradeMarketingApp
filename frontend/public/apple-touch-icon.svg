@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <linearGradient id="goldA" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#D4B876"/>
+      <stop offset="50%" stop-color="#C9A962"/>
+      <stop offset="100%" stop-color="#8B6E38"/>
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="40" fill="#0A0A09"/>
+  <rect x="3" y="3" width="174" height="174" rx="38" fill="none" stroke="url(#goldA)" stroke-width="1.5" opacity="0.4"/>
+  <path d="M90 20 L95 28 L90 36 L85 28 Z" fill="url(#goldA)" opacity="0.6"/>
+  <text x="90" y="100" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="64" fill="url(#goldA)" letter-spacing="3">TM</text>
+  <rect x="42" y="108" width="96" height="1.2" rx="0.6" fill="url(#goldA)" opacity="0.3"/>
+  <text x="90" y="132" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="16" fill="#C9A962" letter-spacing="6">ESPERT</text>
+  <text x="90" y="150" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="8" fill="#979B9B" letter-spacing="2.5">TRADE MARKETING</text>
+</svg>

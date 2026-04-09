@@ -35,7 +35,7 @@ export function GoogleMapLocation({
   if (!apiKey || loadError) {
     return (
       <div
-        className={`rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-500 text-sm ${className}`}
+        className={`rounded-lg overflow-hidden border border-border bg-muted flex items-center justify-center text-muted-foreground text-sm ${className}`}
         style={{ height }}
       >
         {loadError ? "Error al cargar el mapa" : "Configura VITE_GOOGLE_MAPS_API_KEY para ver el mapa"}
@@ -46,7 +46,7 @@ export function GoogleMapLocation({
   if (!isLoaded) {
     return (
       <div
-        className={`rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center text-slate-500 text-sm ${className}`}
+        className={`rounded-lg overflow-hidden border border-border bg-muted flex items-center justify-center text-muted-foreground text-sm ${className}`}
         style={{ height }}
       >
         Cargando mapa...
@@ -56,7 +56,7 @@ export function GoogleMapLocation({
 
   return (
     <div
-      className={`rounded-lg overflow-hidden border border-slate-200 ${className}`}
+      className={`rounded-lg overflow-hidden border border-border ${className}`}
       style={{ height }}
     >
       <GoogleMap

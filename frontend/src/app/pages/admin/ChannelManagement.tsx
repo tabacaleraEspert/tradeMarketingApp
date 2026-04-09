@@ -140,8 +140,8 @@ export function ChannelManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 mb-2">Canales y Subcanales</h1>
-          <p className="text-slate-600">
+          <h1 className="text-3xl font-bold text-foreground mb-2">Canales y Subcanales</h1>
+          <p className="text-muted-foreground">
             Gestiona los canales y subcanales disponibles para el alta de PDVs
           </p>
         </div>
@@ -155,20 +155,20 @@ export function ChannelManagement() {
         <CardContent className="p-4">
           <div className="space-y-2">
             {channels.map((ch) => (
-              <div key={ch.ChannelId} className="border border-slate-200 rounded-lg overflow-hidden">
+              <div key={ch.ChannelId} className="border border-border rounded-lg overflow-hidden">
                 <div
-                  className="flex items-center justify-between p-4 bg-white hover:bg-slate-50 cursor-pointer"
+                  className="flex items-center justify-between p-4 bg-card hover:bg-muted cursor-pointer"
                   onClick={() =>
                     setExpandedChannelId(expandedChannelId === ch.ChannelId ? null : ch.ChannelId)
                   }
                 >
                   <div className="flex items-center gap-3">
                     {expandedChannelId === ch.ChannelId ? (
-                      <ChevronDown size={20} className="text-slate-500" />
+                      <ChevronDown size={20} className="text-muted-foreground" />
                     ) : (
-                      <ChevronRight size={20} className="text-slate-500" />
+                      <ChevronRight size={20} className="text-muted-foreground" />
                     )}
-                    <span className="font-semibold text-slate-900">{ch.Name}</span>
+                    <span className="font-semibold text-foreground">{ch.Name}</span>
                     {!ch.IsActive && (
                       <Badge variant="secondary">Inactivo</Badge>
                     )}
@@ -201,9 +201,9 @@ export function ChannelManagement() {
                 </div>
 
                 {expandedChannelId === ch.ChannelId && (
-                  <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-2">
+                  <div className="border-t border-border bg-muted p-4 space-y-2">
                     {ch.ChannelId === expandedChannelId && subchannels.length === 0 && (
-                      <p className="text-sm text-slate-500 py-2">
+                      <p className="text-sm text-muted-foreground py-2">
                         No hay subcanales. Agrega uno con el botón "Subcanal".
                       </p>
                     )}
@@ -211,9 +211,9 @@ export function ChannelManagement() {
                       subchannels.map((sc) => (
                         <div
                           key={sc.SubChannelId}
-                          className="flex items-center justify-between py-2 px-3 bg-white rounded border border-slate-100"
+                          className="flex items-center justify-between py-2 px-3 bg-card rounded border border-border"
                         >
-                          <span className="text-sm font-medium text-slate-800">{sc.Name}</span>
+                          <span className="text-sm font-medium text-foreground">{sc.Name}</span>
                           <div className="flex gap-2">
                             <Button
                               variant="ghost"
@@ -259,7 +259,7 @@ export function ChannelManagement() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Nombre</label>
             <Input
               value={channelName}
               onChange={(e) => setChannelName(e.target.value)}
@@ -287,7 +287,7 @@ export function ChannelManagement() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre</label>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Nombre</label>
             <Input
               value={subchannelName}
               onChange={(e) => setSubchannelName(e.target.value)}

@@ -14,6 +14,7 @@ if __name__ == "__main__":
     import uvicorn
     from app.main import app
 
-    print("Iniciando servidor en http://localhost:8000")
+    port = int(os.environ.get("PORT", 8001))
+    print(f"Iniciando servidor en http://localhost:{port}")
     print("Login: POST /auth/login")
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)

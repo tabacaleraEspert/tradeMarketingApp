@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     database_user: str = ""
     database_password: str = ""
     database_driver: str = "ODBC Driver 18 for SQL Server"
+    # Segundos para conectar (Azure detrás de firewall lento: subir a 60–120)
+    database_connection_timeout: int = 60
+    # Solo si hay errores de certificado TLS en entornos muy restringidos (no recomendado en prod)
+    database_trust_server_certificate: bool = False
 
     @property
     def resolved_database_url(self) -> str:
@@ -26,13 +30,16 @@ class Settings(BaseSettings):
             server = self.database_server
             if not server.startswith("tcp:"):
                 server = f"tcp:{server},1433"
+            trust = "yes" if self.database_trust_server_certificate else "no"
+            timeout = max(15, self.database_connection_timeout)
             params = quote_plus(
                 f"Driver={{{self.database_driver}}};"
                 f"Server={server};"
                 f"Database={self.database_name};"
                 f"Uid={self.database_user};"
                 f"Pwd={self.database_password};"
-                "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+                f"Encrypt=yes;TrustServerCertificate={trust};"
+                f"Connection Timeout={timeout};"
             )
             return f"mssql+pyodbc://?odbc_connect={params}"
 

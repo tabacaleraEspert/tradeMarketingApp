@@ -9,9 +9,12 @@ import {
   X,
   Bell,
   User,
+  Users,
   Wifi,
   WifiOff,
   Layers,
+  ClipboardList,
+  Factory,
 } from "lucide-react";
 import { useState } from "react";
 import { Button } from "./ui/button";
@@ -25,12 +28,15 @@ export function AdminLayout() {
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/admin/pos-management", icon: MapPin, label: "Gestión PDV" },
+    { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/routes", icon: Route, label: "Rutas Foco" },
-    { path: "/admin/forms", icon: FileText, label: "Formularios" },
+    { path: "/admin/territory", icon: Users, label: "Territorio" },
+    { path: "/admin/forms", icon: ClipboardList, label: "Plantillas de Visita" },
     { path: "/admin/notifications", icon: Bell, label: "Notificaciones" },
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
+    { path: "/admin/users", icon: Users, label: "Usuarios" },
+    { path: "/plant", icon: Factory, label: "Planta Producción" },
   ];
 
   const isActivePath = (path: string) => {
@@ -41,48 +47,53 @@ export function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Top Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-        <div className="flex items-center justify-between px-4 h-16">
+      <header className="bg-card border-b border-border sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
+        <div className="flex items-center justify-between px-4 h-14">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-              className="p-2 hover:bg-slate-100 rounded-lg transition-colors lg:hidden"
+              className="p-2 hover:bg-muted rounded-lg transition-colors lg:hidden"
             >
               {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <div className="flex items-center gap-3">
-              <div className="bg-blue-600 rounded-lg p-2">
-                <MapPin size={24} className="text-white" />
+              <div className="bg-black dark:bg-espert-gold rounded-lg p-2">
+                <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
+                  <rect x="10.5" y="4" width="3" height="8" rx="0.5" fill="white" />
+                  <path d="M12 12 L7 17 Q6 18 7 18 L12 15" fill="white" opacity="0.9" />
+                  <path d="M12 12 L17 17 Q18 18 17 18 L12 15" fill="white" opacity="0.9" />
+                </svg>
               </div>
               <div>
-                <h1 className="text-lg font-bold text-slate-900">Trade Marketing</h1>
-                <p className="text-xs text-slate-500">Panel de Administración</p>
+                <h1 className="text-lg font-bold text-foreground tracking-tight">ESPERT</h1>
+                <p className="text-xs text-muted-foreground tracking-wider uppercase">Administracion</p>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-3">
             {/* Connection Status */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100">
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
               {isOnline ? (
                 <>
-                  <Wifi size={16} className="text-green-600" />
-                  <span className="text-xs font-medium text-green-700">Online</span>
+                  <Wifi size={16} className="text-espert-gold" />
+                  <span className="text-xs font-medium text-espert-gold">Online</span>
                 </>
               ) : (
                 <>
-                  <WifiOff size={16} className="text-red-600" />
-                  <span className="text-xs font-medium text-red-700">Offline</span>
+                  <WifiOff size={16} className="text-destructive" />
+                  <span className="text-xs font-medium text-destructive">Offline</span>
                 </>
               )}
             </div>
 
             {/* Notifications */}
-            <button className="relative p-2 hover:bg-slate-100 rounded-lg transition-colors">
+            <button className="relative p-2 hover:bg-muted rounded-lg transition-colors">
               <Bell size={20} />
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs">
+              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-espert-gold text-white border-0">
                 3
               </Badge>
             </button>
@@ -90,14 +101,14 @@ export function AdminLayout() {
             {/* User Menu */}
             <button
               onClick={() => navigate("/profile")}
-              className="flex items-center gap-2 px-3 py-2 hover:bg-slate-100 rounded-lg transition-colors"
+              className="flex items-center gap-2 px-3 py-2 hover:bg-muted rounded-lg transition-colors"
             >
-              <div className="bg-blue-100 rounded-full p-2">
-                <User size={16} className="text-blue-600" />
+              <div className="bg-espert-gold/10 dark:bg-espert-gold/20 rounded-full p-2">
+                <User size={16} className="text-espert-gold" />
               </div>
               <div className="text-left hidden md:block">
-                <p className="text-sm font-semibold text-slate-900">Admin User</p>
-                <p className="text-xs text-slate-500">Administrador</p>
+                <p className="text-sm font-semibold text-foreground">Admin User</p>
+                <p className="text-xs text-muted-foreground">Administrador</p>
               </div>
             </button>
           </div>
@@ -109,7 +120,7 @@ export function AdminLayout() {
         <aside
           className={`${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 bg-white border-r border-slate-200 transition-transform duration-300 z-20`}
+          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 bg-card border-r border-border transition-transform duration-300 z-20`}
         >
           <nav className="p-4 space-y-1">
             {menuItems.map((item) => {
@@ -125,8 +136,8 @@ export function AdminLayout() {
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                     isActive
-                      ? "bg-blue-50 text-blue-700 font-semibold"
-                      : "text-slate-700 hover:bg-slate-50"
+                      ? "bg-secondary text-espert-gold font-semibold"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   <Icon size={20} />
@@ -140,7 +151,7 @@ export function AdminLayout() {
           <div className="absolute bottom-4 left-4 right-4">
             <Button
               variant="outline"
-              className="w-full"
+              className="w-full border-espert-gold/30 text-espert-gold hover:bg-espert-gold/10"
               onClick={() => navigate("/")}
             >
               Volver a Modo Campo

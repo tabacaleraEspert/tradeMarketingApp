@@ -23,8 +23,16 @@ import { FormEditorPage } from "./pages/admin/FormEditorPage";
 import { Reports } from "./pages/admin/Reports";
 import { ChannelManagement } from "./pages/admin/ChannelManagement";
 import { NotificationManagement } from "./pages/admin/NotificationManagement";
+import { UserManagement } from "./pages/admin/UserManagement";
+import { TerritoryManagement } from "./pages/admin/TerritoryManagement";
+// MandatoryActivityManagement merged into FormBuilder as "Plantillas de Visita"
+import { PlantLayout } from "./pages/plant/PlantLayout";
+import { PlantDashboard } from "./pages/plant/PlantDashboard";
 import { MyRoutesPage } from "./pages/MyRoutesPage";
 import { MyRouteEditorPage } from "./pages/MyRouteEditorPage";
+import { VisitActionsPage } from "./pages/VisitActionsPage";
+import { VisitSummaryPage } from "./pages/VisitSummaryPage";
+import { EndOfDayPage } from "./pages/EndOfDayPage";
 
 export const router = createBrowserRouter([
   {
@@ -43,9 +51,12 @@ export const router = createBrowserRouter([
       { path: "pos/:id", Component: PointOfSaleDetail },
       { path: "pos/:id/checkin", Component: CheckIn },
       { path: "pos/:id/survey", Component: SurveyForm },
+      { path: "pos/:id/actions", Component: VisitActionsPage },
       { path: "pos/:id/photos", Component: PhotoCapture },
+      { path: "pos/:id/summary", Component: VisitSummaryPage },
       { path: "pos/:id/history", Component: History },
       { path: "new-pos", Component: NewPointOfSale },
+      { path: "end-of-day", Component: EndOfDayPage },
       { path: "alerts", Component: Alerts },
       { path: "sync", Component: Sync },
       { path: "profile", Component: Profile },
@@ -60,10 +71,19 @@ export const router = createBrowserRouter([
       { path: "channels", Component: ChannelManagement },
       { path: "routes", Component: RouteManagement },
       { path: "routes/:routeId/edit", Component: RouteEditorPage },
+      { path: "territory", Component: TerritoryManagement },
       { path: "forms", Component: FormBuilder },
       { path: "notifications", Component: NotificationManagement },
       { path: "forms/:formId/edit", Component: FormEditorPage },
       { path: "reports", Component: Reports },
+      { path: "users", Component: UserManagement },
+    ],
+  },
+  {
+    path: "/plant",
+    Component: PlantLayout,
+    children: [
+      { index: true, Component: PlantDashboard },
     ],
   },
 ]);

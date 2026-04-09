@@ -23,6 +23,8 @@ class Route(Base):
     FrequencyConfig = Column(String(200), nullable=True)
     # Solo visible para Admin
     EstimatedMinutes = Column(Integer, nullable=True)
+    # Trade Marketer asignado a esta ruta (persistente)
+    AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
 
 
 class RouteForm(Base):

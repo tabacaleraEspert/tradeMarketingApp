@@ -69,6 +69,7 @@ class FormOptionBase(BaseModel):
     Value: str
     Label: str
     SortOrder: int
+    ImageUrl: str | None = None
 
 
 class FormOptionCreate(FormOptionBase):
@@ -79,6 +80,7 @@ class FormOptionUpdate(BaseModel):
     Value: str | None = None
     Label: str | None = None
     SortOrder: int | None = None
+    ImageUrl: str | None = None
 
 
 class FormOption(FormOptionBase):

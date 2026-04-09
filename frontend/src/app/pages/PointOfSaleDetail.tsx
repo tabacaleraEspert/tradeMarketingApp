@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Switch } from "../components/ui/switch";
@@ -51,7 +52,7 @@ export function PointOfSaleDetail() {
     isActive: true,
     lat: null as number | null,
     lon: null as number | null,
-    contacts: [] as { ContactName: string; ContactPhone?: string; Birthday?: string }[],
+    contacts: [] as { ContactName: string; ContactPhone?: string; ContactRole?: string; DecisionPower?: string; Birthday?: string }[],
   });
 
   const { data: zones } = useZones();
@@ -73,6 +74,8 @@ export function PointOfSaleDetail() {
           ? p.Contacts.map((c) => ({
               ContactName: c.ContactName,
               ContactPhone: c.ContactPhone || undefined,
+              ContactRole: c.ContactRole || undefined,
+              DecisionPower: c.DecisionPower || undefined,
               Birthday: c.Birthday || undefined,
             }))
           : p.ContactName
@@ -119,7 +122,7 @@ export function PointOfSaleDetail() {
         isActive: pos.IsActive,
         lat: pos.Lat != null ? Number(pos.Lat) : null,
         lon: pos.Lon != null ? Number(pos.Lon) : null,
-        contacts: contactsFromPdv.length > 0 ? contactsFromPdv : [{ ContactName: "", ContactPhone: "", Birthday: "" }],
+        contacts: contactsFromPdv.length > 0 ? contactsFromPdv : [{ ContactName: "", ContactPhone: "", ContactRole: "", DecisionPower: "", Birthday: "" }],
       });
       setIsEditModalOpen(true);
     }
@@ -137,6 +140,8 @@ export function PointOfSaleDetail() {
         .map((c) => ({
           ContactName: c.ContactName.trim(),
           ContactPhone: c.ContactPhone?.trim() || undefined,
+          ContactRole: c.ContactRole?.trim() || undefined,
+          DecisionPower: c.DecisionPower?.trim() || undefined,
           Birthday: c.Birthday || undefined,
         }));
       await pdvsApi.update(Number(id), {
@@ -200,37 +205,53 @@ export function PointOfSaleDetail() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">Cargando...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
       </div>
     );
   }
 
   if (!pos) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">Punto de venta no encontrado</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Punto de venta no encontrado</p>
       </div>
     );
   }
 
-  const isVisitInProgress = posVisits.some((v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS");
-  const isCompleted = posVisits.some((v) => v.Status === "CLOSED" || v.Status === "COMPLETED");
+  // Check if there's an OPEN visit right now (for this routeDay or any)
+  const openVisit = posVisits.find((v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS");
+  const isVisitInProgress = !!openVisit;
+
+  // Check if TODAY's visit for this routeDay is already completed
+  const todayStr = new Date().toISOString().split("T")[0];
+  const isTodayCompleted = routeDayId
+    ? posVisits.some((v) =>
+        v.RouteDayId === routeDayId &&
+        (v.Status === "CLOSED" || v.Status === "COMPLETED")
+      )
+    : posVisits.some((v) =>
+        v.OpenedAt.startsWith(todayStr) &&
+        (v.Status === "CLOSED" || v.Status === "COMPLETED")
+      );
+
+  // Show check-in button when: coming from route day AND not yet visited today AND no open visit
+  const canCheckIn = !isVisitInProgress && !isTodayCompleted;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate(-1)}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">{pos.Name}</h1>
-            <p className="text-sm text-slate-600">{pos.ChannelName || pos.Channel || "-"}</p>
+            <h1 className="text-xl font-bold text-foreground">{pos.Name}</h1>
+            <p className="text-sm text-muted-foreground">{pos.ChannelName || pos.Channel || "-"}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={openEditModal}>
@@ -262,8 +283,8 @@ export function PointOfSaleDetail() {
         {/* Main Info Card */}
         <Card>
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <span className="text-sm font-medium text-slate-700">PDV activo</span>
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <span className="text-sm font-medium text-foreground">PDV activo</span>
               <Switch
                 checked={pos.IsActive}
                 onCheckedChange={handleToggleActive}
@@ -271,10 +292,10 @@ export function PointOfSaleDetail() {
               />
             </div>
             <div className="flex items-start gap-2">
-              <MapPin size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
+              <MapPin size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm text-slate-500">Dirección</p>
-                <p className="font-medium text-slate-900">{pos.Address || pos.City || "-"}</p>
+                <p className="text-sm text-muted-foreground">Dirección</p>
+                <p className="font-medium text-foreground">{pos.Address || pos.City || "-"}</p>
               </div>
             </div>
 
@@ -290,32 +311,38 @@ export function PointOfSaleDetail() {
             )}
 
             <div className="flex items-start gap-2">
-              <Building2 size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
+              <Building2 size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
               <div>
-                <p className="text-sm text-slate-500">Distribuidor</p>
-                <p className="font-medium text-slate-900">{pos.DistributorId ? `Distribuidor #${pos.DistributorId}` : "-"}</p>
+                <p className="text-sm text-muted-foreground">Distribuidor</p>
+                <p className="font-medium text-foreground">{pos.DistributorId ? `Distribuidor #${pos.DistributorId}` : "-"}</p>
               </div>
             </div>
 
-            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, Birthday: null }] : []).map((c, i) => (
-              <div key={i} className="space-y-1 p-2 bg-slate-50 rounded-lg">
+            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null }] : []).map((c, i) => (
+              <div key={i} className="space-y-1 p-2 bg-muted rounded-lg">
                 <div className="flex items-start gap-2">
-                  <User size={18} className="text-slate-500 mt-0.5 flex-shrink-0" />
+                  <User size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
                   <div>
-                    <p className="text-sm text-slate-500">Contacto</p>
-                    <p className="font-medium text-slate-900">{c.ContactName}</p>
+                    <p className="text-sm text-muted-foreground">Contacto</p>
+                    <p className="font-medium text-foreground">{c.ContactName}</p>
+                    {(c.ContactRole || c.DecisionPower) && (
+                      <div className="flex gap-1 mt-1">
+                        {c.ContactRole && <Badge variant="outline" className="text-xs">{c.ContactRole}</Badge>}
+                        {c.DecisionPower && <Badge variant={c.DecisionPower === "alto" ? "default" : "secondary"} className="text-xs">Decisión: {c.DecisionPower}</Badge>}
+                      </div>
+                    )}
                   </div>
                 </div>
                 {c.ContactPhone && (
                   <div className="flex items-center gap-2 ml-6">
-                    <Phone size={14} className="text-slate-500" />
-                    <span className="text-sm text-slate-700">{c.ContactPhone}</span>
+                    <Phone size={14} className="text-muted-foreground" />
+                    <span className="text-sm text-foreground">{c.ContactPhone}</span>
                   </div>
                 )}
                 {c.Birthday && (
                   <div className="flex items-center gap-2 ml-6">
-                    <Cake size={14} className="text-slate-500" />
-                    <span className="text-sm text-slate-700">
+                    <Cake size={14} className="text-muted-foreground" />
+                    <span className="text-sm text-foreground">
                       Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { day: "numeric", month: "long" })}
                     </span>
                   </div>
@@ -350,37 +377,37 @@ export function PointOfSaleDetail() {
         {/* Performance Indicators */}
         <Card>
           <CardContent className="p-4">
-            <h3 className="font-semibold text-slate-900 mb-3">Indicadores</h3>
+            <h3 className="font-semibold text-foreground mb-3">Indicadores</h3>
             <div className="grid grid-cols-3 gap-3">
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
                   <TrendingUp size={16} className="text-green-600" />
-                  <span className="text-2xl font-bold text-slate-900">-</span>
+                  <span className="text-2xl font-bold text-foreground">-</span>
                 </div>
-                <p className="text-xs text-slate-500">Cumplimiento</p>
+                <p className="text-xs text-muted-foreground">Cumplimiento</p>
               </div>
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
-                  <Clock size={16} className="text-blue-600" />
-                  <span className="text-2xl font-bold text-slate-900">
+                  <Clock size={16} className="text-espert-gold" />
+                  <span className="text-2xl font-bold text-foreground">
                     {posVisits.length}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">Visitas</p>
+                <p className="text-xs text-muted-foreground">Visitas</p>
               </div>
               <div className="text-center">
                 <div className="flex items-center justify-center gap-1 mb-1">
                   <AlertCircle size={16} className="text-green-600" />
-                  <span className="text-2xl font-bold text-slate-900">-</span>
+                  <span className="text-2xl font-bold text-foreground">-</span>
                 </div>
-                <p className="text-xs text-slate-500">Incidencias</p>
+                <p className="text-xs text-muted-foreground">Incidencias</p>
               </div>
             </div>
 
             {lastVisit && (
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <p className="text-xs text-slate-500">Última visita</p>
-                <p className="text-sm font-medium text-slate-900">
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs text-muted-foreground">Última visita</p>
+                <p className="text-sm font-medium text-foreground">
                   {new Date(lastVisit.OpenedAt).toLocaleDateString("es-AR", {
                     day: "numeric",
                     month: "long",
@@ -395,9 +422,10 @@ export function PointOfSaleDetail() {
 
         {/* Action Buttons */}
         <div className="space-y-3 pb-4">
-          {!isCompleted && !isVisitInProgress && (
+          {/* Check-in: show when can start a new visit */}
+          {canCheckIn && (
             <Button
-              className="w-full h-14 text-base font-semibold"
+              className="w-full h-14 text-base font-semibold bg-[#A48242] hover:bg-[#8B6E38]"
               size="lg"
               onClick={() =>
                 navigate(`/pos/${id}/checkin`, {
@@ -406,56 +434,89 @@ export function PointOfSaleDetail() {
               }
             >
               <MapPin className="mr-2" size={20} />
-              Iniciar Check-in
+              Iniciar Visita — Check-in
             </Button>
           )}
 
+          {/* Visit in progress: show relevamiento + photos + actions */}
           {isVisitInProgress && (
             <>
-              <Button
-                className="w-full h-14 text-base font-semibold"
-                size="lg"
-                onClick={() => {
-                  const openVisit = posVisits.find(
-                    (v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS"
-                  );
-                  navigate(`/pos/${id}/survey`, {
-                    state: { routeDayId, visitId: openVisit?.VisitId },
-                  });
-                }}
-              >
-                <FileText className="mr-2" size={20} />
-                Completar Relevamiento
-              </Button>
-              <Button
-                variant="outline"
-                className="w-full h-12"
-                onClick={() => {
-                  const openVisit = posVisits.find(
-                    (v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS"
-                  );
-                  navigate(`/pos/${id}/photos`, {
-                    state: { routeDayId, visitId: openVisit?.VisitId },
-                  });
-                }}
-              >
-                <Camera className="mr-2" size={18} />
-                Cargar Fotos
-              </Button>
+              <Card className="border-[#A48242] bg-[#A48242]/5">
+                <CardContent className="p-3">
+                  <p className="text-xs font-medium text-[#A48242] mb-2 flex items-center gap-1">
+                    <Clock size={12} />
+                    Visita en curso — {new Date(openVisit!.OpenedAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                  </p>
+                  <div className="space-y-2">
+                    <Button
+                      className="w-full h-12 text-sm font-semibold"
+                      onClick={() =>
+                        navigate(`/pos/${id}/survey`, {
+                          state: { routeDayId, visitId: openVisit?.VisitId },
+                        })
+                      }
+                    >
+                      <FileText className="mr-2" size={18} />
+                      Completar Relevamiento
+                    </Button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        variant="outline"
+                        className="h-10 text-xs"
+                        onClick={() =>
+                          navigate(`/pos/${id}/photos`, {
+                            state: { routeDayId, visitId: openVisit?.VisitId },
+                          })
+                        }
+                      >
+                        <Camera className="mr-1.5" size={15} />
+                        Fotos
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="h-10 text-xs"
+                        onClick={() =>
+                          navigate(`/pos/${id}/visit-actions`, {
+                            state: { routeDayId, visitId: openVisit?.VisitId },
+                          })
+                        }
+                      >
+                        <FileText className="mr-1.5" size={15} />
+                        Acciones
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </>
+          )}
+
+          {/* Today completed banner */}
+          {isTodayCompleted && !isVisitInProgress && (
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-3 flex items-center gap-3">
+                <div className="bg-green-600 text-white p-1.5 rounded-full">
+                  <TrendingUp size={16} />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-green-900">Visita de hoy completada</p>
+                  <p className="text-xs text-green-700">Relevamiento enviado</p>
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           <Button
             variant="outline"
-            className="w-full h-12"
+            className="w-full h-11"
             onClick={() => navigate(`/pos/${id}/history`)}
           >
-            <HistoryIcon className="mr-2" size={18} />
+            <HistoryIcon className="mr-2" size={16} />
             Ver Histórico
           </Button>
 
-          <Button variant="outline" className="w-full h-12" onClick={() => navigate("/alerts")}>
-            <AlertCircle className="mr-2" size={18} />
+          <Button variant="outline" className="w-full h-11" onClick={() => navigate("/alerts")}>
+            <AlertCircle className="mr-2" size={16} />
             Reportar Incidencia
           </Button>
         </div>
@@ -479,8 +540,8 @@ export function PointOfSaleDetail() {
         }
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-            <label className="text-sm font-medium text-slate-700">PDV activo</label>
+          <div className="flex items-center justify-between pb-4 border-b border-border">
+            <label className="text-sm font-medium text-foreground">PDV activo</label>
             <Switch
               checked={formData.isActive}
               onCheckedChange={(checked) => setFormData((f) => ({ ...f, isActive: checked }))}
@@ -488,7 +549,7 @@ export function PointOfSaleDetail() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del PDV</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Nombre del PDV</label>
               <Input
                 placeholder="Ej: Kiosco El Rápido"
                 value={formData.name}
@@ -496,7 +557,7 @@ export function PointOfSaleDetail() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Canal</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Canal</label>
               <Select
                 value={formData.channelId ? String(formData.channelId) : ""}
                 onValueChange={(v) =>
@@ -516,7 +577,7 @@ export function PointOfSaleDetail() {
               </Select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Sub-canal</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Sub-canal</label>
               <Select
                 value={formData.subChannelId ? String(formData.subChannelId) : ""}
                 onValueChange={(v) =>
@@ -539,7 +600,7 @@ export function PointOfSaleDetail() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Dirección</label>
+            <label className="block text-sm font-medium text-foreground mb-1">Dirección</label>
             <Input
               placeholder="Ej: Av. Santa Fe 1234, CABA"
               value={formData.address}
@@ -555,7 +616,7 @@ export function PointOfSaleDetail() {
             </GpsCaptureButton>
             {formData.lat != null && formData.lon != null && (
               <>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Coordenadas: {Number(formData.lat).toFixed(6)}, {Number(formData.lon).toFixed(6)}
                 </p>
                 <LocationMap
@@ -571,7 +632,7 @@ export function PointOfSaleDetail() {
 
           <div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-slate-700">Contactos</label>
+              <label className="block text-sm font-medium text-foreground">Contactos</label>
               <Button
                 type="button"
                 variant="outline"
@@ -579,7 +640,7 @@ export function PointOfSaleDetail() {
                 onClick={() =>
                   setFormData((f) => ({
                     ...f,
-                    contacts: [...f.contacts, { ContactName: "", ContactPhone: "", Birthday: "" }],
+                    contacts: [...f.contacts, { ContactName: "", ContactPhone: "", ContactRole: "", DecisionPower: "", Birthday: "" }],
                   }))
                 }
               >
@@ -588,47 +649,85 @@ export function PointOfSaleDetail() {
               </Button>
             </div>
             {formData.contacts.map((c, i) => (
-              <div key={i} className="flex gap-2 mb-2 p-2 bg-slate-50 rounded-lg">
-                <Input
-                  placeholder="Nombre"
-                  value={c.ContactName}
-                  onChange={(e) =>
-                    setFormData((f) => ({
-                      ...f,
-                      contacts: f.contacts.map((ct, j) =>
-                        j === i ? { ...ct, ContactName: e.target.value } : ct
-                      ),
-                    }))
-                  }
-                  className="flex-1"
-                />
-                <Input
-                  placeholder="Teléfono"
-                  value={c.ContactPhone || ""}
-                  onChange={(e) =>
-                    setFormData((f) => ({
-                      ...f,
-                      contacts: f.contacts.map((ct, j) =>
-                        j === i ? { ...ct, ContactPhone: e.target.value } : ct
-                      ),
-                    }))
-                  }
-                  className="flex-1"
-                />
-                <Input
-                  type="date"
-                  placeholder="Cumpleaños"
-                  value={c.Birthday || ""}
-                  onChange={(e) =>
-                    setFormData((f) => ({
-                      ...f,
-                      contacts: f.contacts.map((ct, j) =>
-                        j === i ? { ...ct, Birthday: e.target.value } : ct
-                      ),
-                    }))
-                  }
-                  className="w-36"
-                />
+              <div key={i} className="space-y-2 mb-2 p-3 bg-muted rounded-lg">
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Nombre"
+                    value={c.ContactName}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((ct, j) =>
+                          j === i ? { ...ct, ContactName: e.target.value } : ct
+                        ),
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                  <Input
+                    placeholder="Teléfono"
+                    value={c.ContactPhone || ""}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((ct, j) =>
+                          j === i ? { ...ct, ContactPhone: e.target.value } : ct
+                        ),
+                      }))
+                    }
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <select
+                    value={c.ContactRole || ""}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((ct, j) =>
+                          j === i ? { ...ct, ContactRole: e.target.value } : ct
+                        ),
+                      }))
+                    }
+                    className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Rol...</option>
+                    <option value="dueño">Dueño</option>
+                    <option value="empleado">Empleado</option>
+                    <option value="encargado">Encargado</option>
+                  </select>
+                  <select
+                    value={c.DecisionPower || ""}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((ct, j) =>
+                          j === i ? { ...ct, DecisionPower: e.target.value } : ct
+                        ),
+                      }))
+                    }
+                    className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="">Poder de decisión...</option>
+                    <option value="alto">Alto</option>
+                    <option value="medio">Medio</option>
+                    <option value="bajo">Bajo</option>
+                  </select>
+                  <Input
+                    type="date"
+                    placeholder="Cumpleaños"
+                    value={c.Birthday || ""}
+                    onChange={(e) =>
+                      setFormData((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((ct, j) =>
+                          j === i ? { ...ct, Birthday: e.target.value } : ct
+                        ),
+                      }))
+                    }
+                    className="w-36"
+                  />
+                </div>
                 {formData.contacts.length > 1 && (
                   <Button
                     type="button"
@@ -651,9 +750,9 @@ export function PointOfSaleDetail() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Zona</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Zona</label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
                 value={formData.zoneId}
                 onChange={(e) =>
                   setFormData((f) => ({
@@ -671,9 +770,9 @@ export function PointOfSaleDetail() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Distribuidor</label>
+              <label className="block text-sm font-medium text-foreground mb-1">Distribuidor</label>
               <select
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
                 value={formData.distributorId}
                 onChange={(e) =>
                   setFormData((f) => ({

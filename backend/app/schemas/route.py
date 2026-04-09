@@ -12,6 +12,7 @@ class RouteBase(BaseModel):
     FrequencyType: str | None = None
     FrequencyConfig: str | None = None
     EstimatedMinutes: int | None = None
+    AssignedUserId: int | None = None
 
 
 class RouteCreate(RouteBase):
@@ -27,12 +28,14 @@ class RouteUpdate(BaseModel):
     FrequencyType: str | None = None
     FrequencyConfig: str | None = None
     EstimatedMinutes: int | None = None
+    AssignedUserId: int | None = None
 
 
 class Route(RouteBase):
     RouteId: int
     CreatedByUserId: int | None = None
     PdvCount: int = 0  # Auto-calculado
+    AssignedUserName: str | None = None
     CreatedAt: datetime
 
     class Config:
@@ -92,7 +95,7 @@ class RouteDayBase(BaseModel):
 
 class RouteDayCreate(BaseModel):
     WorkDate: date
-    AssignedUserId: int
+    AssignedUserId: int | None = None
     Status: str = "PLANNED"
 
 

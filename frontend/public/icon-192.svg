@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="gold192" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#C9A962"/>
+      <stop offset="50%" stop-color="#A48242"/>
+      <stop offset="100%" stop-color="#8B6E38"/>
+    </linearGradient>
+    <linearGradient id="shine192" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#D4B876" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#A48242" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="192" height="192" rx="42" fill="#0A0A09"/>
+  <!-- Subtle inner glow -->
+  <rect x="3" y="3" width="186" height="186" rx="40" fill="none" stroke="url(#gold192)" stroke-width="1.5" opacity="0.5"/>
+  <!-- Top shine -->
+  <rect x="20" y="8" width="152" height="60" rx="30" fill="url(#shine192)"/>
+  <!-- Diamond accent top -->
+  <path d="M96 22 L102 32 L96 42 L90 32 Z" fill="url(#gold192)" opacity="0.7"/>
+  <!-- Main TM text -->
+  <text x="96" y="108" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="70" fill="url(#gold192)" letter-spacing="4">TM</text>
+  <!-- Horizontal rule -->
+  <rect x="48" y="118" width="96" height="1.5" rx="0.75" fill="url(#gold192)" opacity="0.4"/>
+  <!-- ESPERT text -->
+  <text x="96" y="142" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="18" fill="#C9A962" letter-spacing="8">ESPERT</text>
+  <!-- Trade Marketing subtitle -->
+  <text x="96" y="162" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="10" fill="#979B9B" letter-spacing="3">TRADE MARKETING</text>
+</svg>

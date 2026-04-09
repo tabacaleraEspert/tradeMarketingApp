@@ -21,6 +21,7 @@ export function PhotoCapture() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const routeDayId = (location.state as { routeDayId?: number } | null)?.routeDayId;
   const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
@@ -89,14 +90,10 @@ export function PhotoCapture() {
 
     setSaving(true);
     try {
-      if (visitId) {
-        await visitsApi.update(visitId, {
-          Status: "CLOSED",
-          CloseReason: reminderForNext.trim() || undefined,
-        });
-      }
       toast.success("Evidencia fotográfica completada");
-      navigate(`/pos/${id}`);
+      navigate(`/pos/${id}/summary`, {
+        state: { routeDayId, visitId },
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al guardar");
     } finally {
@@ -114,31 +111,31 @@ export function PhotoCapture() {
 
   if (!pdv) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">Cargando...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-24">
+    <div className="min-h-screen bg-background pb-24">
       {/* Header */}
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-3">
           <button
             onClick={() => navigate(`/pos/${id}`)}
-            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+            className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Evidencia Fotográfica</h1>
-            <p className="text-sm text-slate-600">{pdv.Name}</p>
+            <h1 className="text-xl font-bold text-foreground">Evidencia Fotográfica</h1>
+            <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
         </div>
 
         <div className="flex items-center justify-between text-sm">
-          <span className="text-slate-600">
+          <span className="text-muted-foreground">
             {photos.length} fotos capturadas (mínimo {getMinPhotosRequired()})
           </span>
           <Badge variant={photos.length >= getMinPhotosRequired() ? "secondary" : "destructive"}>
@@ -151,7 +148,7 @@ export function PhotoCapture() {
         {/* Category Selector */}
         <Card>
           <CardContent className="p-4">
-            <Label className="text-sm font-semibold text-slate-900 mb-3 block">
+            <Label className="text-sm font-semibold text-foreground mb-3 block">
               Categoría de Foto
             </Label>
             <div className="space-y-2">
@@ -165,29 +162,29 @@ export function PhotoCapture() {
                     onClick={() => setSelectedCategory(category.id)}
                     className={`w-full flex items-center justify-between p-3 rounded-lg border-2 transition-colors ${
                       isSelected
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-slate-200 hover:border-slate-300"
+                        ? "border-espert-gold bg-espert-gold/10"
+                        : "border-border hover:border-espert-gold/50"
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          isSelected ? "bg-blue-600" : "bg-slate-200"
+                          isSelected ? "bg-espert-gold" : "bg-muted"
                         }`}
                       >
                         <ImageIcon
                           size={20}
-                          className={isSelected ? "text-white" : "text-slate-600"}
+                          className={isSelected ? "text-white" : "text-muted-foreground"}
                         />
                       </div>
                       <div className="text-left">
-                        <p className="font-semibold text-slate-900 flex items-center gap-2">
+                        <p className="font-semibold text-foreground flex items-center gap-2">
                           {category.label}
                           {category.required && (
                             <span className="text-xs text-red-600">*Obligatorio</span>
                           )}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-muted-foreground">
                           {categoryPhotos.length} {categoryPhotos.length === 1 ? "foto" : "fotos"}
                         </p>
                       </div>
@@ -216,7 +213,7 @@ export function PhotoCapture() {
         {photos.length > 0 && (
           <Card>
             <CardContent className="p-4">
-              <h3 className="font-semibold text-slate-900 mb-3">
+              <h3 className="font-semibold text-foreground mb-3">
                 Fotos Capturadas ({photos.length})
               </h3>
               <div className="grid grid-cols-2 gap-3">
@@ -253,7 +250,7 @@ export function PhotoCapture() {
                         </Badge>
                       )}
                     </div>
-                    <div className="mt-1 text-xs text-slate-600 text-center">
+                    <div className="mt-1 text-xs text-muted-foreground text-center">
                       {photo.timestamp.toLocaleTimeString("es-AR", {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -266,37 +263,21 @@ export function PhotoCapture() {
           </Card>
         )}
 
-        {/* Recordatorio próxima visita */}
-        <Card>
-          <CardContent className="p-4">
-            <Label className="text-sm font-semibold text-slate-900 mb-2 block">
-              Recordatorio próxima visita
-            </Label>
-            <Textarea
-              placeholder="Deja un comentario o tarea para la próxima visita (ej: Verificar stock, Reponer material POP...)"
-              value={reminderForNext}
-              onChange={(e) => setReminderForNext(e.target.value)}
-              rows={3}
-              className="resize-none"
-            />
-          </CardContent>
-        </Card>
-
         {/* Instructions */}
-        <Card className="bg-blue-50 border-blue-200">
+        <Card className="bg-espert-gold/10 border-espert-gold">
           <CardContent className="p-4">
-            <h3 className="font-semibold text-blue-900 mb-2">Recomendaciones</h3>
-            <ul className="space-y-1 text-sm text-blue-800">
+            <h3 className="font-semibold text-foreground mb-2">Recomendaciones</h3>
+            <ul className="space-y-1 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
-                <span className="text-blue-600 font-bold">•</span>
+                <span className="text-espert-gold font-bold">•</span>
                 <span>Asegúrate de tomar fotos claras y bien iluminadas</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-600 font-bold">•</span>
+                <span className="text-espert-gold font-bold">•</span>
                 <span>Las fotos obligatorias son necesarias para completar la visita</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-blue-600 font-bold">•</span>
+                <span className="text-espert-gold font-bold">•</span>
                 <span>Las fotos se sincronizarán automáticamente cuando tengas conexión</span>
               </li>
             </ul>
@@ -305,13 +286,13 @@ export function PhotoCapture() {
       </div>
 
       {/* Fixed Bottom Actions */}
-      <div className="fixed bottom-20 left-0 right-0 bg-white border-t border-slate-200 p-4">
+      <div className="sticky bottom-0 bg-card border-t border-border p-3">
         <Button
           className="w-full h-12 text-base font-semibold"
           onClick={handleFinish}
           disabled={photos.length < getMinPhotosRequired() || saving}
         >
-          {saving ? "Guardando..." : "Finalizar y Guardar"}
+          {saving ? "Guardando..." : "Continuar a Resumen"}
         </Button>
       </div>
     </div>

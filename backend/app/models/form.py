@@ -36,3 +36,4 @@ class FormOption(Base):
     Value = Column(String(120), nullable=False)
     Label = Column(String(200), nullable=False)
     SortOrder = Column(Integer, nullable=False)
+    ImageUrl = Column(String(500), nullable=True)

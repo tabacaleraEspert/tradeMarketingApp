@@ -26,6 +26,15 @@ class PDV(Base):
     UpdatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class PdvDistributor(Base):
+    """Relación muchos-a-muchos entre PDV y Distribuidor."""
+    __tablename__ = "PdvDistributor"
+
+    PdvDistributorId = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=False)
+    DistributorId = Column(Integer, ForeignKey("Distributor.DistributorId"), nullable=False)
+
+
 class PdvAssignment(Base):
     __tablename__ = "PdvAssignment"
 

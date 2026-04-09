@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -9,14 +9,15 @@ import { RadioGroup, RadioGroupItem } from "../components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Progress } from "../components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
-import { ArrowLeft, Save, Send, Camera, WifiOff, FileText } from "lucide-react";
+import { Badge } from "../components/ui/badge";
+import { ArrowLeft, Save, Send, Camera, WifiOff, CheckCircle2, CircleDashed, Clock, Image as ImageIcon } from "lucide-react";
 import {
   pdvsApi,
   routesApi,
   formsApi,
   visitsApi,
 } from "@/lib/api";
-import type { FormQuestion, FormOption, RouteFormWithForm } from "@/lib/api";
+import type { Form, FormQuestion, FormOption } from "@/lib/api";
 import { toast } from "sonner";
 
 interface QuestionWithOptions extends FormQuestion {
@@ -44,13 +45,44 @@ export function SurveyForm() {
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
-  const [routeForms, setRouteForms] = useState<RouteFormWithForm[]>([]);
+  const [forms, setForms] = useState<Form[]>([]);
+  const [focoFormIds, setFocoFormIds] = useState<Set<number>>(new Set());
   const [formQuestions, setFormQuestions] = useState<Record<number, QuestionWithOptions[]>>({});
   const [answers, setAnswers] = useState<
     Record<number, string | number | boolean | string[] | Record<string, number | null>>
   >({});
   const [activeTab, setActiveTab] = useState<string>("");
   const [loading, setLoading] = useState(true);
+
+  // Silent form-time tracking (no UI). Supervisors see this in analytics.
+  const elapsedByFormRef = useRef<Record<number, number>>({}); // seconds accumulated (pending flush)
+  const activeStartRef = useRef<number | null>(null); // ts when current form became active
+  const activeFormIdRef = useRef<number | null>(null);
+
+  const closeActiveInterval = useCallback(() => {
+    if (activeFormIdRef.current != null && activeStartRef.current != null) {
+      const deltaSec = Math.floor((Date.now() - activeStartRef.current) / 1000);
+      if (deltaSec > 0) {
+        const fid = activeFormIdRef.current;
+        elapsedByFormRef.current[fid] = (elapsedByFormRef.current[fid] || 0) + deltaSec;
+      }
+    }
+    activeStartRef.current = null;
+  }, []);
+
+  const flushFormTimes = useCallback(async (vid: number) => {
+    closeActiveInterval();
+    const items = Object.entries(elapsedByFormRef.current)
+      .map(([fid, sec]) => ({ FormId: Number(fid), ElapsedSeconds: sec }))
+      .filter((x) => x.ElapsedSeconds > 0);
+    if (items.length === 0) return;
+    try {
+      await visitsApi.saveFormTimes(vid, items);
+      elapsedByFormRef.current = {};
+    } catch { /* silent */ }
+    // Restart interval for the currently active form
+    if (activeFormIdRef.current != null) activeStartRef.current = Date.now();
+  }, [closeActiveInterval]);
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -67,25 +99,51 @@ export function SurveyForm() {
         setVisitId(visitIdFromState);
       }
 
-      if (routeDayId) {
-        const forms = await routesApi.listDayForms(routeDayId);
-        setRouteForms(forms);
-        if (forms.length > 0) setActiveTab((prev) => (prev ? prev : String(forms[0].FormId)));
+      // Load ALL active forms
+      const allForms = await formsApi.list({ limit: 200 });
+      const activeForms = allForms.filter((f) => f.IsActive);
+      setForms(activeForms);
+      if (activeForms.length > 0) setActiveTab((prev) => (prev ? prev : String(activeForms[0].FormId)));
 
-        const questionsByForm: Record<number, QuestionWithOptions[]> = {};
-        for (const rf of forms) {
-          const qList = await formsApi.listQuestions(rf.FormId);
-          const withOpts = await Promise.all(
-            qList.map(async (q) => {
-              const opts = OPTION_TYPES.includes(q.QType)
-                ? await formsApi.listOptions(q.QuestionId)
-                : [];
-              return { ...q, options: opts };
-            })
-          );
-          questionsByForm[rf.FormId] = withOpts.sort((a, b) => a.SortOrder - b.SortOrder);
-        }
-        setFormQuestions(questionsByForm);
+      // Mark which ones are route foco (if visit comes from a route day)
+      if (routeDayId) {
+        try {
+          const routeForms = await routesApi.listDayForms(routeDayId);
+          setFocoFormIds(new Set(routeForms.map((rf) => rf.FormId)));
+        } catch { /* optional */ }
+      }
+
+      // Load questions+options for all forms
+      const questionsByForm: Record<number, QuestionWithOptions[]> = {};
+      for (const f of activeForms) {
+        const qList = await formsApi.listQuestions(f.FormId);
+        const withOpts = await Promise.all(
+          qList.map(async (q) => {
+            const opts = OPTION_TYPES.includes(q.QType)
+              ? await formsApi.listOptions(q.QuestionId)
+              : [];
+            return { ...q, options: opts };
+          })
+        );
+        questionsByForm[f.FormId] = withOpts.sort((a, b) => a.SortOrder - b.SortOrder);
+      }
+      setFormQuestions(questionsByForm);
+
+      // Load existing answers if revisiting
+      const vid = visitIdFromState ?? (await visitsApi.list({ pdv_id: pdvId, status: "OPEN" }))[0]?.VisitId;
+      if (vid) {
+        try {
+          const existingAnswers = await visitsApi.listAnswers(vid);
+          const restored: Record<number, string | number | boolean | string[] | Record<string, number | null>> = {};
+          for (const ans of existingAnswers) {
+            if (ans.ValueJson) {
+              try { restored[ans.QuestionId] = JSON.parse(ans.ValueJson); } catch { /* skip */ }
+            } else if (ans.ValueBool !== null) restored[ans.QuestionId] = ans.ValueBool;
+            else if (ans.ValueNumber !== null) restored[ans.QuestionId] = ans.ValueNumber;
+            else if (ans.ValueText !== null) restored[ans.QuestionId] = ans.ValueText;
+          }
+          if (Object.keys(restored).length > 0) setAnswers(restored);
+        } catch { /* no saved answers yet */ }
       }
     } catch (e) {
       toast.error("Error al cargar");
@@ -99,6 +157,47 @@ export function SurveyForm() {
     loadData();
   }, [loadData]);
 
+  // Track active form timer (silent, no UI)
+  useEffect(() => {
+    // Close out previous form's interval when active changes
+    closeActiveInterval();
+    const fid = activeTab ? Number(activeTab) : null;
+    activeFormIdRef.current = fid;
+    if (fid != null) activeStartRef.current = Date.now();
+    return () => {
+      closeActiveInterval();
+    };
+  }, [activeTab, closeActiveInterval]);
+
+  // Pause when tab hidden, resume when visible
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        closeActiveInterval();
+      } else if (document.visibilityState === "visible") {
+        if (activeFormIdRef.current != null) activeStartRef.current = Date.now();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [closeActiveInterval]);
+
+  // Flush on unmount (navigate away)
+  useEffect(() => {
+    return () => {
+      const vid = visitId ?? visitIdFromState;
+      if (!vid) return;
+      closeActiveInterval();
+      const items = Object.entries(elapsedByFormRef.current)
+        .map(([fid, sec]) => ({ FormId: Number(fid), ElapsedSeconds: sec }))
+        .filter((x) => x.ElapsedSeconds > 0);
+      if (items.length > 0) {
+        visitsApi.saveFormTimes(vid, items).catch(() => {});
+        elapsedByFormRef.current = {};
+      }
+    };
+  }, [visitId, visitIdFromState, closeActiveInterval]);
+
   const setAnswer = (
     questionId: number,
     value: string | number | boolean | string[] | Record<string, number | null>
@@ -106,118 +205,182 @@ export function SurveyForm() {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
   };
 
-  const allQuestions = Object.values(formQuestions).flat();
-  const completedCount = allQuestions.filter((q) => {
+  const isAnswered = (q: QuestionWithOptions): boolean => {
     const v = answers[q.QuestionId];
     if (v === undefined || v === "") return false;
     if (Array.isArray(v)) return v.length > 0;
     if (typeof v === "object" && v !== null && !Array.isArray(v)) return Object.keys(v).length > 0;
     return true;
-  }).length;
-  const progressPercentage = allQuestions.length > 0 ? Math.round((completedCount / allQuestions.length) * 100) : 0;
-
-  const handleSaveDraft = () => {
-    toast.success("Borrador guardado correctamente");
   };
 
-  const handleSubmit = () => {
-    toast.success("Relevamiento completado");
-    navigate(`/pos/${id}/photos`, {
-      state: { routeDayId, visitId: visitId ?? visitIdFromState },
-    });
+  const allQuestions = Object.values(formQuestions).flat();
+  const completedCount = allQuestions.filter(isAnswered).length;
+  const progressPercentage = allQuestions.length > 0 ? Math.round((completedCount / allQuestions.length) * 100) : 0;
+
+  // Status per form: "pending" | "partial" | "complete"
+  const getFormStatus = (formId: number): "pending" | "partial" | "complete" => {
+    const qs = formQuestions[formId] || [];
+    if (qs.length === 0) return "pending";
+    const answered = qs.filter(isAnswered).length;
+    if (answered === 0) return "pending";
+    const required = qs.filter((q) => q.IsRequired);
+    const requiredAnswered = required.filter(isAnswered).length;
+    if (required.length > 0 && requiredAnswered === required.length && answered === qs.length) return "complete";
+    if (required.length === 0 && answered === qs.length) return "complete";
+    return "partial";
+  };
+
+  const getFormProgress = (formId: number): number => {
+    const qs = formQuestions[formId] || [];
+    if (qs.length === 0) return 0;
+    return Math.round((qs.filter(isAnswered).length / qs.length) * 100);
+  };
+
+  const buildAnswerPayload = () => {
+    return allQuestions
+      .filter((q) => answers[q.QuestionId] !== undefined && answers[q.QuestionId] !== "")
+      .map((q) => {
+        const val = answers[q.QuestionId];
+        const entry: {
+          QuestionId: number;
+          ValueText?: string | null;
+          ValueNumber?: number | null;
+          ValueBool?: boolean | null;
+          ValueJson?: string | null;
+        } = { QuestionId: q.QuestionId };
+
+        if (typeof val === "string") entry.ValueText = val;
+        else if (typeof val === "number") entry.ValueNumber = val;
+        else if (typeof val === "boolean") entry.ValueBool = val;
+        else if (Array.isArray(val) || typeof val === "object") entry.ValueJson = JSON.stringify(val);
+
+        return entry;
+      });
+  };
+
+  const handleSaveDraft = async () => {
+    const vid = visitId ?? visitIdFromState;
+    if (!vid) { toast.error("No hay visita activa"); return; }
+    try {
+      await visitsApi.saveAnswers(vid, buildAnswerPayload());
+      await flushFormTimes(vid);
+      toast.success("Borrador guardado correctamente");
+    } catch { toast.error("Error al guardar borrador"); }
+  };
+
+  const handleSubmit = async () => {
+    const vid = visitId ?? visitIdFromState;
+    if (!vid) { toast.error("No hay visita activa"); return; }
+    try {
+      await visitsApi.saveAnswers(vid, buildAnswerPayload());
+      await flushFormTimes(vid);
+      toast.success("Relevamiento completado");
+      navigate(`/pos/${id}/actions`, {
+        state: { routeDayId, visitId: vid },
+      });
+    } catch { toast.error("Error al guardar"); }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">Cargando...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">Cargando...</p>
       </div>
     );
   }
 
   if (!pdv) {
     return (
-      <div className="min-h-screen bg-slate-50 flex items-center justify-center">
-        <p className="text-slate-600">PDV no encontrado</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <p className="text-muted-foreground">PDV no encontrado</p>
       </div>
     );
   }
 
-  if (!routeDayId || routeForms.length === 0) {
+  if (forms.length === 0) {
     return (
-      <div className="min-h-screen bg-slate-50 pb-20">
-        <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
-          <div className="flex items-center gap-3 mb-3">
-            <button onClick={() => navigate(`/pos/${id}`)} className="p-2 hover:bg-slate-100 rounded-lg">
-              <ArrowLeft size={24} />
-            </button>
-            <div className="flex-1">
-              <h1 className="text-xl font-bold text-slate-900">Relevamiento</h1>
-              <p className="text-sm text-slate-600">{pdv.Name}</p>
-            </div>
-          </div>
-        </div>
-        <div className="p-4">
-          <Card className="border-dashed border-2">
-            <CardContent className="p-8 text-center">
-              <FileText size={48} className="mx-auto text-slate-300 mb-4" />
-              <p className="font-medium text-slate-700 mb-2">Sin formularios asignados</p>
-              <p className="text-sm text-slate-500">
-                Inicia la visita desde la Ruta Foco del Día para ver los formularios de relevamiento.
-              </p>
-              <Button variant="outline" className="mt-4" onClick={() => navigate("/route")}>
-                Ir a Ruta Foco
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <p className="text-muted-foreground">No hay formularios activos disponibles</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-20">
-      <div className="bg-white border-b border-slate-200 p-4 sticky top-0 z-10">
+    <div className="min-h-screen bg-background pb-20">
+      <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-3">
-          <button onClick={() => navigate(`/pos/${id}`)} className="p-2 hover:bg-slate-100 rounded-lg">
+          <button onClick={() => navigate(`/pos/${id}`)} className="p-2 hover:bg-muted rounded-lg">
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-slate-900">Relevamiento</h1>
-            <p className="text-sm text-slate-600">{pdv.Name}</p>
+            <h1 className="text-xl font-bold text-foreground">Relevamiento</h1>
+            <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
-          <button className="text-slate-600">
+          <button className="text-muted-foreground">
             <WifiOff size={20} />
           </button>
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-600">Progreso</span>
-            <span className="font-semibold text-blue-600">{progressPercentage}%</span>
+            <span className="text-muted-foreground">Progreso</span>
+            <span className="font-semibold text-espert-gold">{progressPercentage}%</span>
           </div>
           <Progress value={progressPercentage} />
         </div>
       </div>
 
       <div className="p-4">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="w-full h-auto flex-wrap justify-start gap-2 bg-transparent p-0">
-            {routeForms.map((rf) => (
-              <TabsTrigger
-                key={rf.FormId}
-                value={String(rf.FormId)}
-                className="data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+        {/* Form status overview */}
+        <div className="mb-4 grid grid-cols-1 gap-2">
+          {forms.map((f) => {
+            const status = getFormStatus(f.FormId);
+            const progress = getFormProgress(f.FormId);
+            const isFoco = focoFormIds.has(f.FormId);
+            const isActive = activeTab === String(f.FormId);
+            return (
+              <button
+                key={f.FormId}
+                type="button"
+                onClick={() => setActiveTab(String(f.FormId))}
+                className={`text-left p-3 rounded-lg border transition-colors ${
+                  isActive ? "bg-espert-gold/10 border-espert-gold" : "bg-card border-border hover:border-espert-gold/50"
+                }`}
               >
-                {rf.Form.Name}
-              </TabsTrigger>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {status === "complete" && <CheckCircle2 size={18} className="text-green-600 shrink-0" />}
+                    {status === "partial" && <Clock size={18} className="text-amber-500 shrink-0" />}
+                    {status === "pending" && <CircleDashed size={18} className="text-muted-foreground shrink-0" />}
+                    <span className="font-medium text-foreground text-sm truncate">{f.Name}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {isFoco && <Badge className="bg-orange-500 hover:bg-orange-500 text-[10px] px-1.5 py-0">FOCO</Badge>}
+                    <span className={`text-xs font-semibold ${
+                      status === "complete" ? "text-green-700" : status === "partial" ? "text-amber-700" : "text-muted-foreground"
+                    }`}>{progress}%</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+          <TabsList className="hidden">
+            {forms.map((f) => (
+              <TabsTrigger key={f.FormId} value={String(f.FormId)}>{f.Name}</TabsTrigger>
             ))}
           </TabsList>
 
-          {routeForms.map((rf) => (
-            <TabsContent key={rf.FormId} value={String(rf.FormId)} className="space-y-4 mt-4">
+          {forms.map((f) => (
+            <TabsContent key={f.FormId} value={String(f.FormId)} className="space-y-4 mt-0">
               <Card>
                 <CardContent className="p-4 space-y-4">
-                  {(formQuestions[rf.FormId] || []).map((q) => (
+                  <div className="flex items-center justify-between pb-3 border-b border-border">
+                    <h3 className="font-semibold text-foreground">{f.Name}</h3>
+                    {focoFormIds.has(f.FormId) && <Badge className="bg-orange-500 hover:bg-orange-500">RUTA FOCO</Badge>}
+                  </div>
+                  {(formQuestions[f.FormId] || []).map((q) => (
                     <SurveyQuestionField
                       key={q.QuestionId}
                       question={q}
@@ -225,8 +388,8 @@ export function SurveyForm() {
                       onChange={(v) => setAnswer(q.QuestionId, v)}
                     />
                   ))}
-                  {(!formQuestions[rf.FormId] || formQuestions[rf.FormId].length === 0) && (
-                    <p className="text-slate-500 text-sm">Sin preguntas en este formulario</p>
+                  {(!formQuestions[f.FormId] || formQuestions[f.FormId].length === 0) && (
+                    <p className="text-muted-foreground text-sm">Sin preguntas en este formulario</p>
                   )}
                 </CardContent>
               </Card>
@@ -234,27 +397,31 @@ export function SurveyForm() {
           ))}
         </Tabs>
 
-        <div className="fixed bottom-20 left-0 right-0 bg-white border-t border-slate-200 p-4 space-y-2">
-          <Button className="w-full h-12 text-base font-semibold" onClick={handleSubmit}>
-            <Send className="mr-2" size={18} />
+        {/* Spacer for sticky buttons */}
+        <div className="h-36" />
+
+        {/* Action buttons - sticky to bottom */}
+        <div className="sticky bottom-0 bg-card border-t border-border p-3 -mx-4 space-y-2">
+          <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleSubmit}>
+            <Send className="mr-2" size={16} />
             Finalizar y Continuar
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={handleSaveDraft}>
-              <Save className="mr-2" size={16} />
-              Guardar Borrador
+            <Button variant="outline" className="flex-1 h-9 text-xs" onClick={handleSaveDraft}>
+              <Save className="mr-1.5" size={14} />
+              Borrador
             </Button>
             <Button
               variant="outline"
-              className="flex-1"
+              className="flex-1 h-9 text-xs"
               onClick={() =>
                 navigate(`/pos/${id}/photos`, {
                   state: { routeDayId, visitId: visitId ?? visitIdFromState },
                 })
               }
             >
-              <Camera className="mr-2" size={16} />
-              Agregar Fotos
+              <Camera className="mr-1.5" size={14} />
+              Fotos
             </Button>
           </div>
         </div>
@@ -406,30 +573,82 @@ function SurveyQuestionField({
 
   if (question.QType === "checkbox") {
     const arr = (value as string[]) ?? [];
+    const hasImages = opts.some((o) => o.ImageUrl);
     return (
       <div className="space-y-2">
         <Label>
           {question.Label}
           {question.IsRequired && <span className="text-red-500">*</span>}
         </Label>
-        <div className="space-y-2">
-          {opts.map((o) => (
-            <label key={o.OptionId} className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                className="w-4 h-4"
-                checked={arr.includes(o.Value)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...arr, o.Value]
-                    : arr.filter((x) => x !== o.Value);
-                  onChange(next);
-                }}
-              />
-              <span>{o.Label}</span>
-            </label>
-          ))}
-        </div>
+        {hasImages ? (
+          /* Visual card grid for items with images (e.g. materiales POP) */
+          <div className="grid grid-cols-2 gap-2">
+            {opts.map((o) => {
+              const isChecked = arr.includes(o.Value);
+              return (
+                <div
+                  key={o.OptionId}
+                  onClick={() => {
+                    const next = isChecked ? arr.filter((v) => v !== o.Value) : [...arr, o.Value];
+                    onChange(next);
+                  }}
+                  className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all ${
+                    isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:border-[#A48242]/40"
+                  }`}
+                >
+                  <div className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                    isChecked ? "bg-[#A48242] text-white" : "border-2 border-border"
+                  }`}>
+                    {isChecked && "✓"}
+                  </div>
+                  {o.ImageUrl ? (
+                    <img src={o.ImageUrl} alt={o.Label} className="w-full h-20 object-contain rounded-lg mb-2 bg-muted" />
+                  ) : (
+                    <div className="w-full h-20 rounded-lg mb-2 bg-muted/60 flex items-center justify-center">
+                      <ImageIcon size={24} className="text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <p className="text-sm font-medium text-center">{o.Label}</p>
+                  {isChecked && (
+                    <button
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-muted text-xs text-muted-foreground hover:bg-muted/80 transition-colors"
+                    >
+                      <Camera size={12} />
+                      Tomar foto
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          /* Standard checkbox list for items without images */
+          <div className="space-y-1">
+            {opts.map((o) => {
+              const isChecked = arr.includes(o.Value);
+              return (
+                <label
+                  key={o.OptionId}
+                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                    isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:bg-muted/50"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-[#A48242]"
+                    checked={isChecked}
+                    onChange={(e) => {
+                      const next = e.target.checked ? [...arr, o.Value] : arr.filter((x) => x !== o.Value);
+                      onChange(next);
+                    }}
+                  />
+                  <span className="text-sm font-medium">{o.Label}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -442,7 +661,7 @@ function SurveyQuestionField({
           {question.Label}
           {question.IsRequired && <span className="text-red-500">*</span>}
         </Label>
-        <p className="text-sm text-slate-500 mb-2">Seleccione las marcas que trabaja e indique el precio si corresponde</p>
+        <p className="text-sm text-muted-foreground mb-2">Seleccione las marcas que trabaja e indique el precio si corresponde</p>
         <div className="space-y-2">
           {opts.map((o) => {
             const isChecked = o.Value in obj;
@@ -468,7 +687,7 @@ function SurveyQuestionField({
                 </label>
                 {isChecked && (
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-slate-500">Precio:</span>
+                    <span className="text-sm text-muted-foreground">Precio:</span>
                     <Input
                       type="number"
                       placeholder="0"
@@ -511,26 +730,36 @@ function SurveyQuestionField({
     const scale = rules?.scale || SCALE_DEFAULT;
     const min = scale.min ?? 1;
     const max = scale.max ?? 5;
-    const num = (value as number) ?? min;
+    const num = (value as number) ?? undefined;
+    const steps = Array.from({ length: max - min + 1 }, (_, i) => min + i);
     return (
       <div className="space-y-2">
         <Label>
           {question.Label}
           {question.IsRequired && <span className="text-red-500">*</span>}
         </Label>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-500">{min}</span>
-          <input
-            type="range"
-            min={min}
-            max={max}
-            value={num}
-            onChange={(e) => onChange(Number(e.target.value))}
-            className="flex-1"
-          />
-          <span className="text-sm text-slate-500">{max}</span>
+        <div className="flex gap-2 justify-between">
+          {steps.map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => onChange(n)}
+              className={`flex-1 h-12 rounded-xl font-semibold text-sm transition-all ${
+                num === n
+                  ? "bg-[#A48242] text-white shadow-md scale-105"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+            >
+              {n}
+            </button>
+          ))}
         </div>
-        <p className="text-sm text-slate-600">{num}</p>
+        {scale.minLabel && (
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>{scale.minLabel}</span>
+            <span>{scale.maxLabel}</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -542,8 +771,10 @@ function SurveyQuestionField({
           {question.Label}
           {question.IsRequired && <span className="text-red-500">*</span>}
         </Label>
-        <div className="border-2 border-dashed border-slate-300 rounded-lg p-8 text-center text-slate-500">
-          Área para capturar foto
+        <div className="border-2 border-dashed border-[#A48242]/30 rounded-xl p-8 text-center bg-[#A48242]/5 cursor-pointer hover:bg-[#A48242]/10 transition-colors">
+          <Camera size={32} className="mx-auto text-[#A48242]/60 mb-2" />
+          <p className="text-sm font-medium text-[#A48242]">Tomar foto</p>
+          <p className="text-xs text-muted-foreground mt-1">Toca para abrir la cámara</p>
         </div>
       </div>
     );

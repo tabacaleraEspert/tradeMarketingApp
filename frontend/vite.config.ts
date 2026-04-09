@@ -8,6 +8,14 @@ export default defineConfig({
     host: 'localhost',
     port: 5173,
     open: true,
+    allowedHosts: true,
+    proxy: {
+      '/api-proxy': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api-proxy/, ''),
+      },
+    },
   },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if

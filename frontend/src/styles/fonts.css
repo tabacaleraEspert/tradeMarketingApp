@@ -1,2 +1,6 @@
-/* Font definitions for Trade Marketing App - uses system fonts by default */
-/* Add @font-face rules here if using custom fonts */
+/* Espert Brand Typography - Gotham approximation via Inter */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+:root {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
