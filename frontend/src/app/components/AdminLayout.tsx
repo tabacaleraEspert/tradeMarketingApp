@@ -14,17 +14,30 @@ import {
   WifiOff,
   Layers,
   ClipboardList,
-  Factory,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
+import { authApi, type MeResponse } from "../../lib/api/services";
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: "Administrador",
+  regional_manager: "Regional Manager",
+  territory_manager: "Territory Manager",
+  ejecutivo: "Ejecutivo",
+  vendedor: "TM Rep",
+};
 
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isOnline] = useState(true);
+  const [currentUser, setCurrentUser] = useState<MeResponse | null>(null);
+
+  useEffect(() => {
+    authApi.me().then(setCurrentUser).catch(() => {});
+  }, []);
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
@@ -36,7 +49,6 @@ export function AdminLayout() {
     { path: "/admin/notifications", icon: Bell, label: "Notificaciones" },
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
     { path: "/admin/users", icon: Users, label: "Usuarios" },
-    { path: "/plant", icon: Factory, label: "Planta Producción" },
   ];
 
   const isActivePath = (path: string) => {
@@ -59,13 +71,8 @@ export function AdminLayout() {
               {isSidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <div className="flex items-center gap-3">
-              <div className="bg-black dark:bg-espert-gold rounded-lg p-2">
-                <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="white" strokeWidth="1.5" />
-                  <rect x="10.5" y="4" width="3" height="8" rx="0.5" fill="white" />
-                  <path d="M12 12 L7 17 Q6 18 7 18 L12 15" fill="white" opacity="0.9" />
-                  <path d="M12 12 L17 17 Q18 18 17 18 L12 15" fill="white" opacity="0.9" />
-                </svg>
+              <div className="bg-black rounded-lg p-2 flex items-center justify-center">
+                <img src="/espert-logo-white.png" alt="Espert" className="w-7 h-7 object-contain" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-foreground tracking-tight">ESPERT</h1>
@@ -107,8 +114,8 @@ export function AdminLayout() {
                 <User size={16} className="text-espert-gold" />
               </div>
               <div className="text-left hidden md:block">
-                <p className="text-sm font-semibold text-foreground">Admin User</p>
-                <p className="text-xs text-muted-foreground">Administrador</p>
+                <p className="text-sm font-semibold text-foreground">{currentUser?.DisplayName ?? "..."}</p>
+                <p className="text-xs text-muted-foreground">{currentUser ? (ROLE_LABELS[currentUser.Role] ?? currentUser.Role) : ""}</p>
               </div>
             </button>
           </div>

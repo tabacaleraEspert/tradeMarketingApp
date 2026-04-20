@@ -7,10 +7,12 @@ class FormBase(BaseModel):
     Channel: str | None = None
     Version: int
     IsActive: bool = True
+    Frequency: str | None = None
+    FrequencyConfig: str | None = None
 
 
 class FormCreate(FormBase):
-    pass
+    CreatedByUserId: int | None = None
 
 
 class FormUpdate(BaseModel):
@@ -18,10 +20,13 @@ class FormUpdate(BaseModel):
     Channel: str | None = None
     Version: int | None = None
     IsActive: bool | None = None
+    Frequency: str | None = None
+    FrequencyConfig: str | None = None
 
 
 class Form(FormBase):
     FormId: int
+    CreatedByUserId: int | None = None
     CreatedAt: datetime
 
     class Config:

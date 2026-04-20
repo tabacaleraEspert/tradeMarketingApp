@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -13,17 +14,21 @@ import {
   LogOut,
   ChevronRight,
   Settings,
+  Camera,
+  Trash2,
 } from "lucide-react";
-import { getCurrentUser } from "../lib/auth";
-import { useUserMonthlyStats } from "@/lib/api";
+import { getCurrentUser, logout } from "../lib/auth";
+import { useUserMonthlyStats, usersApi, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
 export function Profile() {
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const handleLogout = () => {
-    localStorage.removeItem("isAuthenticated");
-    localStorage.removeItem("user");
+    logout();
     toast.success("Sesión cerrada correctamente");
     navigate("/login");
   };
@@ -42,6 +47,53 @@ export function Profile() {
   const { data: stats, loading: statsLoading } = useUserMonthlyStats(userId);
   const roleBadge = getRoleBadge(currentUser.role as "vendedor" | "supervisor" | "admin");
 
+  // Cargar avatar actual del usuario
+  useEffect(() => {
+    if (!userId) return;
+    usersApi
+      .get(userId)
+      .then((u) => setAvatarUrl(u.AvatarUrl ?? null))
+      .catch(() => setAvatarUrl(null));
+  }, [userId]);
+
+  const handlePickAvatar = () => fileInputRef.current?.click();
+
+  const handleAvatarSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !userId) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Sólo se permiten imágenes");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("La imagen es demasiado grande (máx 5 MB)");
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const updated = await usersApi.uploadAvatar(userId, file);
+      setAvatarUrl(updated.AvatarUrl ?? null);
+      toast.success("Foto actualizada");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al subir la foto");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = async () => {
+    if (!userId || !avatarUrl) return;
+    if (!confirm("¿Eliminar tu foto de perfil?")) return;
+    try {
+      const updated = await usersApi.deleteAvatar(userId);
+      setAvatarUrl(updated.AvatarUrl ?? null);
+      toast.success("Foto eliminada");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al eliminar");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -58,9 +110,44 @@ export function Profile() {
 
         {/* Profile Avatar */}
         <div className="text-center">
-          <div className="bg-white/20 rounded-full w-24 h-24 flex items-center justify-center mx-auto mb-4">
-            <User size={48} className="text-white" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleAvatarSelected}
+          />
+          <div className="relative inline-block mb-4">
+            <button
+              type="button"
+              onClick={handlePickAvatar}
+              disabled={uploadingAvatar}
+              className="relative bg-white/20 rounded-full w-24 h-24 flex items-center justify-center overflow-hidden border-2 border-white/40 hover:border-white transition-colors group disabled:opacity-50"
+              title="Cambiar foto"
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt={currentUser.name} className="w-full h-full object-cover" />
+              ) : (
+                <User size={48} className="text-white" />
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <Camera size={20} className="text-white" />
+              </div>
+            </button>
+            {avatarUrl && (
+              <button
+                type="button"
+                onClick={handleRemoveAvatar}
+                className="absolute -bottom-1 -right-1 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-lg"
+                title="Eliminar foto"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
           </div>
+          {uploadingAvatar && (
+            <p className="text-xs text-white/80 mb-2">Subiendo foto...</p>
+          )}
           <h2 className="text-2xl font-bold mb-1">{currentUser.name}</h2>
           <Badge variant={roleBadge.variant} className="mb-2">
             {roleBadge.label}

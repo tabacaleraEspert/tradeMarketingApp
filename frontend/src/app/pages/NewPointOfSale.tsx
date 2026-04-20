@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { useJsApiLoader } from "@react-google-maps/api";
 import { Card, CardContent } from "../components/ui/card";
@@ -10,17 +10,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Badge } from "../components/ui/badge";
 import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { pdvsApi, distributorsApi, ApiError } from "@/lib/api";
-import { useChannels, useSubChannels } from "@/lib/api";
+import { pdvsApi, distributorsApi, routesApi, ApiError } from "@/lib/api";
+import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
-import type { Distributor } from "@/lib/api/types";
+import type { Distributor, Route } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
 
 interface ContactForm {
   contactName: string;
   contactPhone: string;
+  contactRole: string;
+  decisionPower: string;
   birthday: string;
+  notes: string;
+  profileNotes: string;
 }
 
 export function NewPointOfSale() {
@@ -39,12 +43,16 @@ export function NewPointOfSale() {
   });
 
   const [contacts, setContacts] = useState<ContactForm[]>([
-    { contactName: "", contactPhone: "", birthday: "" },
+    { contactName: "", contactPhone: "", contactRole: "", decisionPower: "", birthday: "", notes: "", profileNotes: "" },
   ]);
 
   const [distributors, setDistributors] = useState<Distributor[]>([]);
+  const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const [photos, setPhotos] = useState<string[]>([]);
+
+  const userId = Number(currentUser.id) || undefined;
+  const { data: myRoutes } = useMyRoutes(userId);
 
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
@@ -144,9 +152,22 @@ export function NewPointOfSale() {
     distributorsApi.list().then((list) => setDistributors(list)).catch(() => {});
   }, []);
 
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   const handleTakePhoto = () => {
-    const mockPhoto = "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a";
-    setPhotos([...photos, mockPhoto]);
+    photoInputRef.current?.click();
+  };
+
+  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Sólo se permiten imágenes");
+      return;
+    }
+    const localUrl = URL.createObjectURL(file);
+    setPhotos([...photos, localUrl]);
     toast.success("Foto capturada");
   };
 
@@ -188,10 +209,14 @@ export function NewPointOfSale() {
         .map((c) => ({
           ContactName: c.contactName.trim(),
           ContactPhone: c.contactPhone.trim() || undefined,
+          ContactRole: c.contactRole || undefined,
+          DecisionPower: c.decisionPower || undefined,
           Birthday: c.birthday || undefined,
+          Notes: c.notes?.trim() || undefined,
+          ProfileNotes: c.profileNotes?.trim() || undefined,
         }));
 
-      await pdvsApi.create({
+      const newPdv = await pdvsApi.create({
         Name: formData.name,
         Address: formData.address,
         ChannelId: Number(formData.channelId),
@@ -202,7 +227,19 @@ export function NewPointOfSale() {
         Lon: formData.lon ?? undefined,
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       });
-      toast.success("PDV creado correctamente");
+
+      // Add to route if selected
+      if (selectedRouteId && newPdv?.PdvId) {
+        try {
+          await routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 });
+          const routeName = myRoutes.find((r) => r.RouteId === Number(selectedRouteId))?.Name;
+          toast.success(`PDV creado y agregado a ${routeName}`);
+        } catch {
+          toast.success("PDV creado, pero no se pudo agregar a la ruta");
+        }
+      } else {
+        toast.success("PDV creado correctamente");
+      }
       navigate("/");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el PDV");
@@ -401,6 +438,30 @@ export function NewPointOfSale() {
           </CardContent>
         </Card>
 
+        {/* Route assignment */}
+        {myRoutes.length > 0 && (
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              <h3 className="font-semibold text-foreground">Agregar a Ruta Foco</h3>
+              <Select
+                value={selectedRouteId ? String(selectedRouteId) : ""}
+                onValueChange={(value) => setSelectedRouteId(value ? Number(value) : "")}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Sin asignar a ruta (opcional)" />
+                </SelectTrigger>
+                <SelectContent>
+                  {myRoutes.map((r) => (
+                    <SelectItem key={r.RouteId} value={String(r.RouteId)}>
+                      {r.Name} ({r.PdvCount} PDVs)
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Contact Info - múltiples */}
         <Card>
           <CardContent className="p-4 space-y-4">
@@ -429,22 +490,63 @@ export function NewPointOfSale() {
                   )}
                 </div>
                 <div className="space-y-2">
-                  <Input
-                    placeholder="Nombre y apellido"
-                    value={contact.contactName}
-                    onChange={(e) => updateContact(index, "contactName", e.target.value)}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Nombre y apellido"
+                      value={contact.contactName}
+                      onChange={(e) => updateContact(index, "contactName", e.target.value)}
+                      className="flex-1"
+                    />
+                    <Input
+                      type="tel"
+                      placeholder="Teléfono"
+                      value={contact.contactPhone}
+                      onChange={(e) => updateContact(index, "contactPhone", e.target.value)}
+                      className="flex-1"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <select
+                      value={contact.contactRole}
+                      onChange={(e) => updateContact(index, "contactRole", e.target.value)}
+                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Rol...</option>
+                      <option value="dueño">Dueño</option>
+                      <option value="empleado">Empleado</option>
+                      <option value="encargado">Encargado</option>
+                    </select>
+                    <select
+                      value={contact.decisionPower}
+                      onChange={(e) => updateContact(index, "decisionPower", e.target.value)}
+                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">Decisión...</option>
+                      <option value="alto">Alto</option>
+                      <option value="medio">Medio</option>
+                      <option value="bajo">Bajo</option>
+                    </select>
+                    <Input
+                      type="date"
+                      placeholder="Cumpleaños"
+                      value={contact.birthday}
+                      onChange={(e) => updateContact(index, "birthday", e.target.value)}
+                      className="w-36"
+                    />
+                  </div>
+                  <textarea
+                    placeholder="Observaciones (notas operativas)"
+                    value={contact.notes}
+                    onChange={(e) => updateContact(index, "notes", e.target.value)}
+                    rows={2}
+                    className="w-full text-xs px-3 py-2 border border-border rounded-md resize-none"
                   />
-                  <Input
-                    type="tel"
-                    placeholder="+54 11 1234-5678"
-                    value={contact.contactPhone}
-                    onChange={(e) => updateContact(index, "contactPhone", e.target.value)}
-                  />
-                  <Input
-                    type="date"
-                    placeholder="Cumpleaños"
-                    value={contact.birthday}
-                    onChange={(e) => updateContact(index, "birthday", e.target.value)}
+                  <textarea
+                    placeholder="Perfil del contacto (preferencias, qué evitar...)"
+                    value={contact.profileNotes}
+                    onChange={(e) => updateContact(index, "profileNotes", e.target.value)}
+                    rows={2}
+                    className="w-full text-xs px-3 py-2 border border-border rounded-md resize-none"
                   />
                 </div>
               </div>
@@ -460,6 +562,14 @@ export function NewPointOfSale() {
               <Badge variant="outline">{photos.length} fotos</Badge>
             </div>
 
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={handlePhotoSelected}
+            />
             <Button type="button" variant="outline" className="w-full" onClick={handleTakePhoto}>
               <Camera size={18} className="mr-2" />
               Tomar Foto del Frente

@@ -51,7 +51,7 @@ def report_summary(
 
     # Unique PDVs visited
     pdv_ids_visited = set(v.PdvId for v in visits)
-    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).count()
+    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).count()
     coverage = round((len(pdv_ids_visited) / total_pdvs * 100) if total_pdvs > 0 else 0)
 
     # GPS checks
@@ -108,7 +108,7 @@ def vendor_ranking(
     m = month or now.month
     first, last = _date_range(y, m)
 
-    users = db.query(UserModel).filter(UserModel.IsActive.is_(True)).all()
+    users = db.query(UserModel).filter(UserModel.IsActive== True).all()
     visits = (
         db.query(VisitModel)
         .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
@@ -193,8 +193,8 @@ def channel_coverage(
     m = month or now.month
     first, last = _date_range(y, m)
 
-    channels = db.query(ChannelModel).filter(ChannelModel.IsActive.is_(True)).all()
-    all_pdvs = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).all()
+    channels = db.query(ChannelModel).filter(ChannelModel.IsActive== True).all()
+    all_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
     visits = (
         db.query(VisitModel)
         .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
@@ -247,7 +247,7 @@ def pdv_map_data(
     """PDVs con coordenadas, visitas totales, última visita, y activador asignado."""
     from ..models.route import RouteDay as RouteDayModel
 
-    q = db.query(PDVModel).filter(PDVModel.IsActive.is_(True))
+    q = db.query(PDVModel).filter(PDVModel.IsActive== True)
     if zone_id:
         q = q.filter(PDVModel.ZoneId == zone_id)
     pdvs = q.all()
@@ -288,6 +288,15 @@ def pdv_map_data(
         if row:
             assigned_map[pdv_id] = {"userId": row[0], "userName": row[1]}
 
+    # PDVs that belong to at least one route (regardless of RouteDay assignment)
+    route_pdv_rows = (
+        db.query(RoutePdvModel.PdvId)
+        .filter(RoutePdvModel.PdvId.in_(pdv_ids))
+        .distinct()
+        .all()
+    )
+    pdv_ids_in_route = {row[0] for row in route_pdv_rows}
+
     # Channel names
     channels_db = db.query(ChannelModel).all()
     ch_map = {c.ChannelId: c.Name for c in channels_db}
@@ -311,8 +320,149 @@ def pdv_map_data(
             "assignedUserId": assigned["userId"] if assigned else None,
             "assignedUserName": assigned["userName"] if assigned else "Sin asignar",
             "hasCoords": has_coords,
+            "hasRoute": p.PdvId in pdv_ids_in_route,
         })
 
+    return result
+
+
+@router.get("/gps-alerts")
+def report_gps_alerts(
+    days: int = Query(default=30, description="Visitas de los últimos N días"),
+    user_id: int | None = Query(default=None, description="Filtrar por TM Rep"),
+    db: Session = Depends(get_db),
+):
+    """Visitas con alerta GPS:
+    - Sin VisitCheck IN registrado (el rep no tenía o no permitió GPS), o
+    - VisitCheck IN con DistanceToPdvM > 200m (rep estaba fuera del perímetro)
+
+    Pensado para que el supervisor vea las visitas "dudosas" para revisar.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    q = db.query(VisitModel).filter(VisitModel.OpenedAt >= cutoff)
+    if user_id is not None:
+        q = q.filter(VisitModel.UserId == user_id)
+    visits = q.order_by(VisitModel.OpenedAt.desc()).all()
+
+    if not visits:
+        return []
+
+    visit_ids = [v.VisitId for v in visits]
+
+    # Cargar todos los VisitCheck IN de esas visitas en una query
+    checks_in = (
+        db.query(VisitCheckModel)
+        .filter(
+            VisitCheckModel.VisitId.in_(visit_ids),
+            VisitCheckModel.CheckType == "IN",
+        )
+        .all()
+    )
+    check_by_visit = {c.VisitId: c for c in checks_in}
+
+    # Lookups de user y pdv
+    user_ids = {v.UserId for v in visits}
+    pdv_ids = {v.PdvId for v in visits}
+    users = {u.UserId: u.DisplayName for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()}
+    pdvs = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()}
+
+    PERIMETER = 200  # metros
+    alerts = []
+    for v in visits:
+        check = check_by_visit.get(v.VisitId)
+        alert_type: str | None = None
+        distance_m: float | None = None
+
+        if check is None:
+            alert_type = "no_gps"
+        else:
+            if check.DistanceToPdvM is not None:
+                distance_m = float(check.DistanceToPdvM)
+                if distance_m > PERIMETER:
+                    alert_type = "out_of_range"
+            elif check.Lat is None or check.Lon is None:
+                alert_type = "no_gps"
+
+        if alert_type is None:
+            continue  # esta visita no tiene alerta
+
+        pdv = pdvs.get(v.PdvId)
+        alerts.append({
+            "visitId": v.VisitId,
+            "pdvId": v.PdvId,
+            "pdvName": pdv.Name if pdv else f"#{v.PdvId}",
+            "userId": v.UserId,
+            "userName": users.get(v.UserId, f"#{v.UserId}"),
+            "openedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
+            "status": v.Status,
+            "alertType": alert_type,  # "no_gps" | "out_of_range"
+            "distanceM": round(distance_m) if distance_m is not None else None,
+            "perimeterM": PERIMETER,
+        })
+    return alerts
+
+
+@router.get("/avg-time-by-tm-pdv")
+def report_avg_time_by_tm_pdv(
+    user_id: int | None = Query(default=None),
+    pdv_id: int | None = Query(default=None),
+    days: int | None = Query(default=None, description="Sólo visitas de los últimos N días"),
+    db: Session = Depends(get_db),
+):
+    """Tiempo promedio (en minutos) que cada TM Rep pasa en cada PDV.
+
+    Sólo cuenta visitas cerradas (con ClosedAt). Calcula los promedios en Python para
+    ser portable entre SQLite y SQL Server (evita julianday/DATEDIFF).
+    """
+    q = db.query(VisitModel).filter(VisitModel.ClosedAt.isnot(None))
+    if user_id is not None:
+        q = q.filter(VisitModel.UserId == user_id)
+    if pdv_id is not None:
+        q = q.filter(VisitModel.PdvId == pdv_id)
+    if days is not None:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        q = q.filter(VisitModel.OpenedAt >= cutoff)
+
+    visits = q.all()
+
+    # Group by (UserId, PdvId), accumulate seconds + count
+    buckets: dict[tuple[int, int], dict[str, float]] = {}
+    for v in visits:
+        if not v.ClosedAt or not v.OpenedAt:
+            continue
+        try:
+            duration_s = (v.ClosedAt - v.OpenedAt).total_seconds()
+        except Exception:
+            continue
+        if duration_s <= 0:
+            continue
+        key = (v.UserId, v.PdvId)
+        b = buckets.setdefault(key, {"total": 0.0, "count": 0})
+        b["total"] += duration_s
+        b["count"] += 1
+
+    if not buckets:
+        return []
+
+    user_ids = {uid for (uid, _) in buckets.keys()}
+    pdv_ids = {pid for (_, pid) in buckets.keys()}
+    users = {u.UserId: u.DisplayName for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()}
+    pdvs = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()}
+
+    result = [
+        {
+            "userId": uid,
+            "userName": users.get(uid, f"#{uid}"),
+            "pdvId": pid,
+            "pdvName": pdvs.get(pid, f"#{pid}"),
+            "visitCount": int(b["count"]),
+            "avgMinutes": round((b["total"] / b["count"]) / 60, 1),
+        }
+        for (uid, pid), b in buckets.items()
+    ]
+    # Sort by user then highest avg
+    result.sort(key=lambda r: (r["userName"], -r["avgMinutes"]))
     return result
 
 
@@ -377,30 +527,19 @@ def territory_overview(
 
     manager_zone = db.query(ZoneModel).filter(ZoneModel.ZoneId == manager.ZoneId).first() if manager.ZoneId else None
 
-    # Find trade reps: users with trade_rep role in same zone
-    trade_rep_role = db.query(RoleModel).filter(RoleModel.Name == "trade_rep").first()
-    rep_user_ids = set()
-    if trade_rep_role and manager.ZoneId:
-        reps_in_zone = (
-            db.query(UserModel)
-            .join(UserRoleModel, UserRoleModel.UserId == UserModel.UserId)
-            .filter(UserRoleModel.RoleId == trade_rep_role.RoleId, UserModel.ZoneId == manager.ZoneId, UserModel.IsActive.is_(True))
-            .all()
-        )
-        rep_user_ids = {u.UserId for u in reps_in_zone}
-    else:
-        reps_in_zone = []
+    # Find all subordinates via ManagerUserId hierarchy (BFS)
+    from ..hierarchy import get_all_subordinate_ids
+    all_sub_ids = get_all_subordinate_ids(db, manager_user_id)
 
-    # Also include reps from routes assigned to this manager's zone
-    routes_in_zone = db.query(RouteModel).filter(RouteModel.IsActive.is_(True)).all()
-    for r in routes_in_zone:
-        if r.AssignedUserId:
-            user = db.query(UserModel).filter(UserModel.UserId == r.AssignedUserId).first()
-            if user and user.ZoneId == manager.ZoneId:
-                rep_user_ids.add(r.AssignedUserId)
-
-    all_rep_ids = list(rep_user_ids)
-    reps = db.query(UserModel).filter(UserModel.UserId.in_(all_rep_ids)).all() if all_rep_ids else []
+    # Filter to leaf-level users (vendedor role = those who don't manage anyone, i.e. trade reps)
+    # A "rep" is a subordinate who has no subordinates of their own
+    managers_set = set(
+        r[0] for r in db.query(UserModel.UserId).filter(
+            UserModel.ManagerUserId.in_(all_sub_ids), UserModel.IsActive == True
+        ).all()
+    ) if all_sub_ids else set()
+    all_rep_ids = [uid for uid in all_sub_ids if uid not in managers_set]
+    reps = db.query(UserModel).filter(UserModel.UserId.in_(all_rep_ids), UserModel.IsActive == True).all() if all_rep_ids else []
 
     # Monthly visits per rep
     month_visits = (
@@ -450,7 +589,7 @@ def territory_overview(
         avg_time = round(sum(rep_durations) / len(rep_durations)) if rep_durations else 0
 
         # Route assigned
-        rep_route = db.query(RouteModel).filter(RouteModel.AssignedUserId == rep.UserId, RouteModel.IsActive.is_(True)).first()
+        rep_route = db.query(RouteModel).filter(RouteModel.AssignedUserId == rep.UserId, RouteModel.IsActive== True).first()
 
         # Today status
         rep_today_rds = [rd for rd in today_route_days if rd.AssignedUserId == rep.UserId]
@@ -511,12 +650,16 @@ def territory_overview(
     total_month_visits = sum(r["month"]["visits"] for r in rep_data)
     total_month_closed = sum(r["month"]["closed"] for r in rep_data)
 
-    # PDVs in territory
+    # PDVs in territory: count unique PDVs assigned to reps' routes
     pdv_count = 0
-    if manager.ZoneId:
-        pdv_count = db.query(PDVModel).filter(PDVModel.IsActive.is_(True), PDVModel.ZoneId == manager.ZoneId).count()
+    if all_rep_ids:
+        rep_routes = db.query(RouteModel).filter(RouteModel.AssignedUserId.in_(all_rep_ids), RouteModel.IsActive == True).all()
+        rep_route_ids = [r.RouteId for r in rep_routes]
+        if rep_route_ids:
+            pdv_count = db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId.in_(rep_route_ids)).distinct().count()
     if pdv_count == 0:
-        pdv_count = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).count()
+        # Fallback: PDVs assigned to any subordinate
+        pdv_count = db.query(PDVModel).filter(PDVModel.AssignedUserId.in_(all_sub_ids), PDVModel.IsActive == True).count() if all_sub_ids else 0
 
     return {
         "manager": {
@@ -560,7 +703,7 @@ def perfect_store_scores(
     now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
 
-    pdvs = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).all()
+    pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
     zone_map = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
 
@@ -696,7 +839,7 @@ def trending_report(
         total = len(visits)
         closed = [v for v in visits if v.Status and v.Status.upper() in ("CLOSED", "COMPLETED")]
         pdv_ids = set(v.PdvId for v in visits)
-        total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).count()
+        total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).count()
         coverage = round(len(pdv_ids) / total_pdvs * 100) if total_pdvs > 0 else 0
 
         # GPS
@@ -745,7 +888,7 @@ def smart_alerts(
 
     # 1. PDVs not visited in 14+ days
     fourteen_days_ago = now - timedelta(days=14)
-    active_pdvs = db.query(PDVModel).filter(PDVModel.IsActive.is_(True)).all()
+    active_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
     for p in active_pdvs:
         last_visit = db.query(sqlfunc.max(VisitModel.OpenedAt)).filter(VisitModel.PdvId == p.PdvId).scalar()
         if last_visit is None:
@@ -777,7 +920,7 @@ def smart_alerts(
     prev_year = now.year if now.month > 1 else now.year - 1
     prev_month_first, prev_month_last = _date_range(prev_year, prev_month)
 
-    users = db.query(UserModel).filter(UserModel.IsActive.is_(True)).all()
+    users = db.query(UserModel).filter(UserModel.IsActive== True).all()
     for u in users:
         this_visits = db.query(VisitModel).filter(
             VisitModel.UserId == u.UserId, VisitModel.OpenedAt >= this_month_first, VisitModel.OpenedAt <= this_month_last
@@ -797,7 +940,7 @@ def smart_alerts(
     # 3. Channels losing coverage
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
     for ch_id, ch_name in ch_map.items():
-        ch_pdvs = db.query(PDVModel).filter(PDVModel.ChannelId == ch_id, PDVModel.IsActive.is_(True)).all()
+        ch_pdvs = db.query(PDVModel).filter(PDVModel.ChannelId == ch_id, PDVModel.IsActive== True).all()
         if len(ch_pdvs) < 3:
             continue
         ch_pdv_ids = [p.PdvId for p in ch_pdvs]

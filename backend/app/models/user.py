@@ -12,6 +12,12 @@ class User(Base):
     PasswordHash = Column(String(256), nullable=True)  # bcrypt hash
     DisplayName = Column(String(120), nullable=False)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
+    # Jerarquía: quién es el superior directo de este usuario (null = top-level, típicamente admin)
+    ManagerUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    # Fuerza cambio de contraseña en el primer login
+    MustChangePassword = Column(Boolean, default=False, nullable=False)
+    # Avatar / foto de perfil (FK opcional a File)
+    AvatarFileId = Column(Integer, ForeignKey("File.FileId"), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     UpdatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

@@ -13,6 +13,7 @@ class RouteBase(BaseModel):
     FrequencyConfig: str | None = None
     EstimatedMinutes: int | None = None
     AssignedUserId: int | None = None
+    IsOptimized: bool = False
 
 
 class RouteCreate(RouteBase):
@@ -29,6 +30,7 @@ class RouteUpdate(BaseModel):
     FrequencyConfig: str | None = None
     EstimatedMinutes: int | None = None
     AssignedUserId: int | None = None
+    IsOptimized: bool | None = None
 
 
 class Route(RouteBase):

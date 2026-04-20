@@ -1,8 +1,9 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from ..auth import get_current_user, get_user_role
 from ..database import get_db
-from ..models import Visit as VisitModel
+from ..models import Visit as VisitModel, User as UserModel
 from ..models.visit import VisitAnswer as VisitAnswerModel, VisitCheck as VisitCheckModel
 from ..models.visit_action import VisitAction as VisitActionModel
 from ..models.mandatory_activity import MandatoryActivity as MAModel
@@ -14,6 +15,32 @@ from ..schemas.visit import Visit, VisitCreate, VisitUpdate
 from ..schemas.visit_answer import VisitAnswer, VisitAnswerCreate, VisitAnswerBulk
 
 router = APIRouter(prefix="/visits", tags=["Visitas"])
+
+
+# Estados válidos y transiciones permitidas.
+# Una visita puede ir OPEN ↔ IN_PROGRESS y desde cualquiera de los dos a CLOSED/COMPLETED.
+# Una vez CLOSED/COMPLETED no se puede modificar el estado (terminal).
+_VALID_STATUSES = {"OPEN", "IN_PROGRESS", "CLOSED", "COMPLETED"}
+_TERMINAL_STATUSES = {"CLOSED", "COMPLETED"}
+_TRANSITIONS = {
+    "OPEN": {"IN_PROGRESS", "CLOSED", "COMPLETED"},
+    "IN_PROGRESS": {"OPEN", "CLOSED", "COMPLETED"},
+    "CLOSED": set(),       # terminal
+    "COMPLETED": set(),    # terminal
+}
+
+
+def _check_visit_ownership(visit: VisitModel, current_user: UserModel, db: Session) -> None:
+    """El dueño de la visita o un admin pueden modificarla. Caso contrario, 403."""
+    if visit.UserId == current_user.UserId:
+        return
+    role = get_user_role(db, current_user.UserId)
+    if role == "admin":
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Sólo el TM Rep dueño de la visita o un admin pueden modificarla",
+    )
 
 
 @router.get("", response_model=list[Visit])
@@ -47,7 +74,49 @@ def get_visit(visit_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=Visit, status_code=201)
-def create_visit(data: VisitCreate, db: Session = Depends(get_db)):
+def create_visit(
+    data: VisitCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    # 1. Validar PDV existe y está activo
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == data.PdvId).first()
+    if not pdv:
+        raise HTTPException(status_code=400, detail="PDV no existe")
+    if not pdv.IsActive:
+        raise HTTPException(status_code=400, detail="No se puede crear visita en un PDV inactivo")
+
+    # 2. Validar ownership: el TM Rep sólo crea visitas para sí mismo (admin puede crear para otros)
+    role = get_user_role(db, current_user.UserId)
+    if role != "admin" and data.UserId != current_user.UserId:
+        raise HTTPException(
+            status_code=403,
+            detail="Sólo podés crear visitas a tu nombre",
+        )
+
+    # 3. No permitir crear una visita nueva si ya hay una OPEN/IN_PROGRESS para el mismo (PDV, User)
+    duplicate = (
+        db.query(VisitModel)
+        .filter(
+            VisitModel.PdvId == data.PdvId,
+            VisitModel.UserId == data.UserId,
+            VisitModel.Status.in_(["OPEN", "IN_PROGRESS"]),
+        )
+        .first()
+    )
+    if duplicate:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya tenés una visita abierta en este PDV (visit_id={duplicate.VisitId})",
+        )
+
+    # 4. Validar Status del request si vino
+    if data.Status and data.Status not in _VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Status inválido. Permitidos: {sorted(_VALID_STATUSES)}",
+        )
+
     v = VisitModel(
         PdvId=data.PdvId,
         UserId=data.UserId,
@@ -62,6 +131,21 @@ def create_visit(data: VisitCreate, db: Session = Depends(get_db)):
     db.add(v)
     db.commit()
     db.refresh(v)
+
+    # Mark RouteDayPdv as IN_PROGRESS when visit is opened
+    if v.RouteDayId:
+        from ..models.route import RouteDayPdv as RouteDayPdvModel
+        rdp = (
+            db.query(RouteDayPdvModel)
+            .filter(
+                RouteDayPdvModel.RouteDayId == v.RouteDayId,
+                RouteDayPdvModel.PdvId == v.PdvId,
+            )
+            .first()
+        )
+        if rdp and rdp.ExecutionStatus == "PENDING":
+            rdp.ExecutionStatus = "IN_PROGRESS"
+            db.commit()
 
     # Auto-create mandatory actions for this visit
     _create_mandatory_actions(v, db)
@@ -84,7 +168,7 @@ def _create_mandatory_actions(visit: VisitModel, db: Session):
             route_id = rd.RouteId
 
     # Find applicable mandatory activities (global + channel match + route match)
-    q = db.query(MAModel).filter(MAModel.IsActive.is_(True))
+    q = db.query(MAModel).filter(MAModel.IsActive== True)
     templates = q.all()
 
     for t in templates:
@@ -165,11 +249,42 @@ def _carry_over_backlog(visit: VisitModel, db: Session):
 
 
 @router.patch("/{visit_id}", response_model=Visit)
-def update_visit(visit_id: int, data: VisitUpdate, db: Session = Depends(get_db)):
+def update_visit(
+    visit_id: int,
+    data: VisitUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    # Ownership: sólo el dueño o admin
+    _check_visit_ownership(v, current_user, db)
+
     dump = data.model_dump(exclude_unset=True)
+
+    # Validar transición de Status si está cambiando
+    new_status = dump.get("Status")
+    if new_status is not None and new_status != v.Status:
+        if new_status not in _VALID_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Status inválido. Permitidos: {sorted(_VALID_STATUSES)}",
+            )
+        current_status = v.Status or "OPEN"
+        if current_status in _TERMINAL_STATUSES:
+            raise HTTPException(
+                status_code=409,
+                detail=f"La visita ya está {current_status}, no se puede modificar",
+            )
+        allowed = _TRANSITIONS.get(current_status, set())
+        if new_status not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Transición inválida {current_status} → {new_status}",
+            )
+
     is_closing = dump.get("Status") in ("CLOSED", "COMPLETED") and v.ClosedAt is None
     if is_closing:
         dump["ClosedAt"] = dump.get("ClosedAt") or datetime.now(timezone.utc)
@@ -178,11 +293,30 @@ def update_visit(visit_id: int, data: VisitUpdate, db: Session = Depends(get_db)
     db.commit()
     db.refresh(v)
 
-    # On close: mark incomplete mandatory actions as BACKLOG
+    # On close: mark incomplete mandatory actions as BACKLOG + update RouteDayPdv status
     if is_closing:
         _mark_backlog(v.VisitId, db)
+        _update_route_day_pdv_status(v, db)
 
     return v
+
+
+def _update_route_day_pdv_status(visit: VisitModel, db: Session):
+    """Al cerrar la visita, marca el RouteDayPdv correspondiente como DONE."""
+    if not visit.RouteDayId:
+        return
+    from ..models.route import RouteDayPdv as RouteDayPdvModel
+    rdp = (
+        db.query(RouteDayPdvModel)
+        .filter(
+            RouteDayPdvModel.RouteDayId == visit.RouteDayId,
+            RouteDayPdvModel.PdvId == visit.PdvId,
+        )
+        .first()
+    )
+    if rdp:
+        rdp.ExecutionStatus = "DONE"
+        db.commit()
 
 
 def _mark_backlog(visit_id: int, db: Session):
@@ -191,7 +325,7 @@ def _mark_backlog(visit_id: int, db: Session):
         db.query(VisitActionModel)
         .filter(
             VisitActionModel.VisitId == visit_id,
-            VisitActionModel.IsMandatory.is_(True),
+            VisitActionModel.IsMandatory== True,
             VisitActionModel.Status == "PENDING",
         )
         .all()
@@ -203,10 +337,18 @@ def _mark_backlog(visit_id: int, db: Session):
 
 
 @router.delete("/{visit_id}", status_code=204)
-def delete_visit(visit_id: int, db: Session = Depends(get_db)):
+def delete_visit(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+    # Sólo admin puede borrar visitas (los TM Reps no, así no pueden ocultar evidencia)
+    role = get_user_role(db, current_user.UserId)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Sólo un admin puede borrar visitas")
     db.delete(v)
     db.commit()
 
@@ -224,10 +366,27 @@ def list_visit_answers(visit_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{visit_id}/answers", response_model=list[VisitAnswer], status_code=201)
-def save_visit_answers(visit_id: int, data: VisitAnswerBulk, db: Session = Depends(get_db)):
+def save_visit_answers(
+    visit_id: int,
+    data: VisitAnswerBulk,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    # Ownership
+    _check_visit_ownership(v, current_user, db)
+
+    # No permitir modificar respuestas si la visita ya está cerrada
+    current_status = (v.Status or "OPEN").upper()
+    if current_status in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede modificar respuestas de una visita cerrada",
+        )
+
     # Delete existing answers for this visit to allow re-submission
     db.query(VisitAnswerModel).filter(VisitAnswerModel.VisitId == visit_id).delete()
     created = []
@@ -330,20 +489,46 @@ def list_visit_checks(visit_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{visit_id}/checks", status_code=201)
-def create_visit_check(visit_id: int, data: dict, db: Session = Depends(get_db)):
+def create_visit_check(
+    visit_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """Payload: { CheckType: 'IN'|'OUT', Lat, Lon, AccuracyMeters?, DistanceToPdvM? }"""
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    # Sólo el dueño o admin
+    _check_visit_ownership(v, current_user, db)
+
     check_type = (data.get("CheckType") or "").upper()
     if check_type not in ("IN", "OUT"):
         raise HTTPException(status_code=400, detail="CheckType debe ser IN u OUT")
+
+    # Validar que la visita esté en un estado donde tiene sentido el check
+    current_status = (v.Status or "OPEN").upper()
+    if check_type == "IN" and current_status in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede hacer check-in en una visita ya cerrada",
+        )
+
+    # Validar coordenadas si vienen
+    lat = data.get("Lat")
+    lon = data.get("Lon")
+    if lat is not None and (lat < -90 or lat > 90):
+        raise HTTPException(status_code=400, detail="Latitud fuera de rango (-90 a 90)")
+    if lon is not None and (lon < -180 or lon > 180):
+        raise HTTPException(status_code=400, detail="Longitud fuera de rango (-180 a 180)")
+
     row = VisitCheckModel(
         VisitId=visit_id,
         CheckType=check_type,
         Ts=datetime.now(timezone.utc),
-        Lat=data.get("Lat"),
-        Lon=data.get("Lon"),
+        Lat=lat,
+        Lon=lon,
         AccuracyMeters=data.get("AccuracyMeters"),
         DistanceToPdvM=data.get("DistanceToPdvM"),
     )

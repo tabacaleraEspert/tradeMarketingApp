@@ -35,6 +35,11 @@ export function MyRouteEditorPage() {
   const currentUser = getCurrentUser();
   const userId = Number(currentUser.id);
   const id = routeId ? Number(routeId) : null;
+  // Sólo territory_manager, regional_manager y admin pueden editar rutas.
+  // Los vendedores (TM Reps) ven la ruta en modo lectura.
+  const canEdit = ["admin", "territory_manager", "regional_manager", "supervisor", "vendedor"].includes(
+    (currentUser.role || "").toLowerCase()
+  );
 
   const [route, setRoute] = useState<Awaited<ReturnType<typeof routesApi.get>> | null>(null);
   const [routePdvs, setRoutePdvs] = useState<Awaited<ReturnType<typeof routesApi.listPdvs>>>([]);
@@ -255,7 +260,7 @@ export function MyRouteEditorPage() {
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-foreground">Editar Ruta</h1>
+            <h1 className="text-xl font-bold text-foreground">{canEdit ? "Editar Ruta" : "Detalle de Ruta"}</h1>
             <p className="text-sm text-muted-foreground">{routeDraft?.Name ?? route.Name}</p>
           </div>
         </div>
@@ -267,7 +272,7 @@ export function MyRouteEditorPage() {
           <CardContent className="p-4 space-y-4">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-foreground">Datos de la ruta</h3>
-              {routeDraft && (
+              {canEdit && routeDraft && (
                 <Button
                   variant={routeMetadataDirty ? "default" : "outline"}
                   size="sm"
@@ -288,6 +293,7 @@ export function MyRouteEditorPage() {
                     setRouteDraft((d) => (d ? { ...d, Name: e.target.value } : null))
                   }
                   placeholder="Ej: RF Quilmes"
+                  disabled={!canEdit}
                 />
               </div>
               <div>
@@ -339,6 +345,7 @@ export function MyRouteEditorPage() {
                 Puntos de venta ({routePdvs.length})
               </h3>
               <div className="relative">
+                {canEdit && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -348,6 +355,7 @@ export function MyRouteEditorPage() {
                   <Plus size={18} className="mr-1" />
                   Agregar PDV
                 </Button>
+                )}
                 {showAddPdv && (
                   <>
                     <div
@@ -414,6 +422,7 @@ export function MyRouteEditorPage() {
                 Mis días asignados ({routeDays.filter((d) => d.AssignedUserId === userId).length})
               </h3>
               <div className="relative">
+                {canEdit && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -423,6 +432,7 @@ export function MyRouteEditorPage() {
                   <Plus size={18} className="mr-1" />
                   Agregar día
                 </Button>
+                )}
                 {showAddDay && (
                   <>
                     <div

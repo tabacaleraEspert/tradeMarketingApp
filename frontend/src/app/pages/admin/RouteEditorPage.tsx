@@ -28,8 +28,12 @@ import {
   useForms,
   useUsers,
   pdvsApi,
+  holidaysApi,
+  mandatoryActivitiesApi,
+  useApiList,
   BEJERMAN_ZONES,
 } from "@/lib/api";
+import type { MandatoryActivity } from "@/lib/api";
 import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 import { toast } from "sonner";
@@ -123,20 +127,27 @@ export function RouteEditorPage() {
   const { routeId } = useParams();
   const navigate = useNavigate();
   const id = routeId ? Number(routeId) : null;
+  const isMyRoute = window.location.pathname.startsWith("/my-routes");
+  const backPath = isMyRoute ? "/my-routes" : "/admin/routes";
 
   const [route, setRoute] = useState<Awaited<ReturnType<typeof routesApi.get>> | null>(null);
   const [routePdvs, setRoutePdvs] = useState<Awaited<ReturnType<typeof routesApi.listPdvs>>>([]);
+  const [pdvAssignments, setPdvAssignments] = useState<{ pdvId: number; routeId: number }[]>([]);
   const [routeForms, setRouteForms] = useState<Awaited<ReturnType<typeof routesApi.listForms>>>([]);
   const [routeDays, setRouteDays] = useState<Awaited<ReturnType<typeof routesApi.listDays>>>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
   const [showAddDay, setShowAddDay] = useState(false);
   const [newDayUser, setNewDayUser] = useState<number | "">("");
   const [newDayDate, setNewDayDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [newDayHoliday, setNewDayHoliday] = useState<string | null>(null);
 
   // PDV section state
   const [pdvViewMode, setPdvViewMode] = useState<"list" | "map">("list");
   const [pdvSearch, setPdvSearch] = useState("");
+  const [pdvFilterChannel, setPdvFilterChannel] = useState<string>("all");
+  const [pdvFilterCity, setPdvFilterCity] = useState<string>("all");
+  const [pdvFilterZoneId, setPdvFilterZoneId] = useState<string>("all");
   const [selectedInfoPdv, setSelectedInfoPdv] = useState<number | null>(null);
 
   // All PDVs cache (loaded individually for route PDVs)
@@ -148,6 +159,9 @@ export function RouteEditorPage() {
   const { data: zones } = useZones();
   const { data: forms } = useForms();
   const { data: users } = useUsers();
+  const { data: allActivities, refetch: refetchActivities } = useApiList(
+    () => mandatoryActivitiesApi.list({ active_only: true })
+  );
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     id: "google-map-script-places",
@@ -160,19 +174,21 @@ export function RouteEditorPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const [r, rp, rf, rd] = await Promise.all([
+      const [r, rp, rf, rd, assignments] = await Promise.all([
         routesApi.get(id),
         routesApi.listPdvs(id),
         routesApi.listForms(id),
         routesApi.listDays(id),
+        routesApi.listPdvAssignments().catch(() => [] as { pdvId: number; routeId: number }[]),
       ]);
       setRoute(r);
       setRoutePdvs(rp.sort((a, b) => a.SortOrder - b.SortOrder));
       setRouteForms(rf);
       setRouteDays(rd.sort((a, b) => a.WorkDate.localeCompare(b.WorkDate)));
+      setPdvAssignments(assignments);
     } catch (e) {
       toast.error("Error al cargar ruta");
-      navigate("/admin/routes");
+      navigate(backPath);
     } finally {
       setLoading(false);
     }
@@ -203,11 +219,40 @@ export function RouteEditorPage() {
   const distances = useMemo(() => segmentDistances(orderedPdvs), [orderedPdvs]);
   const totalKm = useMemo(() => totalRouteKm(orderedPdvs), [orderedPdvs]);
 
-  // Available PDVs filtered by search
+  // PDVs assigned to OTHER routes (excluding this one) — exclusivity
+  const pdvIdsInOtherRoutes = useMemo(() => {
+    const s = new Set<number>();
+    for (const a of pdvAssignments) {
+      if (a.routeId !== id) s.add(a.pdvId);
+    }
+    return s;
+  }, [pdvAssignments, id]);
+
+  // Distinct values for filters (only over PDVs not yet in this route)
+  const availableChannels = useMemo(() => {
+    const set = new Set<string>();
+    allPdvs.forEach((p) => {
+      const ch = p.ChannelName || p.Channel;
+      if (ch) set.add(ch);
+    });
+    return Array.from(set).sort();
+  }, [allPdvs]);
+
+  const availableCities = useMemo(() => {
+    const set = new Set<string>();
+    allPdvs.forEach((p) => { if (p.City) set.add(p.City); });
+    return Array.from(set).sort();
+  }, [allPdvs]);
+
+  // Available PDVs filtered by search + filters
   const filteredAvailablePdvs = useMemo(() => {
     const search = pdvSearch.toLowerCase();
     return allPdvs.filter((p) => {
       if (routePdvIds.has(p.PdvId)) return false;
+      if (pdvIdsInOtherRoutes.has(p.PdvId)) return false;
+      if (pdvFilterChannel !== "all" && (p.ChannelName || p.Channel) !== pdvFilterChannel) return false;
+      if (pdvFilterCity !== "all" && p.City !== pdvFilterCity) return false;
+      if (pdvFilterZoneId !== "all" && String(p.ZoneId ?? "") !== pdvFilterZoneId) return false;
       if (!search) return true;
       return (
         p.Name.toLowerCase().includes(search) ||
@@ -215,7 +260,12 @@ export function RouteEditorPage() {
         (p.City || "").toLowerCase().includes(search)
       );
     });
-  }, [allPdvs, routePdvIds, pdvSearch]);
+  }, [allPdvs, routePdvIds, pdvIdsInOtherRoutes, pdvSearch, pdvFilterChannel, pdvFilterCity, pdvFilterZoneId]);
+
+  const activePdvFilterCount =
+    (pdvFilterChannel !== "all" ? 1 : 0) +
+    (pdvFilterCity !== "all" ? 1 : 0) +
+    (pdvFilterZoneId !== "all" ? 1 : 0);
 
   // All PDVs with coords for map (both in route and not)
   const allPdvsWithCoords = useMemo(
@@ -261,6 +311,9 @@ export function RouteEditorPage() {
         ...prev,
         result,
       ]);
+      setPdvAssignments((prev) => [...prev, { pdvId, routeId: id }]);
+      // Backend invalida IsOptimized — reflejarlo localmente
+      setRoute((prev) => (prev ? { ...prev, IsOptimized: false } : prev));
       toast.success("PDV agregado a la ruta");
     } catch (e: any) {
       console.error("Error adding PDV:", e);
@@ -276,6 +329,8 @@ export function RouteEditorPage() {
     try {
       await routesApi.removePdv(id, pdvId);
       setRoutePdvs((prev) => prev.filter((rp) => rp.PdvId !== pdvId));
+      setPdvAssignments((prev) => prev.filter((a) => !(a.pdvId === pdvId && a.routeId === id)));
+      setRoute((prev) => (prev ? { ...prev, IsOptimized: false } : prev));
       toast.success("PDV quitado de la ruta");
     } catch (e: any) {
       console.error("Error removing PDV:", e);
@@ -312,6 +367,10 @@ export function RouteEditorPage() {
         newRoutePdvs.push({ RouteId: id, PdvId: optimized[i].PdvId, SortOrder: i, Priority: 3 });
       }
       setRoutePdvs(newRoutePdvs);
+      // Marcar la ruta como optimizada (task 11)
+      const updated = await routesApi.update(id, { IsOptimized: true });
+      setRoute(updated);
+      setRouteDraft((d) => (d ? { ...d } : null));
       toast.success("Ruta optimizada por distancia");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al optimizar");
@@ -411,15 +470,29 @@ export function RouteEditorPage() {
   }, [route]);
 
   // Parse frequency config
-  const frequencyDays = useMemo(() => {
-    if (!routeDraft?.FrequencyConfig) return [];
+  const frequencyConfigParsed = useMemo(() => {
+    if (!routeDraft?.FrequencyConfig) return {};
     try {
-      const parsed = JSON.parse(routeDraft.FrequencyConfig);
-      return parsed.days || [];
+      return JSON.parse(routeDraft.FrequencyConfig) || {};
     } catch {
-      return [];
+      return {};
     }
   }, [routeDraft?.FrequencyConfig]);
+
+  const frequencyDays: number[] = frequencyConfigParsed.days || [];
+  const frequencyStartDate: string = frequencyConfigParsed.startDate || "";
+
+  const updateFrequencyConfig = (patch: Record<string, unknown>) => {
+    setRouteDraft((d) => {
+      if (!d) return null;
+      const next = { ...frequencyConfigParsed, ...patch };
+      // Strip empty/undefined values
+      Object.keys(next).forEach((k) => {
+        if (next[k] === undefined || next[k] === "") delete next[k];
+      });
+      return { ...d, FrequencyConfig: JSON.stringify(next) };
+    });
+  };
 
   const toggleFrequencyDay = (day: number) => {
     const current = [...frequencyDays];
@@ -427,9 +500,7 @@ export function RouteEditorPage() {
     if (idx >= 0) current.splice(idx, 1);
     else current.push(day);
     current.sort();
-    setRouteDraft((d) =>
-      d ? { ...d, FrequencyConfig: JSON.stringify({ days: current }) } : null
-    );
+    updateFrequencyConfig({ days: current });
   };
 
   const routeMetadataDirty =
@@ -474,6 +545,58 @@ export function RouteEditorPage() {
     }
   };
 
+  // --- Create mode: no id ---
+  if (!id && !route) {
+    const currentUser = getCurrentUser();
+    const handleCreateRoute = async (name: string) => {
+      if (!name.trim()) return;
+      setSaving(true);
+      try {
+        const newRoute = await routesApi.create({
+          Name: name.trim(),
+          AssignedUserId: isMyRoute ? Number(currentUser.id) : undefined,
+        });
+        toast.success("Ruta creada");
+        const editPath = isMyRoute
+          ? `/my-routes/${newRoute.RouteId}/edit`
+          : `/admin/routes/${newRoute.RouteId}/edit`;
+        navigate(editPath, { replace: true });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Error al crear");
+      } finally {
+        setSaving(false);
+      }
+    };
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate(backPath)} className="p-2 hover:bg-muted rounded-lg transition-colors">
+            <ArrowLeft size={24} />
+          </button>
+          <h1 className="text-2xl font-bold text-foreground">Nueva Ruta Foco</h1>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm text-muted-foreground mb-4">Ingresá un nombre para la ruta y después vas a poder agregar PDVs, frecuencia y más.</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const fd = new FormData(e.currentTarget);
+                handleCreateRoute(fd.get("name") as string);
+              }}
+              className="flex gap-3"
+            >
+              <Input name="name" placeholder="Nombre de la ruta" autoFocus className="flex-1" />
+              <Button type="submit" disabled={saving} className="bg-[#A48242] hover:bg-[#8a6d35] text-white">
+                {saving ? "Creando..." : "Crear"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   if (loading || !route) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -489,7 +612,7 @@ export function RouteEditorPage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <button
-          onClick={() => navigate("/admin/routes")}
+          onClick={() => navigate(backPath)}
           className="p-2 hover:bg-muted rounded-lg transition-colors"
         >
           <ArrowLeft size={24} />
@@ -498,6 +621,15 @@ export function RouteEditorPage() {
           <h1 className="text-2xl font-bold text-foreground">Editar Ruta Foco</h1>
           <p className="text-muted-foreground">{routeDraft?.Name ?? route.Name}</p>
         </div>
+        {route.IsOptimized ? (
+          <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
+            <Zap size={12} /> Optimizada
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-muted-foreground gap-1">
+            <Zap size={12} className="opacity-50" /> Sin optimizar
+          </Badge>
+        )}
       </div>
 
       {/* Route Info */}
@@ -630,6 +762,68 @@ export function RouteEditorPage() {
                 </select>
               </div>
             </div>
+
+            {/* Acciones obligatorias asignadas a esta ruta */}
+            <div className="md:col-span-2 pt-4 border-t border-border">
+              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                Acciones de ejecución
+              </label>
+              <p className="text-sm text-muted-foreground mb-2">
+                Acciones que el TM Rep debe ejecutar en cada visita de esta ruta
+              </p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {allActivities
+                  .filter((a) => a.RouteId === id)
+                  .map((a) => (
+                    <Badge
+                      key={a.MandatoryActivityId}
+                      variant="secondary"
+                      className="flex items-center gap-1 pr-1"
+                    >
+                      {a.Name}
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await mandatoryActivitiesApi.update(a.MandatoryActivityId, { RouteId: null } as any);
+                            refetchActivities();
+                            toast.success("Acción desvinculada de la ruta");
+                          } catch { toast.error("Error"); }
+                        }}
+                        disabled={saving}
+                        className="ml-1 p-0.5 hover:bg-secondary rounded"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </Badge>
+                  ))}
+              </div>
+              <select
+                className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold text-sm"
+                value=""
+                onChange={async (e) => {
+                  const actId = e.target.value ? Number(e.target.value) : 0;
+                  e.target.value = "";
+                  if (!actId) return;
+                  try {
+                    await mandatoryActivitiesApi.update(actId, { RouteId: id } as any);
+                    refetchActivities();
+                    toast.success("Acción vinculada a la ruta");
+                  } catch { toast.error("Error"); }
+                }}
+                disabled={saving}
+              >
+                <option value="">Agregar acción de ejecución...</option>
+                {allActivities
+                  .filter((a) => !a.RouteId || a.RouteId === id)
+                  .filter((a) => a.RouteId !== id)
+                  .map((a) => (
+                    <option key={a.MandatoryActivityId} value={a.MandatoryActivityId}>
+                      {a.Name} ({a.ActionType})
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -730,23 +924,41 @@ export function RouteEditorPage() {
 
               {/* Every X days interval */}
               {routeDraft?.FrequencyType === "every_x_days" && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Cada cuántos días</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={90}
+                      value={frequencyConfigParsed.interval ?? 15}
+                      onChange={(e) => updateFrequencyConfig({ interval: Number(e.target.value) || 15 })}
+                      placeholder="15"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">A partir de</label>
+                    <Input
+                      type="date"
+                      value={frequencyStartDate}
+                      onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">Fecha de inicio del ciclo</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Start date for biweekly / monthly cycles */}
+              {(routeDraft?.FrequencyType === "biweekly" || routeDraft?.FrequencyType === "monthly") && (
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Cada cuántos días:</label>
+                  <label className="block text-xs text-muted-foreground mb-1">A partir de</label>
                   <Input
-                    type="number"
-                    min={1}
-                    max={90}
-                    value={(() => {
-                      try { return JSON.parse(routeDraft.FrequencyConfig || "{}").interval || 15; } catch { return 15; }
-                    })()}
-                    onChange={(e) => {
-                      const interval = Number(e.target.value) || 15;
-                      setRouteDraft((d) =>
-                        d ? { ...d, FrequencyConfig: JSON.stringify({ interval }) } : null
-                      );
-                    }}
-                    placeholder="15"
+                    type="date"
+                    value={frequencyStartDate}
+                    onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
+                    className="max-w-xs"
                   />
+                  <p className="text-[10px] text-muted-foreground mt-1">Fecha de inicio del ciclo</p>
                 </div>
               )}
 
@@ -762,9 +974,8 @@ export function RouteEditorPage() {
                       ? `Se ejecuta los ${frequencyDays.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d]).join(", ")}`
                       : "Seleccioná al menos un día"
                   )}
-                  {routeDraft.FrequencyType === "every_x_days" && (() => {
-                    try { const i = JSON.parse(routeDraft.FrequencyConfig || "{}").interval || 15; return `Se ejecuta cada ${i} días`; } catch { return "Cada 15 días"; }
-                  })()}
+                  {routeDraft.FrequencyType === "every_x_days" && `Se ejecuta cada ${frequencyConfigParsed.interval || 15} días`}
+                  {frequencyStartDate && ["every_x_days", "biweekly", "monthly"].includes(routeDraft.FrequencyType || "") && ` · A partir del ${frequencyStartDate}`}
                 </p>
               )}
             </div>
@@ -1018,12 +1229,24 @@ export function RouteEditorPage() {
 
               {/* Divider + search */}
               <div className="border-t border-border pt-4">
-                <div className="flex items-center gap-3 mb-3">
+                <div className="flex items-center justify-between gap-3 mb-3">
                   <h4 className="text-sm font-semibold text-muted-foreground">
                     PDVs disponibles ({filteredAvailablePdvs.length})
                   </h4>
+                  {activePdvFilterCount > 0 && (
+                    <button
+                      onClick={() => {
+                        setPdvFilterChannel("all");
+                        setPdvFilterCity("all");
+                        setPdvFilterZoneId("all");
+                      }}
+                      className="text-xs text-destructive hover:underline"
+                    >
+                      Limpiar filtros ({activePdvFilterCount})
+                    </button>
+                  )}
                 </div>
-                <div className="relative mb-3">
+                <div className="relative mb-2">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
                   <Input
                     placeholder="Buscar por nombre, dirección o ciudad..."
@@ -1031,6 +1254,38 @@ export function RouteEditorPage() {
                     onChange={(e) => setPdvSearch(e.target.value)}
                     className="pl-9 text-sm"
                   />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+                  <select
+                    className="px-2.5 py-1.5 text-xs border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
+                    value={pdvFilterChannel}
+                    onChange={(e) => setPdvFilterChannel(e.target.value)}
+                  >
+                    <option value="all">Todos los canales</option>
+                    {availableChannels.map((ch) => (
+                      <option key={ch} value={ch}>{ch}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="px-2.5 py-1.5 text-xs border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
+                    value={pdvFilterCity}
+                    onChange={(e) => setPdvFilterCity(e.target.value)}
+                  >
+                    <option value="all">Todas las ciudades</option>
+                    {availableCities.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                  <select
+                    className="px-2.5 py-1.5 text-xs border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
+                    value={pdvFilterZoneId}
+                    onChange={(e) => setPdvFilterZoneId(e.target.value)}
+                  >
+                    <option value="all">Todas las zonas</option>
+                    {zones.map((z) => (
+                      <option key={z.ZoneId} value={String(z.ZoneId)}>{z.Name}</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="max-h-64 overflow-y-auto space-y-1">
                   {filteredAvailablePdvs.length === 0 ? (
@@ -1107,9 +1362,24 @@ export function RouteEditorPage() {
                         type="date"
                         className="w-full px-3 py-2 border border-border rounded-lg"
                         value={newDayDate}
-                        onChange={(e) => setNewDayDate(e.target.value)}
+                        onChange={(e) => {
+                          const d = e.target.value;
+                          setNewDayDate(d);
+                          setNewDayHoliday(null);
+                          if (d) {
+                            holidaysApi.check(d).then((r) => {
+                              setNewDayHoliday(r.isHoliday ? r.name ?? "Feriado" : null);
+                            }).catch(() => {});
+                          }
+                        }}
                       />
                     </div>
+                    {newDayHoliday && (
+                      <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                        <Calendar size={13} className="text-amber-600 shrink-0" />
+                        <span><strong>Feriado:</strong> {newDayHoliday}. ¿Seguro querés programar este día?</span>
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       Se copiarán los {routePdvs.length} PDV de la ruta al día.
                     </p>

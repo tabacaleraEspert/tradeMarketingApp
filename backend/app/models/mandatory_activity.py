@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Date, ForeignKey
 from sqlalchemy.sql import func
 from ..database import Base
 
@@ -17,6 +17,16 @@ class MandatoryActivity(Base):
     # Scope: global (null), by channel, or by route
     ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True)
     RouteId = Column(Integer, ForeignKey("Route.RouteId"), nullable=True)
+
+    # Formulario opcional vinculado a la acción (datos a completar al ejecutarla)
+    FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=True)
+
+    # Vigencia temporal (null = sin límite)
+    ValidFrom = Column(Date, nullable=True)
+    ValidTo = Column(Date, nullable=True)
+
+    # Quién la creó (para filtrar por jerarquía)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
 
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

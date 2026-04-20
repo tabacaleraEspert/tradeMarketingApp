@@ -6,6 +6,7 @@ import { Label } from "../components/ui/label";
 import { Wifi, WifiOff, Shield, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import { authApi, ApiError } from "@/lib/api";
+import { persistSession } from "../lib/auth";
 
 export function Login() {
   const navigate = useNavigate();
@@ -17,18 +18,21 @@ export function Login() {
   const doLogin = async (loginEmail: string, loginPassword: string) => {
     setLoading(true);
     try {
-      const user = await authApi.login(loginEmail, loginPassword);
-      localStorage.setItem("isAuthenticated", "true");
-      localStorage.setItem("user", JSON.stringify({
-        id: String(user.UserId),
-        name: user.DisplayName,
-        email: user.Email,
-        zone: user.ZoneName || user.ZoneId ? `Zona #${user.ZoneId}` : "-",
-        zoneId: user.ZoneId ?? undefined,
-        role: user.Role || "vendedor",
-      }));
-      toast.success("Sesion iniciada correctamente");
-      navigate("/");
+      const resp = await authApi.login(loginEmail, loginPassword);
+      persistSession(resp);
+      if (resp.MustChangePassword) {
+        toast.info("Tenés que cambiar tu contraseña antes de continuar");
+        window.dispatchEvent(new CustomEvent("espert:must-change-password"));
+      } else {
+        toast.success("Sesion iniciada correctamente");
+      }
+      // Admin y regional_manager entran directo al panel admin
+      const role = (resp.Role || "").toLowerCase();
+      if (role === "admin" || role === "regional_manager") {
+        navigate("/admin");
+      } else {
+        navigate("/");
+      }
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al iniciar sesion");
     } finally {
@@ -45,13 +49,16 @@ export function Login() {
     await doLogin(email, password);
   };
 
-  const quickUsers = [
-    { label: "Admin", email: "admin@test.com", password: "Admin123!", icon: "shield", color: "text-red-400" },
-    { label: "Trade Rep (Carlos)", email: "trade@test.com", password: "TradeRep123!", icon: "user", color: "text-[#A48242]" },
-    { label: "TM - Alejandro", email: "alejandro.perez@espert.com", password: "TmRep123!", icon: "user", color: "text-blue-400" },
-    { label: "TM - Valentina", email: "valentina.torres@espert.com", password: "TmRep123!", icon: "user", color: "text-pink-400" },
-    { label: "TM - Nicolás", email: "nicolas.garcia@espert.com", password: "TmRep123!", icon: "user", color: "text-green-400" },
-    { label: "Territory Mgr", email: "martin.rodriguez@espert.com", password: "TmRep123!", icon: "shield", color: "text-purple-400" },
+  // Usuarios con acceso rápido (producción)
+  const demoUsers = [
+    { label: "Admin (Juampi)",      sub: "Panel admin — todo",                 email: "juampi@espert.com.ar",             password: "Espert2026!", icon: "shield", color: "text-amber-400" },
+    { label: "Martin Lescano",      sub: "Gte Regional — Región Bs As",       email: "martin.lescano@espert.com.ar",     password: "Espert2026!", icon: "shield", color: "text-violet-400" },
+    { label: "Emmanuel Anzorena",   sub: "Territory Manager — Cuyo",           email: "emmanuel.anzorena@espert.com.ar",  password: "Espert2026!", icon: "user",   color: "text-emerald-400" },
+  ];
+
+  const otherUsers = [
+    { label: "TM Cuyo 1",      email: "tmcuyo1@espert.com.ar",     password: "Espert2026!", icon: "user", color: "text-[#979B9B]" },
+    { label: "Lilian Noguera",  email: "lilian.noguera@espert.com.ar", password: "Espert2026!", icon: "user", color: "text-[#979B9B]" },
   ];
 
   return (
@@ -60,15 +67,8 @@ export function Login() {
       <div className="w-full max-w-md mb-8 text-center">
         <div className="mb-6">
           {/* Espert isotipo */}
-          <div className="w-20 h-20 mx-auto bg-white dark:bg-white/10 rounded-full flex items-center justify-center mb-5 border-2 border-[#A48242]">
-            <svg viewBox="0 0 60 60" className="w-12 h-12" fill="none">
-              <circle cx="30" cy="30" r="28" stroke="#A48242" strokeWidth="2" fill="none" />
-              <rect x="27" y="10" width="6" height="20" rx="1" fill="#A48242" />
-              <path d="M30 30 L18 42 Q16 44 18 44 L30 38" fill="#A48242" opacity="0.8" />
-              <path d="M30 30 L42 42 Q44 44 42 44 L30 38" fill="#A48242" opacity="0.8" />
-              <path d="M30 30 L22 40 Q20 42 22 42 L30 36" fill="#A48242" />
-              <path d="M30 30 L38 40 Q40 42 38 42 L30 36" fill="#A48242" />
-            </svg>
+          <div className="w-24 h-24 mx-auto flex items-center justify-center mb-5">
+            <img src="/espert-logo-white.png" alt="Espert" className="w-24 h-24 object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">ESPERT</h1>
           <p className="text-sm text-[#979B9B] mt-2 tracking-widest uppercase">Trade Marketing</p>
@@ -118,30 +118,62 @@ export function Login() {
           </button>
         </form>
 
-        {/* Quick Login */}
+        {/* Quick Login - Usuarios DEMO con datos cargados */}
         <div className="mt-6 pt-6 border-t border-white/10">
-          <p className="text-xs text-[#53565A] text-center mb-3 font-medium uppercase tracking-widest">
-            Acceso rápido (dev)
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {quickUsers.map((u) => (
-              <Button
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <p className="text-xs text-emerald-400 text-center font-bold uppercase tracking-widest">
+              Demo · Acceso rápido
+            </p>
+          </div>
+          <div className="space-y-2">
+            {demoUsers.map((u) => (
+              <button
                 key={u.email}
                 type="button"
-                variant="outline"
-                className="h-auto py-2 px-2 gap-1 flex-col border-white/10 text-[#979B9B] hover:bg-[#252520] hover:text-white hover:border-[#A48242] text-[11px]"
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-[#252520] hover:bg-[#2f2f28] border border-white/5 hover:border-[#A48242]/40 transition-all disabled:opacity-50 group"
                 disabled={loading}
                 onClick={() => doLogin(u.email, u.password)}
               >
-                {u.icon === "shield" ? (
-                  <Shield size={15} className={u.color} />
-                ) : (
-                  <UserRound size={15} className={u.color} />
-                )}
-                <span className="truncate w-full text-center">{u.label}</span>
-              </Button>
+                <div className="bg-black/40 rounded-lg p-2 group-hover:bg-[#A48242]/10 transition-colors">
+                  {u.icon === "shield" ? (
+                    <Shield size={18} className={u.color} />
+                  ) : (
+                    <UserRound size={18} className={u.color} />
+                  )}
+                </div>
+                <div className="flex-1 text-left min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{u.label}</p>
+                  <p className="text-[11px] text-[#979B9B] truncate">{u.sub}</p>
+                </div>
+                <span className="text-[10px] text-[#53565A] group-hover:text-[#A48242] font-medium uppercase tracking-wider">
+                  Entrar
+                </span>
+              </button>
             ))}
           </div>
+
+          {/* Otros TM Reps demo (sin ruta hoy, sólo aparecen como huérfanos en el listado) */}
+          <details className="mt-3">
+            <summary className="text-[11px] text-[#53565A] cursor-pointer hover:text-[#979B9B] text-center">
+              Otros usuarios demo
+            </summary>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              {otherUsers.map((u) => (
+                <Button
+                  key={u.email}
+                  type="button"
+                  variant="outline"
+                  className="h-auto py-2 px-2 gap-1 border-white/10 text-[#979B9B] hover:bg-[#252520] hover:text-white hover:border-[#A48242] text-[11px]"
+                  disabled={loading}
+                  onClick={() => doLogin(u.email, u.password)}
+                >
+                  <UserRound size={13} className={u.color} />
+                  <span className="truncate">{u.label}</span>
+                </Button>
+              ))}
+            </div>
+          </details>
         </div>
 
         {/* Connection Status */}

@@ -10,9 +10,13 @@ import {
   Camera, Zap, Newspaper, LogOut, ChevronRight, Clock, MapPin,
   Navigation, FileText,
 } from "lucide-react";
-import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi } from "@/lib/api";
+import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate } from "@/lib/api";
+import type { VisitPhotoRead } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
+import { getCurrentUser } from "../lib/auth";
 import type { Pdv, VisitAction, MarketNews, VisitAnswer } from "@/lib/api";
 import { toast } from "sonner";
+import { renderAnswerValue } from "../lib/answerFormatter";
 
 interface StepData {
   label: string;
@@ -50,6 +54,7 @@ export function VisitSummaryPage() {
   const [actions, setActions] = useState<VisitAction[]>([]);
   const [news, setNews] = useState<MarketNews[]>([]);
   const [checks, setChecks] = useState<any[]>([]);
+  const [visitPhotos, setVisitPhotos] = useState<VisitPhotoRead[]>([]);
   const [visitData, setVisitData] = useState<any>(null);
 
   const loadData = useCallback(async () => {
@@ -67,13 +72,14 @@ export function VisitSummaryPage() {
       if (!vid) { toast.error("No hay visita activa"); navigate(`/pos/${id}`); return; }
       setVisitId(vid);
 
-      const [ans, acts, nws, validation, chks, visit] = await Promise.all([
+      const [ans, acts, nws, validation, chks, visit, photos] = await Promise.all([
         visitsApi.listAnswers(vid),
         visitActionsApi.list(vid),
         marketNewsApi.list(vid),
         visitsApi.validateClose(vid),
         visitsApi.listChecks(vid),
         visitsApi.get(vid),
+        visitPhotosApi.list(vid).catch(() => [] as VisitPhotoRead[]),
       ]);
 
       setAnswers(ans);
@@ -81,6 +87,7 @@ export function VisitSummaryPage() {
       setNews(nws);
       setChecks(chks);
       setVisitData(visit);
+      setVisitPhotos(photos);
 
       // Load questions for answers
       if (ans.length > 0) {
@@ -147,7 +154,7 @@ export function VisitSummaryPage() {
     if (!visitId) return;
     setClosing(true);
     try {
-      // GPS check-out
+      // 1. GPS check-out (offline-tolerant, best-effort)
       try {
         const gps = await new Promise<any>((resolve) => {
           if (!navigator.geolocation) { resolve({}); return; }
@@ -156,21 +163,103 @@ export function VisitSummaryPage() {
             () => resolve({}), { enableHighAccuracy: true, timeout: 5000 }
           );
         });
-        await visitsApi.createCheck(visitId, { CheckType: "OUT", ...gps });
+        const isTempVisit = visitId < 0;
+        await executeOrEnqueue({
+          kind: "visit_check",
+          method: "POST",
+          url: `/visits/${visitId}/checks`,
+          body: { CheckType: "OUT", ...gps },
+          label: "Check-out GPS",
+          _tempVisitId: isTempVisit ? visitId : undefined,
+        });
       } catch {}
 
-      await visitsApi.update(visitId, { Status: "CLOSED", CloseReason: reminderForNext || undefined });
-      toast.success("Visita cerrada");
-      navigate("/", { state: { completedPdvId: Number(id) } });
+      // 2. Cierre de visita (offline-tolerant, crítico)
+      const isTempVisit = visitId < 0;
+      const closeResult = await executeOrEnqueue({
+        kind: "visit_update",
+        method: "PATCH",
+        url: `/visits/${visitId}`,
+        body: { Status: "CLOSED", CloseReason: reminderForNext || undefined },
+        label: "Cierre de visita",
+        _tempVisitId: isTempVisit ? visitId : undefined,
+      });
+
+      // 3. Si dejó una nota para la próxima visita, crear PdvNote (offline-tolerant)
+      if (reminderForNext.trim() && id) {
+        const currentUser = getCurrentUser();
+        try {
+          await executeOrEnqueue({
+            kind: "pdv_note_create",
+            method: "POST",
+            url: `/pdvs/${id}/notes`,
+            body: {
+              Content: reminderForNext.trim(),
+              CreatedByUserId: Number(currentUser.id) || undefined,
+              VisitId: visitId,
+            },
+            label: "Nota para próxima visita",
+          });
+        } catch {
+          // No es bloqueante
+        }
+      }
+
+      // Buscar el próximo PDV pendiente en la ruta del día
+      try {
+        const currentUser = getCurrentUser();
+        const userId = Number(currentUser.id) || undefined;
+        const today = new Date();
+        const dayPdvs = await fetchRouteDayPdvsForDate(today, userId);
+        const currentPdvId = Number(id);
+        const pending = dayPdvs
+          .filter((p) => p.pdv.PdvId !== currentPdvId)
+          .filter((p) => {
+            const status = (p.ExecutionStatus || "PENDING").toUpperCase();
+            return status !== "DONE" && status !== "COMPLETED";
+          });
+        if (pending.length > 0) {
+          const nextPdv = pending[0];
+          // Mostrar modal de éxito con el nombre del próximo PDV
+          if (closeResult.queued) {
+            toast.success("Visita guardada. Se sincronizará cuando vuelva la conexión.");
+          } else {
+            toast("Visita cerrada. Siguiente: " + nextPdv.pdv.Name, {
+              icon: "🎯",
+              duration: 4000,
+              action: {
+                label: "Ir →",
+                onClick: () => navigate(`/pos/${nextPdv.pdv.PdvId}`, {
+                  state: { routeDayId: nextPdv.RouteDayId, completedPdvId: currentPdvId, fromNextButton: true },
+                }),
+              },
+            });
+          }
+          // Navegar después de un delay para que se vea el toast
+          setTimeout(() => {
+            navigate(`/pos/${nextPdv.pdv.PdvId}`, {
+              state: { routeDayId: nextPdv.RouteDayId, completedPdvId: currentPdvId, fromNextButton: true },
+            });
+          }, 1500);
+          return;
+        }
+        // Sin más PDVs pendientes
+        toast.success("¡Ruta del día completada!");
+        navigate("/end-of-day", { state: { completedPdvId: currentPdvId } });
+        return;
+      } catch {
+        if (closeResult.queued) {
+          toast.success("Visita guardada. Se sincronizará cuando vuelva la conexión.");
+        } else {
+          toast.success("Visita cerrada");
+        }
+        navigate("/", { state: { completedPdvId: Number(id) } });
+      }
     } catch { toast.error("Error al cerrar visita"); }
     finally { setClosing(false); }
   };
 
-  const renderAnswerValue = (a: VisitAnswer) => {
-    if (a.ValueBool !== null && a.ValueBool !== undefined) return a.ValueBool ? "Sí" : "No";
-    if (a.ValueNumber !== null && a.ValueNumber !== undefined) return String(a.ValueNumber);
-    return a.ValueText || a.ValueJson || "—";
-  };
+  // renderAnswerValue extraído a app/lib/answerFormatter.ts
 
   const statusIcon = (s: string) => {
     if (s === "completed") return <CheckCircle2 size={18} className="text-green-600" />;
@@ -259,12 +348,15 @@ export function VisitSummaryPage() {
           </div>
         )}
 
-        {/* Reminder */}
+        {/* Reminder → se guarda como nota pendiente del PDV */}
         <Card>
           <CardContent className="p-3 space-y-2">
-            <p className="font-medium text-sm text-foreground">Recordatorio próxima visita</p>
+            <p className="font-medium text-sm text-foreground">Nota / TODO para la próxima visita</p>
+            <p className="text-[11px] text-muted-foreground">
+              Se guarda como nota del PDV. El próximo TM Rep que visite este punto la va a ver al hacer check-in.
+            </p>
             <Textarea
-              placeholder="Ej: Verificar stock de producto X, hablar con el encargado..."
+              placeholder="Ej: Verificar stock de producto X, hablar con el encargado, traer material POP..."
               value={reminderForNext}
               onChange={(e) => setReminderForNext(e.target.value)}
               className="min-h-[60px] text-sm"
@@ -362,14 +454,32 @@ export function VisitSummaryPage() {
         isOpen={detailModal === "fotos"}
         onClose={() => setDetailModal(null)}
         title="Evidencia Fotográfica"
+        size="lg"
       >
-        <div className="text-center py-8 text-muted-foreground">
-          <Camera size={40} className="mx-auto mb-2 opacity-30" />
-          <p className="text-sm">
-            {actions.filter((a: VisitAction) => a.PhotoTaken).length} fotos capturadas
-          </p>
-          <p className="text-xs mt-1">Las fotos se almacenan en el servidor</p>
-        </div>
+        {visitPhotos.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            <Camera size={40} className="mx-auto mb-2 opacity-30" />
+            <p className="text-sm">Sin fotos subidas para esta visita</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {visitPhotos.map((p) => (
+              <div key={p.FileId} className="relative">
+                <img
+                  src={p.url}
+                  alt={p.PhotoType}
+                  className="w-full h-32 object-cover rounded-lg border border-border"
+                />
+                <div className="absolute bottom-1 left-1">
+                  <Badge variant="secondary" className="text-[9px]">{p.PhotoType}</Badge>
+                </div>
+                <div className="mt-1 text-[10px] text-muted-foreground text-center">
+                  {new Date(p.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
 
       {/* Novedades detail */}

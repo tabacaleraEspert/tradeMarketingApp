@@ -12,7 +12,11 @@ export interface User {
   Email: string;
   DisplayName: string;
   ZoneId: number | null;
+  ManagerUserId: number | null;
   IsActive: boolean;
+  MustChangePassword?: boolean;
+  RoleName?: string | null;
+  AvatarUrl?: string | null;
   CreatedAt: string;
   UpdatedAt: string;
 }
@@ -26,6 +30,9 @@ export interface Role {
 export interface Distributor {
   DistributorId: number;
   Name: string;
+  Phone: string | null;
+  DistributorType: string | null;   // Distribuidor / Mayorista / Intermediario
+  SupplierSource: string | null;
   IsActive: boolean;
 }
 
@@ -37,6 +44,8 @@ export interface PdvContact {
   ContactRole: string | null;       // dueño, empleado, encargado
   DecisionPower: string | null;     // alto, medio, bajo
   Birthday: string | null;
+  Notes: string | null;             // Observaciones operativas
+  ProfileNotes: string | null;      // Perfil del contacto (preferencias)
   CreatedAt: string;
 }
 
@@ -49,6 +58,7 @@ export interface Pdv {
   PdvId: number;
   Code: string | null;
   Name: string;
+  BusinessName: string | null;       // Razón social
   Channel: string | null;
   ChannelId: number | null;
   SubChannelId: number | null;
@@ -62,10 +72,16 @@ export interface Pdv {
   Lon: number | null;
   ContactName: string | null;
   ContactPhone: string | null;
+  OpeningTime: string | null;        // "HH:MM"
+  ClosingTime: string | null;        // "HH:MM"
+  VisitDay: number | null;           // 0=Dom .. 6=Sáb
   Contacts: PdvContact[];
   Distributors: PdvDistributorInfo[];
   DefaultMaterialExternalId: string | null;
+  AssignedUserId: number | null;
   IsActive: boolean;
+  InactiveReason: string | null;
+  ReactivateOn: string | null;       // ISO date
   CreatedAt: string;
   UpdatedAt: string;
 }
@@ -97,6 +113,7 @@ export interface Route {
   EstimatedMinutes: number | null;
   AssignedUserId: number | null;
   AssignedUserName: string | null;
+  IsOptimized: boolean;
   CreatedByUserId: number | null;
   PdvCount: number;
   CreatedAt: string;
@@ -147,6 +164,9 @@ export interface Form {
   Channel: string | null;
   Version: number;
   IsActive: boolean;
+  Frequency: string | null;
+  FrequencyConfig: string | null;
+  CreatedByUserId: number | null;
   CreatedAt: string;
 }
 
@@ -246,8 +266,44 @@ export interface MandatoryActivity {
   PhotoRequired: boolean;
   ChannelId: number | null;
   RouteId: number | null;
+  FormId: number | null;
+  ValidFrom: string | null;
+  ValidTo: string | null;
+  CreatedByUserId: number | null;
   IsActive: boolean;
   CreatedAt: string | null;
+}
+
+export interface UserVacation {
+  UserVacationId: number;
+  UserId: number;
+  FromDate: string;
+  ToDate: string;
+  Reason: string | null;
+  CreatedAt: string;
+}
+
+export interface Holiday {
+  HolidayId: number;
+  Date: string;       // ISO yyyy-mm-dd
+  Name: string;
+  Kind: string | null;
+  IsActive: boolean;
+  CreatedAt: string;
+}
+
+export interface PdvNote {
+  PdvNoteId: number;
+  PdvId: number;
+  Content: string;
+  CreatedByUserId: number | null;
+  CreatedByName: string | null;
+  VisitId: number | null;
+  IsResolved: boolean;
+  ResolvedByUserId: number | null;
+  ResolvedByName: string | null;
+  ResolvedAt: string | null;
+  CreatedAt: string;
 }
 
 export interface MarketNews {

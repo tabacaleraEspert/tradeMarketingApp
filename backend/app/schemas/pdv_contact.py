@@ -8,6 +8,8 @@ class PdvContactBase(BaseModel):
     ContactRole: str | None = None         # dueño, empleado, encargado
     DecisionPower: str | None = None       # alto, medio, bajo
     Birthday: date | None = None
+    Notes: str | None = None               # Observaciones operativas
+    ProfileNotes: str | None = None        # Perfil del contacto (preferencias, qué evitar)
 
 
 class PdvContactCreate(PdvContactBase):
@@ -20,6 +22,8 @@ class PdvContactUpdate(BaseModel):
     ContactRole: str | None = None
     DecisionPower: str | None = None
     Birthday: date | None = None
+    Notes: str | None = None
+    ProfileNotes: str | None = None
 
 
 class PdvContact(PdvContactBase):

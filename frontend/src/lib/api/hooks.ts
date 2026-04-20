@@ -169,10 +169,10 @@ export function useRoutes() {
   return useApiList(() => routesApi.list());
 }
 
-/** Hook para rutas creadas por un Trade Rep */
+/** Hook para rutas asignadas al TM Rep actual (no las que creó, las que tiene a cargo) */
 export function useMyRoutes(userId: number | undefined) {
   return useApiList(
-    () => (userId ? routesApi.list({ created_by: userId }) : Promise.resolve([])),
+    () => (userId ? routesApi.list({ assigned_user_id: userId }) : Promise.resolve([])),
     [userId]
   );
 }

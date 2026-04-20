@@ -1,14 +1,14 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { Home, MapPin, AlertCircle, RefreshCw, User } from "lucide-react";
 import { useEffect } from "react";
+import { isAuthenticated } from "../lib/auth";
 
 export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    const isAuthenticated = localStorage.getItem("isAuthenticated");
-    if (!isAuthenticated && location.pathname !== "/login") {
+    if (!isAuthenticated() && location.pathname !== "/login") {
       navigate("/login");
     }
   }, [navigate, location]);

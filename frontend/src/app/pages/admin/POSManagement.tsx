@@ -96,6 +96,9 @@ export function POSManagement() {
   const [savingLocation, setSavingLocation] = useState(false);
   const [creatingDistributor, setCreatingDistributor] = useState(false);
   const [newDistributorName, setNewDistributorName] = useState("");
+  const [newDistributorPhone, setNewDistributorPhone] = useState("");
+  const [newDistributorType, setNewDistributorType] = useState("");
+  const [newDistributorSource, setNewDistributorSource] = useState("");
   const [savingDistributor, setSavingDistributor] = useState(false);
 
   // Advanced filters
@@ -106,6 +109,7 @@ export function POSManagement() {
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
   const [selectedVisitFrequency, setSelectedVisitFrequency] = useState<string>("all");
   const [selectedDistributorFilter, setSelectedDistributorFilter] = useState<string>("all");
+  const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>("all");
 
   const { data: pdvs, loading, refetch } = usePdvs(selectedZoneId);
   const { data: zones } = useZones();
@@ -151,8 +155,9 @@ export function POSManagement() {
     if (selectedLocation !== "all") count++;
     if (selectedVisitFrequency !== "all") count++;
     if (selectedDistributorFilter !== "all") count++;
+    if (selectedRouteFilter !== "all") count++;
     return count;
-  }, [selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter]);
+  }, [selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter, selectedRouteFilter]);
 
   const clearAdvancedFilters = () => {
     setSelectedTradeMarketer("all");
@@ -161,6 +166,7 @@ export function POSManagement() {
     setSelectedLocation("all");
     setSelectedVisitFrequency("all");
     setSelectedDistributorFilter("all");
+    setSelectedRouteFilter("all");
   };
 
   // Helper: check if a PDV matches advanced filters using enriched data
@@ -221,6 +227,13 @@ export function POSManagement() {
       }
     }
 
+    // Route assignment filter
+    if (selectedRouteFilter !== "all") {
+      const hasRoute = enriched?.hasRoute ?? false;
+      if (selectedRouteFilter === "with" && !hasRoute) return false;
+      if (selectedRouteFilter === "without" && hasRoute) return false;
+    }
+
     return true;
   };
 
@@ -277,9 +290,16 @@ export function POSManagement() {
         }
       }
 
-      return matchesSearch && matchesChannel && matchesTM && matchesDays && matchesLoc && matchesFreq;
+      // Route assignment
+      let matchesRoute = true;
+      if (selectedRouteFilter !== "all") {
+        const hr = p.hasRoute ?? false;
+        matchesRoute = selectedRouteFilter === "with" ? hr : !hr;
+      }
+
+      return matchesSearch && matchesChannel && matchesTM && matchesDays && matchesLoc && matchesFreq && matchesRoute;
     });
-  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency]);
+  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency, selectedRouteFilter]);
 
   const pdvsWithCoords = useMemo(() => mapData.filter((p: any) => p.hasCoords), [mapData]);
   const pdvsWithoutCoords = useMemo(() => mapData.filter((p: any) => !p.hasCoords), [mapData]);
@@ -729,6 +749,23 @@ export function POSManagement() {
                       {d.Name}
                     </option>
                   ))}
+                </select>
+              </div>
+
+              {/* Route assignment */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                  <Filter size={13} />
+                  Asignación a ruta
+                </label>
+                <select
+                  value={selectedRouteFilter}
+                  onChange={(e) => setSelectedRouteFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
+                >
+                  <option value="all">Todos</option>
+                  <option value="with">Con ruta asignada</option>
+                  <option value="without">Sin ruta (huérfanos)</option>
                 </select>
               </div>
             </div>
@@ -1272,9 +1309,10 @@ export function POSManagement() {
 
               {/* Selector + crear nuevo */}
               {creatingDistributor ? (
-                <div className="flex items-center gap-2">
+                <div className="space-y-2 p-3 border border-border rounded-lg bg-muted/30">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nuevo distribuidor</p>
                   <Input
-                    placeholder="Nombre del distribuidor"
+                    placeholder="Nombre *"
                     value={newDistributorName}
                     onChange={(e) => setNewDistributorName(e.target.value)}
                     autoFocus
@@ -1282,43 +1320,81 @@ export function POSManagement() {
                       if (e.key === "Escape") {
                         setCreatingDistributor(false);
                         setNewDistributorName("");
+                        setNewDistributorPhone("");
+                        setNewDistributorType("");
+                        setNewDistributorSource("");
                       }
                     }}
                   />
-                  <Button
-                    size="sm"
-                    disabled={!newDistributorName.trim() || savingDistributor}
-                    onClick={async () => {
-                      setSavingDistributor(true);
-                      try {
-                        const created = await distributorsApi.create({ Name: newDistributorName.trim() });
-                        await refetchDistributors();
-                        setFormData((f) => ({
-                          ...f,
-                          distributorIds: [...f.distributorIds, created.DistributorId],
-                        }));
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Teléfono"
+                      value={newDistributorPhone}
+                      onChange={(e) => setNewDistributorPhone(e.target.value)}
+                    />
+                    <select
+                      value={newDistributorType}
+                      onChange={(e) => setNewDistributorType(e.target.value)}
+                      className="h-10 px-3 border border-border rounded-md text-sm bg-background"
+                    >
+                      <option value="">Tipo...</option>
+                      <option value="Distribuidor">Distribuidor</option>
+                      <option value="Mayorista">Mayorista</option>
+                      <option value="Intermediario">Intermediario</option>
+                    </select>
+                  </div>
+                  <Input
+                    placeholder="De dónde se abastece (ej: directo de fábrica)"
+                    value={newDistributorSource}
+                    onChange={(e) => setNewDistributorSource(e.target.value)}
+                  />
+                  <div className="flex items-center justify-end gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
                         setCreatingDistributor(false);
                         setNewDistributorName("");
-                        toast.success("Distribuidor creado");
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "Error al crear distribuidor");
-                      } finally {
-                        setSavingDistributor(false);
-                      }
-                    }}
-                  >
-                    {savingDistributor ? "..." : "Crear"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setCreatingDistributor(false);
-                      setNewDistributorName("");
-                    }}
-                  >
-                    Cancelar
-                  </Button>
+                        setNewDistributorPhone("");
+                        setNewDistributorType("");
+                        setNewDistributorSource("");
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={!newDistributorName.trim() || savingDistributor}
+                      onClick={async () => {
+                        setSavingDistributor(true);
+                        try {
+                          const created = await distributorsApi.create({
+                            Name: newDistributorName.trim(),
+                            Phone: newDistributorPhone.trim() || undefined,
+                            DistributorType: newDistributorType || undefined,
+                            SupplierSource: newDistributorSource.trim() || undefined,
+                          });
+                          await refetchDistributors();
+                          setFormData((f) => ({
+                            ...f,
+                            distributorIds: [...f.distributorIds, created.DistributorId],
+                          }));
+                          setCreatingDistributor(false);
+                          setNewDistributorName("");
+                          setNewDistributorPhone("");
+                          setNewDistributorType("");
+                          setNewDistributorSource("");
+                          toast.success("Distribuidor creado");
+                        } catch (e) {
+                          toast.error(e instanceof Error ? e.message : "Error al crear distribuidor");
+                        } finally {
+                          setSavingDistributor(false);
+                        }
+                      }}
+                    >
+                      {savingDistributor ? "..." : "Crear"}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="flex items-center gap-2">

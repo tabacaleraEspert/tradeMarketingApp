@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
+from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
 from ..models import (
     Form as FormModel,
@@ -10,7 +11,13 @@ from ..models import (
     RouteForm as RouteFormModel,
     Route as RouteModel,
     VisitAnswer as VisitAnswerModel,
+    User as UserModel,
+    UserRole as UserRoleModel,
+    Role as RoleModel,
 )
+
+# Máximo de formularios no-admin que un territory/ejecutivo puede asignar por ruta
+MAX_REGIONAL_FORMS_PER_ROUTE = 2
 from ..schemas.form import (
     Form,
     FormCreate,
@@ -40,13 +47,20 @@ def get_form(form_id: int, db: Session = Depends(get_db)):
     return f
 
 
-@router.post("", response_model=Form, status_code=201)
-def create_form(data: FormCreate, db: Session = Depends(get_db)):
+@router.post("", response_model=Form, status_code=201, dependencies=[Depends(require_role("vendedor"))])
+def create_form(
+    data: FormCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     f = FormModel(
         Name=data.Name,
         Channel=data.Channel,
         Version=data.Version,
         IsActive=data.IsActive,
+        Frequency=data.Frequency,
+        FrequencyConfig=data.FrequencyConfig,
+        CreatedByUserId=current_user.UserId,
     )
     db.add(f)
     try:
@@ -64,11 +78,20 @@ def create_form(data: FormCreate, db: Session = Depends(get_db)):
         raise
 
 
-@router.patch("/{form_id}", response_model=Form)
-def update_form(form_id: int, data: FormUpdate, db: Session = Depends(get_db)):
+@router.patch("/{form_id}", response_model=Form, dependencies=[Depends(require_role("vendedor"))])
+def update_form(
+    form_id: int,
+    data: FormUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     f = db.query(FormModel).filter(FormModel.FormId == form_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
+    # Solo el creador o un admin puede editar
+    role = get_user_role(db, current_user.UserId)
+    if f.CreatedByUserId and f.CreatedByUserId != current_user.UserId and role != "admin":
+        raise HTTPException(status_code=403, detail="Solo el creador o un admin puede editar este formulario")
     for k, v in data.model_dump(exclude_unset=True).items():
         setattr(f, k, v)
     db.commit()
@@ -76,11 +99,19 @@ def update_form(form_id: int, data: FormUpdate, db: Session = Depends(get_db)):
     return f
 
 
-@router.delete("/{form_id}", status_code=204)
-def delete_form(form_id: int, db: Session = Depends(get_db)):
+@router.delete("/{form_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
+def delete_form(
+    form_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     f = db.query(FormModel).filter(FormModel.FormId == form_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
+    # Solo el creador o un admin puede borrar
+    role = get_user_role(db, current_user.UserId)
+    if f.CreatedByUserId and f.CreatedByUserId != current_user.UserId and role != "admin":
+        raise HTTPException(status_code=403, detail="Solo el creador o un admin puede eliminar este formulario")
     db.delete(f)
     db.commit()
 

@@ -7,6 +7,7 @@ from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvCont
 from ..models.pdv import PdvDistributor as PdvDistributorModel
 from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo
 from ..schemas.pdv_contact import PdvContact
+from ..auth import require_role
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
@@ -58,6 +59,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
         PdvId=pdv.PdvId,
         Code=pdv.Code,
         Name=pdv.Name,
+        BusinessName=getattr(pdv, "BusinessName", None),
         Channel=pdv.Channel,
         ChannelId=pdv.ChannelId,
         SubChannelId=pdv.SubChannelId,
@@ -69,8 +71,14 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
         Lon=pdv.Lon,
         ContactName=pdv.ContactName,
         ContactPhone=pdv.ContactPhone,
+        OpeningTime=getattr(pdv, "OpeningTime", None),
+        ClosingTime=getattr(pdv, "ClosingTime", None),
+        VisitDay=getattr(pdv, "VisitDay", None),
         DefaultMaterialExternalId=pdv.DefaultMaterialExternalId,
+        AssignedUserId=getattr(pdv, "AssignedUserId", None),
         IsActive=pdv.IsActive,
+        InactiveReason=getattr(pdv, "InactiveReason", None),
+        ReactivateOn=getattr(pdv, "ReactivateOn", None),
         ChannelName=channel_name,
         SubChannelName=subchannel_name,
         Contacts=[PdvContact.model_validate(c) for c in contacts],
@@ -129,6 +137,7 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
     pdv = PDVModel(
         Code=code,
         Name=data.Name,
+        BusinessName=data.BusinessName,
         Channel=channel_name,
         ChannelId=data.ChannelId,
         SubChannelId=data.SubChannelId,
@@ -138,6 +147,9 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
         DistributorId=legacy_dist_id,
         Lat=data.Lat,
         Lon=data.Lon,
+        OpeningTime=data.OpeningTime,
+        ClosingTime=data.ClosingTime,
+        VisitDay=data.VisitDay,
         DefaultMaterialExternalId=data.DefaultMaterialExternalId,
         IsActive=data.IsActive,
     )
@@ -164,6 +176,8 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
                 ContactRole=c.ContactRole,
                 DecisionPower=c.DecisionPower,
                 Birthday=bd,
+                Notes=c.Notes,
+                ProfileNotes=c.ProfileNotes,
             )
             db.add(pc)
     db.commit()
@@ -173,6 +187,8 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
 
 @router.patch("/{pdv_id}", response_model=Pdv)
 def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
+    from datetime import datetime, timedelta, timezone
+
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if not pdv:
         raise HTTPException(status_code=404, detail="PDV no encontrado")
@@ -181,12 +197,34 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
     contacts_data = dump.pop("Contacts", None)
     distributor_ids = dump.pop("DistributorIds", None)
 
+    # Detectar transición Activo → Inactivo
+    new_is_active = dump.get("IsActive")
+    transitioning_to_inactive = (
+        new_is_active is False and pdv.IsActive is True
+    )
+    transitioning_to_active = (
+        new_is_active is True and pdv.IsActive is False
+    )
+
     for k, v in dump.items():
         if k == "ChannelId" and v is not None:
             ch = db.query(Channel).filter(Channel.ChannelId == v).first()
             if ch:
                 pdv.Channel = ch.Name
         setattr(pdv, k, v)
+
+    # Si estamos desactivando: setear InactiveSince y, si no vino, ReactivateOn = +60d
+    if transitioning_to_inactive:
+        now = datetime.now(timezone.utc)
+        pdv.InactiveSince = now
+        if not pdv.ReactivateOn:
+            pdv.ReactivateOn = (now + timedelta(days=60)).date()
+
+    # Si estamos reactivando: limpiar todo lo de inactivo
+    if transitioning_to_active:
+        pdv.InactiveSince = None
+        pdv.InactiveReason = None
+        pdv.ReactivateOn = None
 
     # Sync distributors if provided
     if distributor_ids is not None:
@@ -210,6 +248,8 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
                 ContactRole=c.get("ContactRole"),
                 DecisionPower=c.get("DecisionPower"),
                 Birthday=bd,
+                Notes=c.get("Notes"),
+                ProfileNotes=c.get("ProfileNotes"),
             )
             db.add(pc)
 
@@ -218,7 +258,7 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
     return _pdv_to_response(pdv, db)
 
 
-@router.delete("/{pdv_id}", status_code=204)
+@router.delete("/{pdv_id}", status_code=204, dependencies=[Depends(require_role("admin"))])
 def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if not pdv:

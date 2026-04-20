@@ -18,6 +18,7 @@ import {
   visitsApi,
 } from "@/lib/api";
 import type { Form, FormQuestion, FormOption } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
 import { toast } from "sonner";
 
 interface QuestionWithOptions extends FormQuestion {
@@ -33,7 +34,7 @@ function parseRulesJson(json: string | null): { showIf?: { questionId: number; o
   }
 }
 
-const OPTION_TYPES = ["select", "radio", "checkbox", "checkbox_price"];
+const OPTION_TYPES = ["select", "radio", "checkbox", "checkbox_price", "coverage"];
 const SCALE_DEFAULT = { min: 1, max: 5, minLabel: "", maxLabel: "" };
 
 export function SurveyForm() {
@@ -261,20 +262,46 @@ export function SurveyForm() {
   const handleSaveDraft = async () => {
     const vid = visitId ?? visitIdFromState;
     if (!vid) { toast.error("No hay visita activa"); return; }
+    const isTempVisit = vid < 0;
     try {
-      await visitsApi.saveAnswers(vid, buildAnswerPayload());
-      await flushFormTimes(vid);
-      toast.success("Borrador guardado correctamente");
+      if (isTempVisit || !navigator.onLine) {
+        await executeOrEnqueue({
+          kind: "visit_answers",
+          method: "POST",
+          url: `/visits/${vid}/answers`,
+          body: buildAnswerPayload(),
+          label: "Respuestas del formulario (borrador)",
+          _tempVisitId: isTempVisit ? vid : undefined,
+        });
+        toast.success("Borrador guardado (se sincronizará con conexión)");
+      } else {
+        await visitsApi.saveAnswers(vid, buildAnswerPayload());
+        await flushFormTimes(vid);
+        toast.success("Borrador guardado correctamente");
+      }
     } catch { toast.error("Error al guardar borrador"); }
   };
 
   const handleSubmit = async () => {
     const vid = visitId ?? visitIdFromState;
     if (!vid) { toast.error("No hay visita activa"); return; }
+    const isTempVisit = vid < 0;
     try {
-      await visitsApi.saveAnswers(vid, buildAnswerPayload());
-      await flushFormTimes(vid);
-      toast.success("Relevamiento completado");
+      if (isTempVisit || !navigator.onLine) {
+        await executeOrEnqueue({
+          kind: "visit_answers",
+          method: "POST",
+          url: `/visits/${vid}/answers`,
+          body: buildAnswerPayload(),
+          label: "Respuestas del formulario",
+          _tempVisitId: isTempVisit ? vid : undefined,
+        });
+        toast.success("Relevamiento guardado (se sincronizará con conexión)");
+      } else {
+        await visitsApi.saveAnswers(vid, buildAnswerPayload());
+        await flushFormTimes(vid);
+        toast.success("Relevamiento completado");
+      }
       navigate(`/pos/${id}/actions`, {
         state: { routeDayId, visitId: vid },
       });
@@ -701,6 +728,83 @@ function SurveyQuestionField({
                     />
                   </div>
                 )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (question.QType === "coverage") {
+    // Estructura: { "producto": { covered: true, price: 1500, stockout: false } }
+    const obj = (value as Record<string, { covered: boolean; price: number | null; stockout: boolean }>) ?? {};
+    return (
+      <div className="space-y-2">
+        <Label>
+          {question.Label}
+          {question.IsRequired && <span className="text-red-500">*</span>}
+        </Label>
+        <p className="text-sm text-muted-foreground mb-2">Marcá los productos que trabaja el PDV, indicá precio y si hay quiebre de stock</p>
+        <div className="space-y-3">
+          {opts.map((o) => {
+            const entry = obj[o.Value] ?? { covered: false, price: null, stockout: false };
+            const isCovered = entry.covered;
+            return (
+              <div key={o.OptionId} className={`rounded-lg border p-3 transition-colors ${isCovered ? "border-green-200 bg-green-50/50" : "border-border bg-background"}`}>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="flex items-center gap-2 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 rounded"
+                      checked={isCovered}
+                      onChange={(e) => {
+                        const next = { ...obj };
+                        if (e.target.checked) {
+                          next[o.Value] = { covered: true, price: null, stockout: false };
+                        } else {
+                          delete next[o.Value];
+                        }
+                        onChange(next);
+                      }}
+                    />
+                    <span className="font-medium text-sm">{o.Label}</span>
+                  </label>
+                  {isCovered && (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input
+                          type="number"
+                          placeholder="Precio"
+                          className="w-24 h-8 text-sm"
+                          value={entry.price !== null ? entry.price : ""}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const num = val === "" ? null : Number(val);
+                            onChange({ ...obj, [o.Value]: { ...entry, price: num } });
+                          }}
+                        />
+                      </div>
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4 rounded"
+                          checked={entry.stockout}
+                          onChange={(e) => {
+                            onChange({ ...obj, [o.Value]: { ...entry, stockout: e.target.checked } });
+                          }}
+                        />
+                        <span className={`text-xs font-medium ${entry.stockout ? "text-red-600" : "text-muted-foreground"}`}>
+                          Quiebre de stock
+                        </span>
+                      </label>
+                    </>
+                  )}
+                  {!isCovered && (
+                    <span className="text-xs text-muted-foreground italic">No lo trabaja</span>
+                  )}
+                </div>
               </div>
             );
           })}

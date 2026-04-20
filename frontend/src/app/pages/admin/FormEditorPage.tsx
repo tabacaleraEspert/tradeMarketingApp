@@ -30,6 +30,7 @@ import {
   ChevronRight,
   X,
   DollarSign,
+  Package,
 } from "lucide-react";
 import {
   formsApi,
@@ -48,6 +49,7 @@ const QUESTION_TYPES = [
   { type: "radio", icon: ToggleLeft, label: "Opción única" },
   { type: "checkbox", icon: CheckSquare, label: "Casillas" },
   { type: "checkbox_price", icon: DollarSign, label: "Casillas con precio" },
+  { type: "coverage", icon: Package, label: "Cobertura completa" },
   { type: "date", icon: Calendar, label: "Fecha" },
   { type: "scale", icon: Star, label: "Escala lineal" },
   { type: "photo", icon: Image, label: "Foto" },
@@ -55,7 +57,7 @@ const QUESTION_TYPES = [
 
 type QType = (typeof QUESTION_TYPES)[number]["type"];
 
-const OPTION_TYPES: QType[] = ["select", "radio", "checkbox", "checkbox_price"];
+const OPTION_TYPES: QType[] = ["select", "radio", "checkbox", "checkbox_price", "coverage"];
 const SCALE_DEFAULT = { min: 1, max: 5, minLabel: "", maxLabel: "" };
 
 interface QuestionWithOptions extends FormQuestion {

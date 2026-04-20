@@ -9,6 +9,7 @@ import {
   ArrowRight, Store, Navigation,
 } from "lucide-react";
 import { getCurrentUser } from "../lib/auth";
+import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
   useRouteDayPdvsForDate, useIncidentsWithPdvNames, useActiveNotifications,
   useUserMonthlyStats, routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
@@ -17,7 +18,7 @@ import {
 export function Home() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const { selectedDate, setSelectedDate, goToToday, isToday } = useSelectedDate();
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
   const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
@@ -50,8 +51,6 @@ export function Home() {
     return null;
   }, [pointsOfSale]);
 
-  const isToday = selectedDate.toDateString() === new Date().toDateString();
-
   const formatDateDisplay = (date: Date) => {
     const days = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
     const months = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
@@ -74,12 +73,23 @@ export function Home() {
             <p className="text-[#A48242] text-[10px] font-semibold tracking-widest uppercase">ESPERT</p>
             <h1 className="text-lg font-bold mt-0.5">{greeting()}, {currentUser.name.split(" ")[0]}</h1>
           </div>
-          <div
-            className="bg-white/10 rounded-lg px-2.5 py-1 cursor-pointer hover:bg-white/15 active:scale-95 border border-white/5 text-center"
-            onClick={() => setIsDateSelectorOpen(true)}
-          >
-            <p className="text-[9px] text-[#979B9B]">{dateDisplay.dayShort}</p>
-            <p className="text-sm font-bold leading-tight">{dateDisplay.day} {dateDisplay.month}</p>
+          <div className="flex items-center gap-1.5">
+            {!isToday && (
+              <button
+                onClick={goToToday}
+                className="bg-[#A48242] hover:bg-[#A48242]/90 active:scale-95 rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white transition-colors"
+                title="Ir a hoy"
+              >
+                Hoy
+              </button>
+            )}
+            <div
+              className="bg-white/10 rounded-lg px-2.5 py-1 cursor-pointer hover:bg-white/15 active:scale-95 border border-white/5 text-center"
+              onClick={() => setIsDateSelectorOpen(true)}
+            >
+              <p className="text-[9px] text-[#979B9B]">{dateDisplay.dayShort}</p>
+              <p className="text-sm font-bold leading-tight">{dateDisplay.day} {dateDisplay.month}</p>
+            </div>
           </div>
         </div>
 
@@ -216,27 +226,35 @@ export function Home() {
           </button>
         )}
 
-        {/* Monthly stats */}
+        {/* Monthly stats — KPIs con fondo sutil de color */}
         {monthlyStats && (monthlyStats.visits > 0 || monthlyStats.new_pdvs > 0) && (
           <div className="grid grid-cols-3 gap-2">
-            <div className="bg-card border border-border rounded-xl p-3 text-center">
-              <Target size={14} className="mx-auto text-[#A48242] mb-1" />
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 text-center">
+              <Target size={14} className="mx-auto text-blue-400 mb-1" />
               <p className="text-lg font-bold text-foreground">{monthlyStats.visits}</p>
-              <p className="text-[9px] text-muted-foreground">Visitas {isToday ? "mes" : dateDisplay.month}</p>
+              <p className="text-[9px] text-blue-400/80">Visitas {isToday ? "mes" : dateDisplay.month}</p>
             </div>
-            <div className="bg-card border border-border rounded-xl p-3 text-center">
+            <div className={`rounded-xl p-3 text-center border ${
+              monthlyStats.compliance >= 80
+                ? "bg-emerald-500/10 border-emerald-500/20"
+                : monthlyStats.compliance >= 50
+                ? "bg-amber-500/10 border-amber-500/20"
+                : "bg-rose-500/10 border-rose-500/20"
+            }`}>
               <TrendingUp size={14} className={`mx-auto mb-1 ${
-                monthlyStats.compliance >= 80 ? "text-green-500" : monthlyStats.compliance >= 50 ? "text-amber-500" : "text-red-500"
+                monthlyStats.compliance >= 80 ? "text-emerald-400" : monthlyStats.compliance >= 50 ? "text-amber-400" : "text-rose-400"
               }`} />
               <p className={`text-lg font-bold ${
-                monthlyStats.compliance >= 80 ? "text-green-600" : monthlyStats.compliance >= 50 ? "text-amber-600" : "text-red-600"
+                monthlyStats.compliance >= 80 ? "text-emerald-400" : monthlyStats.compliance >= 50 ? "text-amber-400" : "text-rose-400"
               }`}>{monthlyStats.compliance}%</p>
-              <p className="text-[9px] text-muted-foreground">Cumplimiento</p>
+              <p className={`text-[9px] ${
+                monthlyStats.compliance >= 80 ? "text-emerald-400/80" : monthlyStats.compliance >= 50 ? "text-amber-400/80" : "text-rose-400/80"
+              }`}>Cumplimiento</p>
             </div>
-            <div className="bg-card border border-border rounded-xl p-3 text-center">
-              <Star size={14} className="mx-auto text-amber-500 mb-1" />
+            <div className="bg-violet-500/10 border border-violet-500/20 rounded-xl p-3 text-center">
+              <Star size={14} className="mx-auto text-violet-400 mb-1" />
               <p className="text-lg font-bold text-foreground">{monthlyStats.new_pdvs}</p>
-              <p className="text-[9px] text-muted-foreground">PDVs nuevos</p>
+              <p className="text-[9px] text-violet-400/80">PDVs nuevos</p>
             </div>
           </div>
         )}

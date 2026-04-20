@@ -632,6 +632,11 @@ export function RouteManagement() {
                       >
                         {route.IsActive ? "Activa" : "Inactiva"}
                       </Badge>
+                      {route.IsOptimized && (
+                        <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0 shrink-0" title="Orden de PDVs optimizado">
+                          ⚡ Optimizada
+                        </Badge>
+                      )}
                     </div>
                     {route.FormId && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">

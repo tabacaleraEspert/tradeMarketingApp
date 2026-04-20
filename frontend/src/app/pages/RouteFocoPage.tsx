@@ -23,6 +23,7 @@ import { useRouteDayPdvsForDate, routeDayPdvToPointOfSaleUI, useRoutes, usePdvs 
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF } from "@react-google-maps/api";
 import { DateSelector } from "../components/DateSelector";
 import { getCurrentUser } from "../lib/auth";
+import { useSelectedDate } from "../lib/SelectedDateContext";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -59,9 +60,7 @@ export function RouteFocoPage() {
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [selectedDate, setSelectedDate] = useState(
-    () => (stateDate ? new Date(stateDate) : new Date())
-  );
+  const { selectedDate, setSelectedDate, goToToday, isToday } = useSelectedDate();
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
   const completedPdvId = (location.state as { completedPdvId?: number } | null)?.completedPdvId;
@@ -73,7 +72,7 @@ export function RouteFocoPage() {
     if (stateDate) {
       setSelectedDate(new Date(stateDate));
     }
-  }, [stateDate]);
+  }, [stateDate, setSelectedDate]);
 
   const { data: routeDayPdvs, loading } = useRouteDayPdvsForDate(
     selectedDate,
@@ -169,6 +168,13 @@ export function RouteFocoPage() {
               <Map size={18} />
             </button>
           </div>
+          {!isToday && (
+            <button onClick={goToToday}
+              className="px-2 py-1 bg-[#A48242] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-[#A48242]/90"
+              title="Ir a hoy">
+              Hoy
+            </button>
+          )}
           <button onClick={() => setIsDateSelectorOpen(true)}
             className="px-2 py-1 bg-[#A48242]/10 rounded-lg text-[#A48242] text-sm font-medium">
             {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
@@ -189,6 +195,13 @@ export function RouteFocoPage() {
               {opt.label}
             </button>
           ))}
+          {/* Agregar PDV fuera de ruta (#6b) */}
+          <button
+            onClick={() => navigate("/search-pdv")}
+            className="px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap border border-dashed border-[#A48242]/40 text-[#A48242] hover:bg-[#A48242]/10"
+          >
+            + Fuera de ruta
+          </button>
         </div>
       </div>
 

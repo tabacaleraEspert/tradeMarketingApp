@@ -5,9 +5,11 @@ import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare, UserCircle, AlertCircle } from "lucide-react";
-import { pdvsApi, visitsApi, incidentsApi } from "@/lib/api";
-import type { Incident } from "@/lib/api";
+import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare, UserCircle, AlertCircle, StickyNote, UserCog, WifiOff } from "lucide-react";
+import { pdvsApi, visitsApi, incidentsApi, pdvNotesApi, ApiError } from "@/lib/api";
+import type { Incident, PdvNote } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
+import { QuickContactsModal } from "../components/QuickContactsModal";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
 
@@ -28,8 +30,11 @@ export function CheckIn() {
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const GPS_PERIMETER_METERS = 200;
   const [pendingIncidents, setPendingIncidents] = useState<Incident[]>([]);
+  const [openNotes, setOpenNotes] = useState<PdvNote[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [contactsModalOpen, setContactsModalOpen] = useState(false);
 
   const currentUser = getCurrentUser();
   const currentTime = new Date().toLocaleTimeString("es-AR", {
@@ -40,7 +45,20 @@ export function CheckIn() {
   useEffect(() => {
     if (!id) return;
     const pdvId = Number(id);
-    pdvsApi.get(pdvId).then(setPdv).catch(() => setPdv(null));
+    pdvsApi
+      .get(pdvId)
+      .then((p) => {
+        setPdv(p);
+        setLoadError(null);
+      })
+      .catch((err) => {
+        setPdv(null);
+        setLoadError(
+          err instanceof ApiError
+            ? err.message
+            : "No se pudo cargar el PDV. Verificá tu conexión."
+        );
+      });
 
     visitsApi
       .list({ pdv_id: pdvId, status: "CLOSED" })
@@ -56,7 +74,25 @@ export function CheckIn() {
       .then(setPendingIncidents)
       .catch(() => {})
       .finally(() => setLoading(false));
+
+    // Load open PDV notes (TODOs left by previous TM Reps)
+    pdvNotesApi
+      .list(pdvId, true)
+      .then(setOpenNotes)
+      .catch(() => setOpenNotes([]));
   }, [id]);
+
+  const handleResolveNote = async (noteId: number) => {
+    try {
+      await pdvNotesApi.update(noteId, {
+        IsResolved: true,
+        ResolvedByUserId: Number(currentUser.id) || undefined,
+      });
+      setOpenNotes((prev) => prev.filter((n) => n.PdvNoteId !== noteId));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error");
+    }
+  };
 
   // Haversine distance in meters
   const distanceMetersBetween = (lat1: number, lon1: number, lat2: number, lon2: number) => {
@@ -97,21 +133,66 @@ export function CheckIn() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [pdv]);
 
+  // Genera un ID temporal negativo único para visitas offline
+  const generateTempVisitId = () => -(Date.now() % 1000000);
+
   const handleCheckIn = async () => {
     if (!id || !pdv) return;
     setSaving(true);
     try {
-      const visit = await visitsApi.create({
-        PdvId: Number(id),
-        UserId: Number(currentUser.id),
-        RouteDayId: routeDayId ?? undefined,
-        Status: "OPEN",
-      });
-      // Silently swallow — userCoords persisted via separate VisitCheck flow (future)
-      void userCoords;
-      setCurrentVisitId(visit.VisitId);
+      let visitId: number;
+
+      if (navigator.onLine) {
+        // Online: crear visita en el server inmediatamente
+        const visit = await visitsApi.create({
+          PdvId: Number(id),
+          UserId: Number(currentUser.id),
+          RouteDayId: routeDayId ?? undefined,
+          Status: "OPEN",
+        });
+        visitId = visit.VisitId;
+        toast.success("Check-in registrado correctamente");
+      } else {
+        // Offline: generar tempId y encolar la creación para sincronizar después
+        visitId = generateTempVisitId();
+        await executeOrEnqueue({
+          kind: "visit_create",
+          method: "POST",
+          url: "/visits",
+          body: {
+            PdvId: Number(id),
+            UserId: Number(currentUser.id),
+            RouteDayId: routeDayId ?? undefined,
+            Status: "OPEN",
+          },
+          label: `Check-in en ${pdv.Name}`,
+          _tempVisitId: visitId,
+        });
+        toast.success("Check-in guardado. Se sincronizará cuando vuelva la conexión.");
+      }
+
+      // GPS check-in (best effort, offline-tolerant)
+      if (userCoords) {
+        try {
+          await executeOrEnqueue({
+            kind: "visit_check",
+            method: "POST",
+            url: `/visits/${visitId}/checks`,
+            body: {
+              CheckType: "IN",
+              Lat: userCoords.lat,
+              Lon: userCoords.lon,
+              DistanceToPdvM: distanceMeters ?? undefined,
+            },
+            label: `Check-in GPS en ${pdv.Name}`,
+            _tempVisitId: visitId < 0 ? visitId : undefined,
+          });
+        } catch {
+          // No es bloqueante
+        }
+      }
+      setCurrentVisitId(visitId);
       setIsCheckedIn(true);
-      toast.success("Check-in registrado correctamente");
 
       setTimeout(() => {
         navigate(`/pos/${id}/survey`, {
@@ -131,24 +212,79 @@ export function CheckIn() {
       return;
     }
     setSaving(true);
+    const isTempVisit = currentVisitId < 0;
     try {
-      await visitsApi.update(currentVisitId, {
-        Status: "CLOSED",
-        CloseReason: reminderForNext.trim() || undefined,
+      // El cierre es offline-tolerant: si no hay señal, queda en la queue
+      const result = await executeOrEnqueue({
+        kind: "visit_update",
+        method: "PATCH",
+        url: `/visits/${currentVisitId}`,
+        body: {
+          Status: "CLOSED",
+          CloseReason: reminderForNext.trim() || undefined,
+        },
+        label: `Cierre de visita en ${pdv?.Name ?? "PDV"}`,
+        _tempVisitId: isTempVisit ? currentVisitId : undefined,
       });
-      toast.success("Visita finalizada correctamente");
+
+      // Registrar el GPS check-out también (best effort)
+      if (userCoords) {
+        try {
+          await executeOrEnqueue({
+            kind: "visit_check",
+            method: "POST",
+            url: `/visits/${currentVisitId}/checks`,
+            body: {
+              CheckType: "OUT",
+              Lat: userCoords.lat,
+              Lon: userCoords.lon,
+            },
+            label: `Check-out GPS en ${pdv?.Name ?? "PDV"}`,
+            _tempVisitId: isTempVisit ? currentVisitId : undefined,
+          });
+        } catch {
+          /* noop */
+        }
+      }
+
+      if (result.queued) {
+        toast.success("Visita guardada. Se sincronizará cuando vuelva la conexión.");
+      } else {
+        toast.success("Visita finalizada correctamente");
+      }
       navigate("/route");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error al cerrar visita");
+      toast.error(e instanceof ApiError ? e.message : "Error al cerrar visita");
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading || !pdv) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <p className="text-muted-foreground">{loading ? "Cargando..." : "PDV no encontrado"}</p>
+        <p className="text-muted-foreground">Cargando...</p>
+      </div>
+    );
+  }
+
+  if (!pdv) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <div className="max-w-md text-center space-y-4">
+          <AlertCircle size={48} className="mx-auto text-destructive/70" />
+          <p className="text-base font-semibold text-foreground">
+            {loadError || "No se pudo cargar el PDV"}
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Reintentar
+            </Button>
+            <Button onClick={() => navigate(-1)}>
+              Volver
+            </Button>
+          </div>
+        </div>
       </div>
     );
   }
@@ -164,24 +300,71 @@ export function CheckIn() {
           >
             <ArrowLeft size={24} />
           </button>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold text-foreground">
               {isCheckedIn ? "Check-out" : "Check-in"}
             </h1>
-            <p className="text-sm text-muted-foreground">{pdv.Name}</p>
+            <p className="text-sm text-muted-foreground truncate">{pdv.Name}</p>
           </div>
+          <button
+            onClick={() => setContactsModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            title="Editar contactos del PDV"
+          >
+            <UserCog size={14} />
+            Contactos
+          </button>
         </div>
       </div>
 
+      <QuickContactsModal
+        isOpen={contactsModalOpen}
+        onClose={() => setContactsModalOpen(false)}
+        pdv={pdv}
+        onSaved={(updated) => setPdv(updated)}
+      />
+
       <div className="p-4 space-y-4">
-        {/* Recordatorio próxima visita - mostrado al entrar */}
+        {/* Notas pendientes del PDV (TODOs dejados por TM Reps anteriores) */}
+        {!isCheckedIn && openNotes.length > 0 && (
+          <Card className="bg-amber-50/70 border-amber-300">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <StickyNote size={18} className="text-amber-700" />
+                <h3 className="font-semibold text-amber-900">Notas pendientes ({openNotes.length})</h3>
+              </div>
+              <p className="text-xs text-amber-800 mb-3">Cosas para resolver en esta visita:</p>
+              <div className="space-y-2">
+                {openNotes.map((n) => (
+                  <div key={n.PdvNoteId} className="flex items-start gap-2 p-2.5 bg-white rounded-lg border border-amber-200">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground whitespace-pre-wrap break-words">{n.Content}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1">
+                        {n.CreatedByName ?? "Usuario"} · {new Date(n.CreatedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => handleResolveNote(n.PdvNoteId)}
+                      className="p-1.5 rounded hover:bg-emerald-100 text-emerald-600 shrink-0"
+                      title="Marcar como resuelta"
+                    >
+                      <CheckCircle2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Recordatorio próxima visita (legacy CloseReason) */}
         {!isCheckedIn && lastReminder && (
-          <Card className="bg-amber-50 border-amber-200">
+          <Card className="bg-amber-50/60 border-amber-200">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">
-                <MessageSquare size={22} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                <MessageSquare size={22} className="text-amber-600/80 flex-shrink-0 mt-0.5" />
                 <div>
-                  <h3 className="font-semibold text-amber-900 mb-1">Recordatorio próxima visita</h3>
+                  <h3 className="font-semibold text-amber-900 mb-1">Recordatorio última visita</h3>
                   <p className="text-sm text-amber-800">{lastReminder}</p>
                 </div>
               </div>
@@ -405,15 +588,44 @@ export function CheckIn() {
         {/* Actions */}
         <div className="space-y-3 pb-4">
           {!isCheckedIn ? (
-            <Button
-              className="w-full h-14 text-base font-semibold"
-              size="lg"
-              onClick={handleCheckIn}
-              disabled={saving || gpsStatus === "checking" || gpsStatus === "out-of-range" || gpsStatus === "denied" || gpsStatus === "unavailable"}
-            >
-              <CheckCircle2 className="mr-2" size={20} />
-              {saving ? "Registrando..." : "Confirmar Check-in"}
-            </Button>
+            <>
+              {/* Banner de alerta GPS si corresponde */}
+              {gpsStatus !== "ok" && gpsStatus !== "checking" && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold mb-0.5">
+                        {gpsStatus === "out-of-range" && `Estás a ${distanceMeters ? Math.round(distanceMeters) : "?"}m del PDV (fuera del perímetro de ${GPS_PERIMETER_METERS}m).`}
+                        {gpsStatus === "no-pdv-coords" && "Este PDV no tiene coordenadas cargadas."}
+                        {gpsStatus === "denied" && "El permiso de ubicación está denegado."}
+                        {gpsStatus === "unavailable" && "El GPS no está disponible en este dispositivo."}
+                      </p>
+                      <p className="text-amber-800">
+                        Podés iniciar la visita igual, pero esto va a quedar marcado como
+                        <strong> alerta para tu supervisor</strong>.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <Button
+                className="w-full h-14 text-base font-semibold"
+                size="lg"
+                onClick={handleCheckIn}
+                disabled={saving || gpsStatus === "checking"}
+              >
+                <CheckCircle2 className="mr-2" size={20} />
+                {saving
+                  ? "Registrando..."
+                  : gpsStatus === "checking"
+                  ? "Esperando GPS..."
+                  : gpsStatus === "ok"
+                  ? "Confirmar Check-in"
+                  : "Iniciar visita igual"}
+              </Button>
+            </>
           ) : (
             <>
               <Button
@@ -436,28 +648,6 @@ export function CheckIn() {
                 {saving ? "Cerrando..." : "Cerrar Visita"}
               </Button>
             </>
-          )}
-
-          {gpsStatus === "out-of-range" && (
-            <p className="text-center text-sm text-red-600">
-              Debes estar dentro del perímetro del PDV para hacer check-in
-            </p>
-          )}
-          {gpsStatus === "no-pdv-coords" && (
-            <p className="text-center text-xs text-amber-700">
-              Sin coordenadas del PDV — check-in habilitado de todas formas
-            </p>
-          )}
-
-          {/* Bypass GPS - solo para demo/presentación */}
-          {!isCheckedIn && (gpsStatus === "checking" || gpsStatus === "out-of-range" || gpsStatus === "denied" || gpsStatus === "unavailable") && (
-            <button
-              onClick={handleCheckIn}
-              disabled={saving}
-              className="w-full text-center text-xs text-muted-foreground hover:text-foreground underline underline-offset-2 py-2 transition-colors"
-            >
-              Bypass GPS (demo)
-            </button>
           )}
         </div>
       </div>

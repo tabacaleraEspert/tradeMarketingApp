@@ -34,19 +34,21 @@ export function Reports() {
   const [channels, setChannels] = useState<ChannelRow[]>([]);
   const [trending, setTrending] = useState<any[]>([]);
   const [perfectStore, setPerfectStore] = useState<any>(null);
+  const [avgTimeByTmPdv, setAvgTimeByTmPdv] = useState<Array<{ userId: number; userName: string; pdvId: number; pdvName: string; visitCount: number; avgMinutes: number }>>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const params = { year, month };
-      const [s, v, c, t, ps] = await Promise.all([
+      const [s, v, c, t, ps, atp] = await Promise.all([
         reportsApi.summary(params),
         reportsApi.vendorRanking(params),
         reportsApi.channelCoverage(params),
         reportsApi.trending({ months: 6 }),
         reportsApi.perfectStore(),
+        reportsApi.avgTimeByTmPdv({ days: 90 }),
       ]);
-      setSummary(s); setVendors(v); setChannels(c); setTrending(t); setPerfectStore(ps);
+      setSummary(s); setVendors(v); setChannels(c); setTrending(t); setPerfectStore(ps); setAvgTimeByTmPdv(atp);
     } catch { toast.error("Error al cargar reportes"); }
     finally { setLoading(false); }
   }, [year, month]);
@@ -313,6 +315,60 @@ export function Reports() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Tiempo promedio por TM Rep en cada PDV (últimos 90 días) */}
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                    <Clock size={18} />
+                    Tiempo promedio por TM Rep en cada PDV
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">Últimos 90 días — sólo visitas cerradas</p>
+                </div>
+                <Badge variant="outline" className="text-xs">{avgTimeByTmPdv.length} combinaciones</Badge>
+              </div>
+
+              {avgTimeByTmPdv.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">
+                  Sin visitas cerradas en los últimos 90 días
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="text-left py-2 px-1.5 font-semibold text-muted-foreground">TM Rep</th>
+                        <th className="text-left py-2 px-1.5 font-semibold text-muted-foreground">PDV</th>
+                        <th className="text-center py-2 px-1.5 font-semibold text-muted-foreground">Visitas</th>
+                        <th className="text-right py-2 px-1.5 font-semibold text-muted-foreground">Tiempo prom.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {avgTimeByTmPdv.slice(0, 100).map((row) => (
+                        <tr key={`${row.userId}-${row.pdvId}`} className="border-b border-border hover:bg-muted/30">
+                          <td className="py-2 px-1.5 font-medium text-foreground">{row.userName}</td>
+                          <td className="py-2 px-1.5 text-foreground truncate max-w-xs">{row.pdvName}</td>
+                          <td className="py-2 px-1.5 text-center">{row.visitCount}</td>
+                          <td className="py-2 px-1.5 text-right">
+                            <span className={`font-semibold ${row.avgMinutes <= 15 ? "text-green-600" : row.avgMinutes <= 30 ? "text-amber-600" : "text-red-600"}`}>
+                              {row.avgMinutes} min
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {avgTimeByTmPdv.length > 100 && (
+                    <p className="text-[10px] text-muted-foreground text-center mt-2">
+                      Mostrando 100 de {avgTimeByTmPdv.length} resultados
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>

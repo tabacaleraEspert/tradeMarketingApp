@@ -17,6 +17,9 @@ from .file import File
 from .audit import AuditEvent
 from .pdv_kpi import PdvKpiSnapshot
 from .mandatory_activity import MandatoryActivity
+from .pdv_note import PdvNote
+from .holiday import Holiday
+from .user_vacation import UserVacation
 
 __all__ = [
     "Zone",
@@ -54,4 +57,7 @@ __all__ = [
     "AuditEvent",
     "PdvKpiSnapshot",
     "MandatoryActivity",
+    "PdvNote",
+    "Holiday",
+    "UserVacation",
 ]

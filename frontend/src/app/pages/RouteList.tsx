@@ -6,6 +6,7 @@ import {
   MapPin, ArrowLeft, Map, List, Search, ChevronRight, Store,
 } from "lucide-react";
 import { usePdvs } from "@/lib/api";
+import { getCurrentUser } from "../lib/auth";
 import { useJsApiLoader, GoogleMap, MarkerF } from "@react-google-maps/api";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
@@ -13,11 +14,16 @@ const LIBRARIES: ("places")[] = ["places"];
 
 export function RouteList() {
   const navigate = useNavigate();
+  const currentUser = getCurrentUser();
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
   const [searchTerm, setSearchTerm] = useState("");
   const [channelFilter, setChannelFilter] = useState<string>("all");
 
-  const { data: pdvs, loading } = usePdvs();
+  // TM Reps sólo ven PDVs de su zona. Territory Manager+ ve todos.
+  const userZoneId = currentUser.zoneId;
+  const isFieldRep = ["vendedor", "ejecutivo"].includes((currentUser.role || "").toLowerCase());
+  const { data: allPdvs, loading } = usePdvs(isFieldRep ? userZoneId : undefined);
+  const pdvs = allPdvs;
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     id: "google-map-script-places",
@@ -31,9 +37,12 @@ export function RouteList() {
     [pdvs]
   );
 
+  const [showInactive, setShowInactive] = useState(false);
+  const [sortBy, setSortBy] = useState<"name" | "recent">("name");
+
   const filteredPdvs = useMemo(() => {
-    return pdvs.filter((p) => {
-      if (!p.IsActive) return false;
+    const filtered = pdvs.filter((p) => {
+      if (!p.IsActive && !showInactive) return false;
       const search = searchTerm.toLowerCase();
       const matchesSearch = !search ||
         p.Name.toLowerCase().includes(search) ||
@@ -43,7 +52,11 @@ export function RouteList() {
       const matchesChannel = channelFilter === "all" || ch === channelFilter;
       return matchesSearch && matchesChannel;
     });
-  }, [pdvs, searchTerm, channelFilter]);
+    if (sortBy === "recent") {
+      return [...filtered].sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
+    }
+    return filtered.sort((a, b) => a.Name.localeCompare(b.Name));
+  }, [pdvs, searchTerm, channelFilter, showInactive, sortBy]);
 
   const pdvsWithCoords = useMemo(
     () => filteredPdvs.filter((p) => p.Lat != null && p.Lon != null),
@@ -100,12 +113,29 @@ export function RouteList() {
         {/* Channel chips */}
         <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
           <button
-            onClick={() => setChannelFilter("all")}
+            onClick={() => { setChannelFilter("all"); setShowInactive(false); }}
             className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              channelFilter === "all" ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+              channelFilter === "all" && !showInactive ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
             }`}
           >
-            Todos ({pdvs.filter((p) => p.IsActive).length})
+            Activos ({pdvs.filter((p) => p.IsActive).length})
+          </button>
+          <button
+            onClick={() => setShowInactive((v) => !v)}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              showInactive ? "bg-rose-500/80 text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            Inactivos ({pdvs.filter((p) => !p.IsActive).length})
+          </button>
+          <span className="mx-1 text-border">|</span>
+          <button
+            onClick={() => setSortBy((v) => v === "name" ? "recent" : "name")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              sortBy === "recent" ? "bg-blue-500/80 text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            {sortBy === "recent" ? "Más recientes" : "A-Z"}
           </button>
           {channels.map((ch) => {
             const count = pdvs.filter((p) => p.IsActive && (p.ChannelName || p.Channel) === ch).length;
@@ -141,13 +171,18 @@ export function RouteList() {
                 <button
                   key={pdv.PdvId}
                   onClick={() => navigate(`/pos/${pdv.PdvId}`)}
-                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors"
+                  className={`w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors ${!pdv.IsActive ? "opacity-60" : ""}`}
                 >
-                  <div className="w-9 h-9 rounded-lg bg-[#A48242]/10 flex items-center justify-center shrink-0">
-                    <Store size={18} className="text-[#A48242]" />
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>
+                    <Store size={18} className={pdv.IsActive ? "text-[#A48242]" : "text-rose-500"} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
+                      {!pdv.IsActive && (
+                        <Badge className="bg-rose-100 text-rose-700 text-[9px] px-1.5 py-0 shrink-0">Inactivo</Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5">
                       {pdv.Address || pdv.City || "Sin dirección"}
                     </p>
@@ -162,12 +197,14 @@ export function RouteList() {
           )}
         </div>
       ) : (
-        <div className="flex-1">
+        <div className="flex-1 min-h-[400px]">
           {!GOOGLE_MAPS_KEY || !mapsLoaded ? (
-            <div className="h-full flex items-center justify-center text-muted-foreground">Cargando mapa...</div>
+            <div className="h-full flex items-center justify-center text-muted-foreground">
+              {!GOOGLE_MAPS_KEY ? "Configura VITE_GOOGLE_MAPS_API_KEY para ver el mapa" : "Cargando mapa..."}
+            </div>
           ) : (
             <GoogleMap
-              mapContainerStyle={{ width: "100%", height: "100%" }}
+              mapContainerStyle={{ width: "100%", height: "calc(100vh - 200px)" }}
               center={mapCenter}
               zoom={pdvsWithCoords.length <= 1 ? 15 : 12}
               options={{

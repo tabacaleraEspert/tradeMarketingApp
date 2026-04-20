@@ -1,21 +1,34 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
 import { Label } from "../components/ui/label";
-import { Textarea } from "../components/ui/textarea";
 import { ArrowLeft, Camera, Image as ImageIcon, Trash2, Check, Upload } from "lucide-react";
-import { pdvsApi, visitsApi } from "@/lib/api";
+import { pdvsApi, visitsApi, visitPhotosApi, ApiError } from "@/lib/api";
+import type { VisitPhotoRead } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
 import { toast } from "sonner";
 
-interface CapturedPhoto {
-  id: string;
-  category: string;
-  url: string;
-  timestamp: Date;
-  synced: boolean;
+// Extiende VisitPhotoRead con campos opcionales para fotos pendientes de sync (offline)
+interface PhotoItem extends VisitPhotoRead {
+  _pending?: boolean;
+  _localUrl?: string;
 }
+
+interface CategoryDef {
+  id: string;
+  label: string;
+  required: boolean;
+}
+
+const CATEGORIES: CategoryDef[] = [
+  { id: "storefront", label: "Frente del Local", required: true },
+  { id: "shelf", label: "Góndola/Exhibición", required: true },
+  { id: "pop", label: "Material POP", required: false },
+  { id: "price", label: "Precio", required: false },
+  { id: "other", label: "Otra", required: false },
+];
 
 export function PhotoCapture() {
   const { id } = useParams();
@@ -26,11 +39,13 @@ export function PhotoCapture() {
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
-  const [reminderForNext, setReminderForNext] = useState("");
-  const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>("storefront");
-  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Cargar PDV + resolver VisitId
   useEffect(() => {
     if (!id) return;
     pdvsApi.get(Number(id)).then(setPdv).catch(() => setPdv(null));
@@ -43,71 +58,144 @@ export function PhotoCapture() {
     }
   }, [id, visitIdFromState]);
 
-  const categories = [
-    { id: "storefront", label: "Frente del Local", required: true },
-    { id: "shelf", label: "Góndola/Exhibición", required: true },
-    { id: "pop", label: "Material POP", required: false },
-    { id: "price", label: "Precio", required: false },
-    { id: "other", label: "Otra", required: false },
-  ];
+  // Cargar fotos existentes cuando se resuelva el visitId
+  useEffect(() => {
+    if (!visitId) return;
+    visitPhotosApi
+      .list(visitId)
+      .then(setPhotos)
+      .catch(() => setPhotos([]));
+  }, [visitId]);
 
-  const handleCapture = () => {
-    // Simulate photo capture
-    const mockPhotos = [
-      "https://images.unsplash.com/photo-1604719312566-8912e9227c6a",
-      "https://images.unsplash.com/photo-1578916171728-46686eac8d58",
-      "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a",
-    ];
-    
-    const newPhoto: CapturedPhoto = {
-      id: Date.now().toString(),
-      category: selectedCategory,
-      url: mockPhotos[Math.floor(Math.random() * mockPhotos.length)],
-      timestamp: new Date(),
-      synced: false,
-    };
-
-    setPhotos([...photos, newPhoto]);
-    toast.success("Foto capturada correctamente");
+  // Click en "Tomar Foto" → abre el input file nativo con captura de cámara
+  const triggerCapture = () => {
+    if (!visitId) {
+      toast.error("No hay una visita abierta. Hacé check-in primero.");
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
-  const handleDelete = (photoId: string) => {
-    setPhotos(photos.filter((p) => p.id !== photoId));
-    toast.success("Foto eliminada");
+  // Obtener GPS actual (best-effort, no bloqueante)
+  const getCurrentCoords = (): Promise<{ lat?: number; lon?: number }> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({});
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => resolve({}),
+        { enableHighAccuracy: true, timeout: 5000 }
+      );
+    });
   };
 
-  const handleFinish = async () => {
-    const requiredCategories = categories.filter((c) => c.required).map((c) => c.id);
-    const capturedCategories = [...new Set(photos.map((p) => p.category))];
-    const missingCategories = requiredCategories.filter(
-      (cat) => !capturedCategories.includes(cat)
-    );
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    // Resetear el input para que el mismo file pueda seleccionarse de nuevo
+    e.target.value = "";
+    if (!file || !visitId) return;
 
-    if (missingCategories.length > 0) {
-      toast.error("Faltan fotos obligatorias");
+    // Validación básica del lado del cliente
+    if (!file.type.startsWith("image/")) {
+      toast.error("Sólo se permiten imágenes");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("La imagen es demasiado grande (máx 10 MB)");
       return;
     }
 
-    setSaving(true);
+    setUploading(true);
     try {
-      toast.success("Evidencia fotográfica completada");
-      navigate(`/pos/${id}/summary`, {
-        state: { routeDayId, visitId },
-      });
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error al guardar");
+      const coords = await getCurrentCoords();
+      const sortOrder = photos.filter((p) => p.PhotoType === selectedCategory).length + 1;
+
+      // Construir las partes multipart
+      const formParts: Array<{ name: string; value: Blob | string; filename?: string }> = [
+        { name: "file", value: file, filename: file.name || `photo-${Date.now()}.jpg` },
+        { name: "photo_type", value: selectedCategory },
+        { name: "sort_order", value: String(sortOrder) },
+      ];
+      if (coords.lat != null) formParts.push({ name: "lat", value: String(coords.lat) });
+      if (coords.lon != null) formParts.push({ name: "lon", value: String(coords.lon) });
+
+      try {
+        const isTempVisit = visitId < 0;
+        const result = await executeOrEnqueue<VisitPhotoRead>({
+          kind: "photo_upload",
+          method: "POST",
+          url: `/files/photos/visit/${visitId}`,
+          formParts,
+          label: `Foto ${selectedCategory}`,
+          _tempVisitId: isTempVisit ? visitId : undefined,
+        });
+
+        if (result.queued) {
+          // Mostrar foto local con preview hasta que se sincronice
+          const localUrl = URL.createObjectURL(file);
+          const ghost: PhotoItem = {
+            VisitId: visitId,
+            FileId: -result.queueId, // negativo para distinguir
+            PhotoType: selectedCategory,
+            SortOrder: sortOrder,
+            Notes: null,
+            url: localUrl,
+            content_type: file.type,
+            size_bytes: file.size,
+            created_at: new Date().toISOString(),
+            _pending: true,
+            _localUrl: localUrl,
+          };
+          setPhotos((prev) => [...prev, ghost]);
+          toast.success("Foto guardada. Se subirá cuando vuelva la conexión.");
+        } else {
+          setPhotos((prev) => [...prev, result.data]);
+          toast.success("Foto subida");
+        }
+      } catch (err) {
+        toast.error(err instanceof ApiError ? err.message : "Error al subir la foto");
+      }
     } finally {
-      setSaving(false);
+      setUploading(false);
     }
   };
 
-  const getCategoryPhotos = (categoryId: string) => {
-    return photos.filter((p) => p.category === categoryId);
+  const handleDelete = async (fileId: number) => {
+    if (!visitId) return;
+    if (!confirm("¿Eliminar esta foto?")) return;
+    setDeleting(fileId);
+    try {
+      await visitPhotosApi.delete(visitId, fileId);
+      setPhotos((prev) => prev.filter((p) => p.FileId !== fileId));
+      toast.success("Foto eliminada");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.message : "Error al eliminar");
+    } finally {
+      setDeleting(null);
+    }
   };
 
-  const getMinPhotosRequired = () => {
-    return categories.filter((c) => c.required).length;
+  const handleFinish = () => {
+    const required = CATEGORIES.filter((c) => c.required).map((c) => c.id);
+    const captured = new Set(photos.map((p) => p.PhotoType));
+    const missing = required.filter((r) => !captured.has(r));
+    if (missing.length > 0) {
+      toast.error(
+        `Faltan fotos obligatorias: ${missing
+          .map((m) => CATEGORIES.find((c) => c.id === m)?.label)
+          .join(", ")}`
+      );
+      return;
+    }
+    navigate(`/pos/${id}/summary`, { state: { routeDayId, visitId } });
   };
+
+  const getCategoryPhotos = (categoryId: string) =>
+    photos.filter((p) => p.PhotoType === categoryId);
+
+  const requiredCount = CATEGORIES.filter((c) => c.required).length;
+  const coveredRequired = CATEGORIES.filter(
+    (c) => c.required && getCategoryPhotos(c.id).length > 0
+  ).length;
 
   if (!pdv) {
     return (
@@ -119,6 +207,16 @@ export function PhotoCapture() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
+      {/* Input file oculto — dispara la cámara nativa en mobile */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleFileSelected}
+      />
+
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3 mb-3">
@@ -136,10 +234,10 @@ export function PhotoCapture() {
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            {photos.length} fotos capturadas (mínimo {getMinPhotosRequired()})
+            {photos.length} fotos · {coveredRequired}/{requiredCount} categorías obligatorias
           </span>
-          <Badge variant={photos.length >= getMinPhotosRequired() ? "secondary" : "destructive"}>
-            {photos.length >= getMinPhotosRequired() ? "Completo" : "Incompleto"}
+          <Badge variant={coveredRequired >= requiredCount ? "secondary" : "destructive"}>
+            {coveredRequired >= requiredCount ? "Completo" : "Incompleto"}
           </Badge>
         </div>
       </div>
@@ -152,10 +250,9 @@ export function PhotoCapture() {
               Categoría de Foto
             </Label>
             <div className="space-y-2">
-              {categories.map((category) => {
+              {CATEGORIES.map((category) => {
                 const categoryPhotos = getCategoryPhotos(category.id);
                 const isSelected = selectedCategory === category.id;
-                
                 return (
                   <button
                     key={category.id}
@@ -203,10 +300,13 @@ export function PhotoCapture() {
         <Button
           className="w-full h-14 text-base font-semibold"
           size="lg"
-          onClick={handleCapture}
+          onClick={triggerCapture}
+          disabled={uploading || !visitId}
         >
           <Camera className="mr-2" size={20} />
-          Tomar Foto - {categories.find((c) => c.id === selectedCategory)?.label}
+          {uploading
+            ? "Subiendo foto..."
+            : `Tomar Foto - ${CATEGORIES.find((c) => c.id === selectedCategory)?.label}`}
         </Button>
 
         {/* Photo Gallery */}
@@ -218,40 +318,41 @@ export function PhotoCapture() {
               </h3>
               <div className="grid grid-cols-2 gap-3">
                 {photos.map((photo) => (
-                  <div key={photo.id} className="relative group">
+                  <div key={photo.FileId} className="relative group">
                     <img
                       src={photo.url}
-                      alt={`Foto ${photo.category}`}
-                      className="w-full h-32 object-cover rounded-lg"
+                      alt={`Foto ${photo.PhotoType}`}
+                      className="w-full h-32 object-cover rounded-lg border border-border"
                     />
                     <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
                       <button
-                        onClick={() => handleDelete(photo.id)}
-                        className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700"
+                        onClick={() => handleDelete(photo.FileId)}
+                        disabled={deleting === photo.FileId}
+                        className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700 disabled:opacity-50"
                       >
                         <Trash2 size={18} />
                       </button>
                     </div>
                     <div className="absolute top-2 left-2">
                       <Badge variant="secondary" className="text-xs">
-                        {categories.find((c) => c.id === photo.category)?.label}
+                        {CATEGORIES.find((c) => c.id === photo.PhotoType)?.label ?? photo.PhotoType}
                       </Badge>
                     </div>
                     <div className="absolute top-2 right-2">
-                      {photo.synced ? (
-                        <Badge variant="secondary" className="text-xs bg-green-600">
-                          <Check size={12} className="mr-1" />
-                          Sync
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-xs bg-yellow-600">
+                      {photo._pending ? (
+                        <Badge variant="secondary" className="text-xs bg-amber-500 text-white">
                           <Upload size={12} className="mr-1" />
                           Pendiente
+                        </Badge>
+                      ) : (
+                        <Badge variant="secondary" className="text-xs bg-green-600 text-white">
+                          <Check size={12} className="mr-1" />
+                          Sync
                         </Badge>
                       )}
                     </div>
                     <div className="mt-1 text-xs text-muted-foreground text-center">
-                      {photo.timestamp.toLocaleTimeString("es-AR", {
+                      {new Date(photo.created_at).toLocaleTimeString("es-AR", {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
@@ -264,13 +365,13 @@ export function PhotoCapture() {
         )}
 
         {/* Instructions */}
-        <Card className="bg-espert-gold/10 border-espert-gold">
+        <Card className="bg-espert-gold/10 border-espert-gold/40">
           <CardContent className="p-4">
             <h3 className="font-semibold text-foreground mb-2">Recomendaciones</h3>
             <ul className="space-y-1 text-sm text-muted-foreground">
               <li className="flex items-start gap-2">
                 <span className="text-espert-gold font-bold">•</span>
-                <span>Asegúrate de tomar fotos claras y bien iluminadas</span>
+                <span>Asegurate de tomar fotos claras y bien iluminadas</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-espert-gold font-bold">•</span>
@@ -278,7 +379,7 @@ export function PhotoCapture() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-espert-gold font-bold">•</span>
-                <span>Las fotos se sincronizarán automáticamente cuando tengas conexión</span>
+                <span>Cada foto se sube al servidor con tu ubicación GPS si tenés permiso</span>
               </li>
             </ul>
           </CardContent>
@@ -290,9 +391,9 @@ export function PhotoCapture() {
         <Button
           className="w-full h-12 text-base font-semibold"
           onClick={handleFinish}
-          disabled={photos.length < getMinPhotosRequired() || saving}
+          disabled={coveredRequired < requiredCount || uploading}
         >
-          {saving ? "Guardando..." : "Continuar a Resumen"}
+          Continuar a Resumen
         </Button>
       </div>
     </div>

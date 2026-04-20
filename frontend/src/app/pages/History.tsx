@@ -7,10 +7,11 @@ import {
   ArrowLeft, Calendar, Clock, MessageSquare, FileText, MapPin,
   User, Navigation, ClipboardList, Camera, ChevronRight, X, Download,
 } from "lucide-react";
-import { pdvsApi, visitsApi, usersApi, formsApi } from "@/lib/api";
-import type { Visit, Pdv, VisitAnswer } from "@/lib/api/types";
+import { pdvsApi, visitsApi, usersApi, formsApi, visitPhotosApi } from "@/lib/api";
+import type { Visit, Pdv, VisitAnswer, VisitPhotoRead } from "@/lib/api/types";
 import { exportToExcel } from "@/lib/exportExcel";
 import { Button } from "../components/ui/button";
+import { renderAnswerValue } from "../lib/answerFormatter";
 import { toast } from "sonner";
 
 interface VisitCheck {
@@ -45,6 +46,7 @@ export function History() {
   const [modalDetail, setModalDetail] = useState<{
     checks: VisitCheck[];
     answers: VisitAnswer[];
+    photos: VisitPhotoRead[];
     userName: string | null;
     questions: FormQuestion[];
   } | null>(null);
@@ -70,9 +72,10 @@ export function History() {
     setModalDetail(null);
     setModalLoading(true);
     try {
-      const [checks, answers] = await Promise.all([
+      const [checks, answers, photos] = await Promise.all([
         visitsApi.listChecks(visit.VisitId).catch(() => []),
         visitsApi.listAnswers(visit.VisitId).catch(() => []),
+        visitPhotosApi.list(visit.VisitId).catch(() => [] as VisitPhotoRead[]),
       ]);
       let userName: string | null = null;
       try { const u = await usersApi.get(visit.UserId); userName = u.DisplayName; } catch {}
@@ -85,7 +88,7 @@ export function History() {
           questions.push(...qs);
         }
       }
-      setModalDetail({ checks, answers, userName, questions });
+      setModalDetail({ checks, answers, photos, userName, questions });
     } catch {} finally {
       setModalLoading(false);
     }
@@ -188,11 +191,7 @@ export function History() {
     }
   };
 
-  const renderAnswerValue = (a: VisitAnswer) => {
-    if (a.ValueBool !== null && a.ValueBool !== undefined) return a.ValueBool ? "Sí" : "No";
-    if (a.ValueNumber !== null && a.ValueNumber !== undefined) return String(a.ValueNumber);
-    return a.ValueText || a.ValueJson || "—";
-  };
+  // renderAnswerValue extraído a app/lib/answerFormatter.ts
 
   const formatDt = (iso: string) => {
     const d = new Date(iso);
@@ -450,8 +449,32 @@ export function History() {
                     </div>
                   )}
 
+                  {/* Fotos de la visita */}
+                  {modalDetail.photos.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <Camera size={13} />
+                        Fotos ({modalDetail.photos.length})
+                      </h4>
+                      <div className="grid grid-cols-3 gap-2">
+                        {modalDetail.photos.map((p) => (
+                          <div key={p.FileId} className="relative">
+                            <img
+                              src={p.url}
+                              alt={p.PhotoType}
+                              className="w-full h-20 object-cover rounded-lg border border-border"
+                            />
+                            <div className="absolute bottom-0.5 left-0.5">
+                              <Badge variant="secondary" className="text-[8px] px-1 py-0">{p.PhotoType}</Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Empty state */}
-                  {modalDetail.checks.length === 0 && modalDetail.answers.length === 0 && !selectedVisit.CloseReason && (
+                  {modalDetail.checks.length === 0 && modalDetail.answers.length === 0 && modalDetail.photos.length === 0 && !selectedVisit.CloseReason && (
                     <div className="text-center py-4 text-muted-foreground">
                       <FileText size={32} className="mx-auto mb-2 opacity-30" />
                       <p className="text-sm">Sin datos adicionales registrados</p>

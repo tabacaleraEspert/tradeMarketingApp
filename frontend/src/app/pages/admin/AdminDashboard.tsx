@@ -30,6 +30,7 @@ export function AdminDashboard() {
   const [perfectStore, setPerfectStore] = useState<Awaited<ReturnType<typeof reportsApi.perfectStore>> | null>(null);
   const [trending, setTrending] = useState<Awaited<ReturnType<typeof reportsApi.trending>>>([]);
   const [smartAlerts, setSmartAlerts] = useState<Awaited<ReturnType<typeof reportsApi.smartAlerts>> | null>(null);
+  const [gpsAlerts, setGpsAlerts] = useState<Awaited<ReturnType<typeof reportsApi.gpsAlerts>>>([]);
 
   useEffect(() => {
     reportsApi.summary().then(setSummary).catch(() => {});
@@ -38,6 +39,7 @@ export function AdminDashboard() {
     reportsApi.perfectStore().then(setPerfectStore).catch(() => {});
     reportsApi.trending({ months: 3 }).then(setTrending).catch(() => {});
     reportsApi.smartAlerts().then(setSmartAlerts).catch(() => {});
+    reportsApi.gpsAlerts({ days: 7 }).then(setGpsAlerts).catch(() => {});
   }, []);
 
   const openIncidents = incidents.filter((i) => i.Status === "OPEN" || i.Status === "IN_PROGRESS");
@@ -139,39 +141,39 @@ export function AdminDashboard() {
         <Card className="lg:col-span-2">
           <CardContent className="p-4">
             <h3 className="font-bold text-foreground mb-3 flex items-center gap-2">
-              <Zap size={16} className="text-green-500" />
+              <Zap size={16} className="text-emerald-600/70" />
               Estado en campo — Hoy
             </h3>
             <div className="grid grid-cols-3 gap-3 mb-3">
-              <div className="bg-green-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-green-700">{repsInField}</p>
-                <p className="text-[10px] text-green-600">En campo ahora</p>
+              <div className="bg-muted/50 border border-border/60 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-foreground">{repsInField}</p>
+                <p className="text-[10px] text-muted-foreground">En campo ahora</p>
               </div>
-              <div className="bg-blue-50 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-blue-700">{activeRepsToday.size}</p>
-                <p className="text-[10px] text-blue-600">Con actividad hoy</p>
+              <div className="bg-muted/50 border border-border/60 rounded-lg p-3 text-center">
+                <p className="text-2xl font-bold text-foreground">{activeRepsToday.size}</p>
+                <p className="text-[10px] text-muted-foreground">Con actividad hoy</p>
               </div>
-              <div className={`rounded-lg p-3 text-center ${inactiveReps.length > 0 ? "bg-red-50" : "bg-green-50"}`}>
-                <p className={`text-2xl font-bold ${inactiveReps.length > 0 ? "text-red-700" : "text-green-700"}`}>
+              <div className={`rounded-lg p-3 text-center border ${inactiveReps.length > 0 ? "bg-rose-50/60 border-rose-100" : "bg-muted/50 border-border/60"}`}>
+                <p className={`text-2xl font-bold ${inactiveReps.length > 0 ? "text-rose-700/80" : "text-foreground"}`}>
                   {inactiveReps.length}
                 </p>
-                <p className={`text-[10px] ${inactiveReps.length > 0 ? "text-red-600" : "text-green-600"}`}>Sin actividad</p>
+                <p className={`text-[10px] ${inactiveReps.length > 0 ? "text-rose-600/70" : "text-muted-foreground"}`}>Sin actividad</p>
               </div>
             </div>
             {inactiveReps.length > 0 && (
               <div className="space-y-1">
-                <p className="text-xs font-medium text-red-700 flex items-center gap-1">
-                  <AlertTriangle size={12} />
+                <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <AlertTriangle size={12} className="text-rose-500/70" />
                   Reps sin actividad hoy:
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {inactiveReps.slice(0, 6).map((u) => (
-                    <Badge key={u.UserId} variant="outline" className="text-[10px] text-red-600 border-red-200">
+                    <Badge key={u.UserId} variant="outline" className="text-[10px] text-muted-foreground border-border/70 font-normal">
                       {u.DisplayName}
                     </Badge>
                   ))}
                   {inactiveReps.length > 6 && (
-                    <Badge variant="outline" className="text-[10px]">+{inactiveReps.length - 6} más</Badge>
+                    <Badge variant="outline" className="text-[10px] text-muted-foreground font-normal">+{inactiveReps.length - 6} más</Badge>
                   )}
                 </div>
               </div>
@@ -183,34 +185,100 @@ export function AdminDashboard() {
         <Card>
           <CardContent className="p-4">
             <h3 className="font-bold text-foreground mb-3 flex items-center gap-2">
-              <AlertCircle size={16} className="text-red-500" />
+              <AlertCircle size={16} className="text-rose-500/70" />
               Alertas
             </h3>
             <div className="space-y-2">
               {openIncidents.length > 0 && (
-                <div className="flex items-center justify-between p-2 bg-red-50 rounded-lg cursor-pointer" onClick={() => navigate("/admin/reports")}>
-                  <span className="text-xs font-medium text-red-800">{openIncidents.length} incidencias abiertas</span>
-                  <ArrowRight size={14} className="text-red-400" />
+                <div className="flex items-center justify-between p-2 bg-rose-50/60 border border-rose-100 rounded-lg cursor-pointer hover:bg-rose-50 transition-colors" onClick={() => navigate("/admin/reports")}>
+                  <span className="text-xs font-medium text-rose-700/80">{openIncidents.length} incidencias abiertas</span>
+                  <ArrowRight size={14} className="text-rose-400/70" />
                 </div>
               )}
               {lowCoverageChannels.map((ch) => (
-                <div key={ch.channelId} className="flex items-center justify-between p-2 bg-amber-50 rounded-lg">
-                  <span className="text-xs text-amber-800">
+                <div key={ch.channelId} className="flex items-center justify-between p-2 bg-amber-50/60 border border-amber-100 rounded-lg">
+                  <span className="text-xs text-amber-700/80">
                     <span className="font-medium">{ch.channel}</span>: {ch.coverage}% cobertura
                   </span>
-                  <TrendingDown size={14} className="text-amber-500" />
+                  <TrendingDown size={14} className="text-amber-500/70" />
                 </div>
               ))}
-              {openIncidents.length === 0 && lowCoverageChannels.length === 0 && (
+              {gpsAlerts.length > 0 && (
+                <div className="flex items-center justify-between p-2 bg-amber-50/60 border border-amber-100 rounded-lg cursor-pointer hover:bg-amber-50 transition-colors" onClick={() => navigate("/admin/reports")}>
+                  <span className="text-xs text-amber-700/80">
+                    <Navigation size={11} className="inline mr-1" />
+                    <span className="font-medium">{gpsAlerts.length}</span> visita{gpsAlerts.length === 1 ? "" : "s"} con alerta GPS (últimos 7d)
+                  </span>
+                  <ArrowRight size={14} className="text-amber-500/70" />
+                </div>
+              )}
+              {openIncidents.length === 0 && lowCoverageChannels.length === 0 && gpsAlerts.length === 0 && (
                 <div className="text-center py-3">
-                  <CheckCircle2 size={24} className="mx-auto text-green-500 mb-1" />
-                  <p className="text-xs text-green-700">Sin alertas</p>
+                  <CheckCircle2 size={24} className="mx-auto text-emerald-500/70 mb-1" />
+                  <p className="text-xs text-muted-foreground">Sin alertas</p>
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* === GPS Alerts detallado === */}
+      {gpsAlerts.length > 0 && (
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-foreground flex items-center gap-2">
+                <Navigation size={16} className="text-amber-600/80" />
+                Visitas con alerta GPS
+              </h3>
+              <Badge variant="outline" className="text-xs border-amber-200 text-amber-700">
+                {gpsAlerts.length} en últimos 7 días
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">
+              Visitas donde el rep no tenía GPS o estaba fuera del perímetro del PDV. Revisar caso por caso.
+            </p>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {gpsAlerts.slice(0, 20).map((a) => (
+                <div
+                  key={a.visitId}
+                  className="flex items-center gap-3 p-2 rounded-lg border border-amber-100"
+                >
+                  <div className="flex-shrink-0">
+                    {a.alertType === "no_gps" ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-semibold">
+                        Sin GPS
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">
+                        Fuera de rango
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground truncate">{a.pdvName}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      {a.userName}
+                      {a.distanceM != null && ` · ${a.distanceM}m del PDV (perímetro: ${a.perimeterM}m)`}
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground flex-shrink-0">
+                    {a.openedAt
+                      ? new Date(a.openedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })
+                      : ""}
+                  </p>
+                </div>
+              ))}
+              {gpsAlerts.length > 20 && (
+                <p className="text-[10px] text-center text-muted-foreground pt-1">
+                  Mostrando 20 de {gpsAlerts.length}
+                </p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* === ROW 3: Coverage by Channel === */}
       <Card>

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { useUsers } from "@/lib/api";
+import { authApi } from "@/lib/api/services";
 import { toast } from "sonner";
 import { exportToExcel } from "@/lib/exportExcel";
 
@@ -51,21 +52,14 @@ export function TerritoryManagement() {
   const [data, setData] = useState<TerritoryData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Find territory managers
-  const managers = useMemo(() => {
-    // We'll load from the API and detect by checking the territory-overview response
-    return allUsers.filter((u) => u.IsActive);
-  }, [allUsers]);
-
-  // Auto-select first TM or detect from users
+  // Auto-select the current user as manager
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   useEffect(() => {
-    if (!selectedManagerId && allUsers.length > 0) {
-      // Try known TM IDs (3-7)
-      const tmIds = [3, 4, 5, 6, 7];
-      const found = allUsers.find((u) => tmIds.includes(u.UserId));
-      if (found) setSelectedManagerId(found.UserId);
-    }
-  }, [allUsers, selectedManagerId]);
+    authApi.me().then((me) => {
+      setCurrentUserId(me.UserId);
+      if (!selectedManagerId) setSelectedManagerId(me.UserId);
+    }).catch(() => {});
+  }, []);
 
   // Load territory data
   useEffect(() => {
@@ -77,9 +71,22 @@ export function TerritoryManagement() {
       .finally(() => setLoading(false));
   }, [selectedManagerId]);
 
+  // Show the current user + their direct reports that have subordinates (territory_managers, ejecutivos)
   const tmUsers = useMemo(() => {
-    return allUsers.filter((u) => [3, 4, 5, 6, 7].includes(u.UserId) && u.IsActive);
-  }, [allUsers]);
+    if (!currentUserId) return [];
+    const directReports = allUsers.filter((u) => u.ManagerUserId === currentUserId && u.IsActive);
+    // Include managers who have people under them
+    const hasSubordinates = (userId: number) => allUsers.some((u) => u.ManagerUserId === userId && u.IsActive);
+    const managers = directReports.filter((u) => hasSubordinates(u.UserId));
+    // If no sub-managers, show the current user as the only option
+    if (managers.length === 0) {
+      const me = allUsers.find((u) => u.UserId === currentUserId);
+      return me ? [me] : [];
+    }
+    // Prepend "Mi Territorio" (current user) + sub-managers
+    const me = allUsers.find((u) => u.UserId === currentUserId);
+    return me ? [me, ...managers] : managers;
+  }, [allUsers, currentUserId]);
 
   return (
     <div className="space-y-6">

@@ -18,6 +18,11 @@ import {
   Mail,
   Eye,
   EyeOff,
+  ChevronRight,
+  ChevronDown,
+  User as UserIcon,
+  FolderTree,
+  List,
 } from "lucide-react";
 import { usersApi, rolesApi, zonesApi } from "@/lib/api";
 import type { User, Role, Zone } from "@/lib/api";
@@ -26,6 +31,7 @@ import { toast } from "sonner";
 interface UserWithRole extends User {
   roleId?: number | null;
   roleName?: string | null;
+  AvatarUrl?: string | null;
 }
 
 export function UserManagement() {
@@ -41,12 +47,23 @@ export function UserManagement() {
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  const [viewMode, setViewMode] = useState<"list" | "tree">("list");
+  const [collapsedNodes, setCollapsedNodes] = useState<Set<number>>(new Set());
+  const toggleCollapse = (userId: number) => {
+    setCollapsedNodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  };
   const [form, setForm] = useState({
     Email: "",
     DisplayName: "",
     Password: "",
     ZoneId: "" as number | "",
     RoleId: "" as number | "",
+    ManagerUserId: "" as number | "",
     IsActive: true,
   });
 
@@ -94,7 +111,7 @@ export function UserManagement() {
   });
 
   const resetForm = () => {
-    setForm({ Email: "", DisplayName: "", Password: "", ZoneId: "", RoleId: "", IsActive: true });
+    setForm({ Email: "", DisplayName: "", Password: "", ZoneId: "", RoleId: "", ManagerUserId: "", IsActive: true });
     setEditingUser(null);
     setShowPassword(false);
   };
@@ -112,6 +129,7 @@ export function UserManagement() {
       Password: "",
       ZoneId: u.ZoneId ?? "",
       RoleId: u.roleId ?? "",
+      ManagerUserId: u.ManagerUserId ?? "",
       IsActive: u.IsActive,
     });
     setShowPassword(false);
@@ -131,6 +149,7 @@ export function UserManagement() {
           Email: form.Email,
           DisplayName: form.DisplayName,
           ZoneId: form.ZoneId || null,
+          ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
         };
         if (form.Password) updateData.Password = form.Password;
@@ -147,6 +166,7 @@ export function UserManagement() {
           Email: form.Email,
           DisplayName: form.DisplayName,
           ZoneId: form.ZoneId || null,
+          ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
         };
         if (form.Password) createData.Password = form.Password;
@@ -280,7 +300,117 @@ export function UserManagement() {
         />
       </div>
 
+      {/* View toggle */}
+      <div className="flex items-center gap-2">
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          <button
+            onClick={() => setViewMode("list")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+              viewMode === "list" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <List size={14} /> Lista
+          </button>
+          <button
+            onClick={() => setViewMode("tree")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium transition-colors ${
+              viewMode === "tree" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            <FolderTree size={14} /> Jerarquía
+          </button>
+        </div>
+      </div>
+
+      {/* Tree view */}
+      {viewMode === "tree" && (() => {
+        // Build tree from ManagerUserId
+        const childrenMap = new Map<number | null, UserWithRole[]>();
+        for (const u of filtered) {
+          const mid = u.ManagerUserId ?? null;
+          if (!childrenMap.has(mid)) childrenMap.set(mid, []);
+          childrenMap.get(mid)!.push(u);
+        }
+        // Sort children by name
+        for (const [, children] of childrenMap) {
+          children.sort((a, b) => a.DisplayName.localeCompare(b.DisplayName));
+        }
+        const roots = childrenMap.get(null) || [];
+        // Also grab orphans (their manager is not in the filtered list)
+        const allIds = new Set(filtered.map((u) => u.UserId));
+        const orphans = filtered.filter(
+          (u) => u.ManagerUserId != null && !allIds.has(u.ManagerUserId) && !roots.includes(u)
+        );
+        const topLevel = [...roots, ...orphans];
+
+        const renderNode = (user: UserWithRole, depth: number): React.ReactNode => {
+          const children = childrenMap.get(user.UserId) || [];
+          const isLeaf = children.length === 0;
+          const isCollapsed = collapsedNodes.has(user.UserId);
+          return (
+            <div key={user.UserId}>
+              <div
+                className={`flex items-center gap-2 py-2 px-3 hover:bg-muted/40 rounded-lg transition-colors ${
+                  !user.IsActive ? "opacity-50" : ""
+                }`}
+                style={{ paddingLeft: `${depth * 24 + 12}px` }}
+              >
+                {!isLeaf ? (
+                  <button
+                    onClick={() => toggleCollapse(user.UserId)}
+                    className="p-0.5 rounded hover:bg-muted shrink-0 transition-transform"
+                  >
+                    {isCollapsed ? (
+                      <ChevronRight size={14} className="text-muted-foreground" />
+                    ) : (
+                      <ChevronDown size={14} className="text-muted-foreground" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="w-4 shrink-0" />
+                )}
+                <div className="w-7 h-7 rounded-full bg-muted flex items-center justify-center shrink-0">
+                  {user.AvatarUrl ? (
+                    <img src={user.AvatarUrl} className="w-7 h-7 rounded-full object-cover" alt="" />
+                  ) : (
+                    <UserIcon size={14} className="text-muted-foreground" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-medium text-foreground truncate block">{user.DisplayName}</span>
+                  <span className="text-[10px] text-muted-foreground truncate block">{user.Email}</span>
+                </div>
+                {getRoleBadge(user.roleName)}
+                {children.length > 0 && (
+                  <span className="text-[10px] text-muted-foreground shrink-0">{children.length} a cargo</span>
+                )}
+                <button
+                  onClick={() => openEdit(user)}
+                  className="p-1 rounded hover:bg-muted text-muted-foreground shrink-0"
+                >
+                  <Edit size={13} />
+                </button>
+              </div>
+              {!isCollapsed && children.map((c) => renderNode(c, depth + 1))}
+            </div>
+          );
+        };
+
+        return (
+          <Card>
+            <CardContent className="p-2">
+              {topLevel.length === 0 ? (
+                <p className="text-center text-sm text-muted-foreground py-8">Sin usuarios que coincidan</p>
+              ) : (
+                topLevel.map((u) => renderNode(u, 0))
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
       {/* User table */}
+      {viewMode === "list" && (
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
@@ -291,6 +421,7 @@ export function UserManagement() {
                   <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Email</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Rol</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Zona</th>
+                  <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Reporta a</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Estado</th>
                   <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Acciones</th>
                 </tr>
@@ -312,6 +443,13 @@ export function UserManagement() {
                     <td className="py-3 px-4 text-center">
                       <span className="text-sm text-muted-foreground">{getZoneName(u.ZoneId)}</span>
                     </td>
+                    <td className="py-3 px-4">
+                      <span className="text-sm text-muted-foreground">
+                        {u.ManagerUserId
+                          ? users.find((m) => m.UserId === u.ManagerUserId)?.DisplayName ?? `#${u.ManagerUserId}`
+                          : "—"}
+                      </span>
+                    </td>
                     <td className="py-3 px-4 text-center">
                       <Switch checked={u.IsActive} onCheckedChange={() => handleToggleActive(u)} />
                     </td>
@@ -329,7 +467,7 @@ export function UserManagement() {
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="py-8 text-center text-muted-foreground">
                       No se encontraron usuarios
                     </td>
                   </tr>
@@ -339,6 +477,7 @@ export function UserManagement() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Create/Edit Modal */}
       <Modal
@@ -433,6 +572,25 @@ export function UserManagement() {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Reporta a (superior directo)</Label>
+              <select
+                className="w-full h-10 px-3 border border-border rounded-md text-sm bg-background"
+                value={form.ManagerUserId === "" ? "" : String(form.ManagerUserId)}
+                onChange={(e) => setForm((f) => ({ ...f, ManagerUserId: e.target.value ? Number(e.target.value) : "" }))}
+              >
+                <option value="">Sin superior directo</option>
+                {users
+                  .filter((u) => u.UserId !== editingUser?.UserId)
+                  .sort((a, b) => a.DisplayName.localeCompare(b.DisplayName))
+                  .map((u) => (
+                    <option key={u.UserId} value={u.UserId}>
+                      {u.DisplayName} ({u.roleName || "sin rol"})
+                    </option>
+                  ))}
+              </select>
             </div>
           </div>
 

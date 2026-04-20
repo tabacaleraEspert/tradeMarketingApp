@@ -22,7 +22,13 @@ def get_distributor(distributor_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=Distributor, status_code=201)
 def create_distributor(data: DistributorCreate, db: Session = Depends(get_db)):
-    d = DistributorModel(Name=data.Name, IsActive=data.IsActive)
+    d = DistributorModel(
+        Name=data.Name,
+        Phone=data.Phone,
+        DistributorType=data.DistributorType,
+        SupplierSource=data.SupplierSource,
+        IsActive=data.IsActive,
+    )
     db.add(d)
     db.commit()
     db.refresh(d)

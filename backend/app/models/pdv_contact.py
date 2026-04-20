@@ -14,4 +14,8 @@ class PdvContact(Base):
     ContactRole = Column(String(40), nullable=True)       # dueño, empleado, encargado
     DecisionPower = Column(String(20), nullable=True)     # alto, medio, bajo
     Birthday = Column(Date, nullable=True)
+    # Caja libre de observaciones generales (operativas)
+    Notes = Column(String(1000), nullable=True)
+    # Perfil del contacto: preferencias, gustos, qué evitar (no hablar de política, hincha de, etc)
+    ProfileNotes = Column(String(1000), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

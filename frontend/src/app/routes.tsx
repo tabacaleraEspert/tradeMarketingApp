@@ -30,6 +30,7 @@ import { PlantLayout } from "./pages/plant/PlantLayout";
 import { PlantDashboard } from "./pages/plant/PlantDashboard";
 import { MyRoutesPage } from "./pages/MyRoutesPage";
 import { MyRouteEditorPage } from "./pages/MyRouteEditorPage";
+import { RouteGeneratorPage } from "./pages/RouteGeneratorPage";
 import { VisitActionsPage } from "./pages/VisitActionsPage";
 import { VisitSummaryPage } from "./pages/VisitSummaryPage";
 import { EndOfDayPage } from "./pages/EndOfDayPage";
@@ -46,7 +47,10 @@ export const router = createBrowserRouter([
       { index: true, Component: Home },
       { path: "route", Component: RouteFocoPage },
       { path: "my-routes", Component: MyRoutesPage },
+      { path: "my-routes/new", Component: RouteEditorPage },
+      { path: "my-routes/generate", Component: RouteGeneratorPage },
       { path: "my-routes/:routeId", Component: MyRouteEditorPage },
+      { path: "my-routes/:routeId/edit", Component: RouteEditorPage },
       { path: "search-pdv", Component: RouteList },
       { path: "pos/:id", Component: PointOfSaleDetail },
       { path: "pos/:id/checkin", Component: CheckIn },

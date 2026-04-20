@@ -25,6 +25,8 @@ class Route(Base):
     EstimatedMinutes = Column(Integer, nullable=True)
     # Trade Marketer asignado a esta ruta (persistente)
     AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    # Indica si el orden de los PDVs fue optimizado (por distancia/tiempo)
+    IsOptimized = Column(Boolean, default=False, nullable=False)
 
 
 class RouteForm(Base):

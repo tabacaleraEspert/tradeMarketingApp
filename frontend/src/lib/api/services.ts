@@ -9,11 +9,64 @@ export interface LoginResponse {
   ZoneName?: string | null;
   Role?: string;
   IsActive: boolean;
+  MustChangePassword?: boolean;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+export interface MeResponse {
+  UserId: number;
+  Email: string;
+  DisplayName: string;
+  ZoneId: number | null;
+  ZoneName?: string | null;
+  Role: string;
+  IsActive: boolean;
+  MustChangePassword?: boolean;
 }
 
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResponse>("/auth/login", { email, password }),
+  me: () => api.get<MeResponse>("/auth/me"),
+  changePassword: (current_password: string, new_password: string) =>
+    api.post<{ ok: boolean }>("/auth/change-password", { current_password, new_password }),
+};
+
+// --- Visit Photos ---
+export interface VisitPhotoRead {
+  VisitId: number;
+  FileId: number;
+  PhotoType: string;
+  SortOrder: number;
+  Notes: string | null;
+  url: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+export const visitPhotosApi = {
+  list: (visitId: number) =>
+    api.get<VisitPhotoRead[]>(`/files/photos/visit/${visitId}`),
+  upload: async (
+    visitId: number,
+    file: Blob,
+    opts: { photoType?: string; sortOrder?: number; notes?: string; lat?: number; lon?: number } = {}
+  ) => {
+    const form = new FormData();
+    form.append("file", file, `photo-${Date.now()}.jpg`);
+    if (opts.photoType) form.append("photo_type", opts.photoType);
+    if (opts.sortOrder != null) form.append("sort_order", String(opts.sortOrder));
+    if (opts.notes) form.append("notes", opts.notes);
+    if (opts.lat != null) form.append("lat", String(opts.lat));
+    if (opts.lon != null) form.append("lon", String(opts.lon));
+    return api.upload<VisitPhotoRead>(`/files/photos/visit/${visitId}`, form);
+  },
+  delete: (visitId: number, fileId: number) =>
+    api.delete<void>(`/files/photos/visit/${visitId}/${fileId}`),
 };
 import type {
   Zone,
@@ -42,6 +95,9 @@ import type {
   Incident,
   Notification,
   MandatoryActivity,
+  PdvNote,
+  Holiday,
+  UserVacation,
 } from "./types";
 
 // --- Zones ---
@@ -78,6 +134,19 @@ export const usersApi = {
     }
   ) => api.patch<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
+  // Vacaciones
+  listVacations: (userId: number, year?: number) =>
+    api.get<UserVacation[]>(`/users/${userId}/vacations`, year ? { year } : undefined),
+  createVacation: (userId: number, data: { FromDate: string; ToDate: string; Reason?: string }) =>
+    api.post<UserVacation>(`/users/${userId}/vacations`, data),
+  deleteVacation: (vacationId: number) =>
+    api.delete(`/users/vacations/${vacationId}`),
+  uploadAvatar: (userId: number, file: Blob) => {
+    const form = new FormData();
+    form.append("file", file, `avatar-${userId}.jpg`);
+    return api.upload<User>(`/users/${userId}/avatar`, form);
+  },
+  deleteAvatar: (userId: number) => api.delete<User>(`/users/${userId}/avatar`),
   getMonthlyStats: (userId: number) =>
     api.get<{ visits: number; compliance: number; new_pdvs: number }>(
       `/users/${userId}/stats/monthly`
@@ -106,9 +175,9 @@ export const distributorsApi = {
   list: (params?: { skip?: number; limit?: number }) =>
     api.get<Distributor[]>("/distributors", params as Record<string, number | undefined>),
   get: (id: number) => api.get<Distributor>(`/distributors/${id}`),
-  create: (data: { Name: string; IsActive?: boolean }) =>
+  create: (data: { Name: string; Phone?: string; DistributorType?: string; SupplierSource?: string; IsActive?: boolean }) =>
     api.post<Distributor>("/distributors", data),
-  update: (id: number, data: { Name?: string; IsActive?: boolean }) =>
+  update: (id: number, data: { Name?: string; Phone?: string; DistributorType?: string; SupplierSource?: string; IsActive?: boolean }) =>
     api.patch<Distributor>(`/distributors/${id}`, data),
   delete: (id: number) => api.delete(`/distributors/${id}`),
 };
@@ -171,11 +240,35 @@ export const pdvsApi = {
   delete: (id: number) => api.delete(`/pdvs/${id}`),
 };
 
+// --- Holidays ---
+export const holidaysApi = {
+  list: (params?: { from?: string; to?: string; active_only?: boolean }) =>
+    api.get<Holiday[]>("/holidays", params as Record<string, string | boolean | undefined>),
+  check: (date: string) =>
+    api.get<{ date: string; isHoliday: boolean; name?: string; kind?: string }>(`/holidays/check/${date}`),
+  create: (data: { Date: string; Name: string; Kind?: string; IsActive?: boolean }) =>
+    api.post<Holiday>("/holidays", data),
+  update: (id: number, data: Partial<{ Date: string; Name: string; Kind: string; IsActive: boolean }>) =>
+    api.patch<Holiday>(`/holidays/${id}`, data),
+  delete: (id: number) => api.delete(`/holidays/${id}`),
+};
+
+// --- PDV Notes ---
+export const pdvNotesApi = {
+  list: (pdvId: number, openOnly = false) =>
+    api.get<PdvNote[]>(`/pdvs/${pdvId}/notes`, openOnly ? { open_only: true } : undefined),
+  create: (pdvId: number, data: { Content: string; CreatedByUserId?: number; VisitId?: number }) =>
+    api.post<PdvNote>(`/pdvs/${pdvId}/notes`, data),
+  update: (noteId: number, data: { Content?: string; IsResolved?: boolean; ResolvedByUserId?: number }) =>
+    api.patch<PdvNote>(`/pdvs/notes/${noteId}`, data),
+  delete: (noteId: number) => api.delete(`/pdvs/notes/${noteId}`),
+};
+
 // --- Routes ---
 export const BEJERMAN_ZONES = ["Litoral", "GBA Sur", "GBA Norte", "Patagonia"] as const;
 
 export const routesApi = {
-  list: (params?: { skip?: number; limit?: number; created_by?: number }) =>
+  list: (params?: { skip?: number; limit?: number; created_by?: number; assigned_user_id?: number }) =>
     api.get<Route[]>("/routes", params as Record<string, number | undefined>),
   get: (id: number) => api.get<Route>(`/routes/${id}`),
   getBejermanZones: () => api.get<{ zones: string[] }>("/routes/bejerman-zones"),
@@ -202,7 +295,8 @@ export const routesApi = {
       FrequencyType?: string;
       FrequencyConfig?: string;
       EstimatedMinutes?: number;
-      AssignedUserId?: number;
+      AssignedUserId?: number | null;
+      IsOptimized?: boolean;
     }
   ) => api.patch<Route>(`/routes/${id}`, data),
   delete: (id: number) => api.delete(`/routes/${id}`),
@@ -210,6 +304,8 @@ export const routesApi = {
   // Route PDVs
   listPdvs: (routeId: number) =>
     api.get<RoutePdv[]>(`/routes/${routeId}/pdvs`),
+  listPdvAssignments: () =>
+    api.get<{ pdvId: number; routeId: number }[]>(`/routes/pdv-assignments`),
   addPdv: (routeId: number, data: { PdvId: number; SortOrder: number; Priority?: number }) =>
     api.post<RoutePdv>(`/routes/${routeId}/pdvs`, data),
   removePdv: (routeId: number, pdvId: number) =>
@@ -255,6 +351,24 @@ export const routesApi = {
   ) => api.post<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs`, data),
   updateDayPdv: (routeDayId: number, pdvId: number, data: { ExecutionStatus?: string }) =>
     api.patch<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs/${pdvId}`, data),
+
+  // Route Generation
+  generateProposal: (data: {
+    pdv_ids: number[];
+    max_routes?: number;
+    min_pdvs_per_route?: number;
+    max_pdvs_per_route?: number;
+    route_name_prefix?: string;
+  }) => api.post<{
+    routes: {
+      index: number;
+      name: string;
+      pdvs: { PdvId: number; Name: string; Address: string | null; Lat: number | null; Lon: number | null; SortOrder: number }[];
+      total_distance_km: number;
+      estimated_minutes: number;
+    }[];
+    unassigned_pdv_ids: number[];
+  }>("/routes/generate-proposal", data),
 };
 
 // --- Forms ---
@@ -262,9 +376,9 @@ export const formsApi = {
   list: (params?: { skip?: number; limit?: number }) =>
     api.get<Form[]>("/forms", params as Record<string, number | undefined>),
   get: (id: number) => api.get<Form>(`/forms/${id}`),
-  create: (data: { Name: string; Channel?: string; Version: number; IsActive?: boolean }) =>
+  create: (data: { Name: string; Channel?: string; Version: number; IsActive?: boolean; Frequency?: string | null; FrequencyConfig?: string | null }) =>
     api.post<Form>("/forms", data),
-  update: (id: number, data: { Name?: string; Channel?: string; Version?: number; IsActive?: boolean }) =>
+  update: (id: number, data: { Name?: string; Channel?: string; Version?: number; IsActive?: boolean; Frequency?: string | null; FrequencyConfig?: string | null }) =>
     api.patch<Form>(`/forms/${id}`, data),
   delete: (id: number) => api.delete(`/forms/${id}`),
 
@@ -476,6 +590,7 @@ export const mandatoryActivitiesApi = {
     PhotoRequired?: boolean;
     ChannelId?: number | null;
     RouteId?: number | null;
+    FormId?: number | null;
     IsActive?: boolean;
   }) => api.post<MandatoryActivity>("/mandatory-activities", data),
   update: (id: number, data: Partial<MandatoryActivity>) =>
@@ -523,6 +638,28 @@ export const reportsApi = {
       gps: number;
       photo: number;
     }>>("/reports/channel-coverage", params),
+  avgTimeByTmPdv: (params?: { user_id?: number; pdv_id?: number; days?: number }) =>
+    api.get<Array<{
+      userId: number;
+      userName: string;
+      pdvId: number;
+      pdvName: string;
+      visitCount: number;
+      avgMinutes: number;
+    }>>("/reports/avg-time-by-tm-pdv", params as Record<string, number | undefined>),
+  gpsAlerts: (params?: { days?: number; user_id?: number }) =>
+    api.get<Array<{
+      visitId: number;
+      pdvId: number;
+      pdvName: string;
+      userId: number;
+      userName: string;
+      openedAt: string | null;
+      status: string;
+      alertType: "no_gps" | "out_of_range";
+      distanceM: number | null;
+      perimeterM: number;
+    }>>("/reports/gps-alerts", params as Record<string, number | undefined>),
   formTimes: (params?: { year?: number; month?: number }) =>
     api.get<Array<{
       formId: number;

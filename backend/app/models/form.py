@@ -11,6 +11,12 @@ class Form(Base):
     Channel = Column(String(40), nullable=True)
     Version = Column(Integer, nullable=False)
     IsActive = Column(Boolean, default=True, nullable=False)
+    # Frecuencia: "always" (hasta nuevo aviso), "weekly", "biweekly", "monthly", "every_x_days", "specific_days", null
+    Frequency = Column(String(40), nullable=True)
+    # Config JSON para frecuencia (interval, days, startDate, etc.)
+    FrequencyConfig = Column(String(200), nullable=True)
+    # Quién creó el formulario (null = legacy/admin)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

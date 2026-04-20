@@ -32,4 +32,12 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  // Optional peer deps que pueden no estar instaladas en dev (ej: @sentry/react).
+  // Las marcamos como external en rollup para que el build no falle.
+  build: {
+    rollupOptions: {
+      external: ['@sentry/react'],
+    },
+  },
 })
