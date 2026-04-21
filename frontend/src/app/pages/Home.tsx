@@ -106,8 +106,15 @@ export function Home() {
                   strokeDashoffset={`${2 * Math.PI * 24 * (1 - progressPercent / 100)}`}
                   className="transition-all duration-700" />
               </svg>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold">{completedVisits}/{todayVisits}</span>
+              <div
+                className="absolute inset-0 flex items-center justify-center"
+                aria-label={progressPercent === 100 ? `${completedVisits} de ${todayVisits} visitas completadas` : undefined}
+              >
+                {progressPercent === 100 ? (
+                  <CheckCircle2 size={20} className="text-green-500" />
+                ) : (
+                  <span className="text-xs font-bold">{completedVisits}/{todayVisits}</span>
+                )}
               </div>
             </div>
             <div className="flex-1 min-w-0">

@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { RouteList } from "./pages/RouteList";
@@ -34,6 +34,16 @@ import { RouteGeneratorPage } from "./pages/RouteGeneratorPage";
 import { VisitActionsPage } from "./pages/VisitActionsPage";
 import { VisitSummaryPage } from "./pages/VisitSummaryPage";
 import { EndOfDayPage } from "./pages/EndOfDayPage";
+import { getCurrentUser } from "../lib/auth";
+
+function AdminGuard() {
+  const user = getCurrentUser();
+  const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo"];
+  if (!adminRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return <AdminLayout />;
+}
 
 export const router = createBrowserRouter([
   {
@@ -68,7 +78,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/admin",
-    Component: AdminLayout,
+    Component: AdminGuard,
     children: [
       { index: true, Component: AdminDashboard },
       { path: "pos-management", Component: POSManagement },

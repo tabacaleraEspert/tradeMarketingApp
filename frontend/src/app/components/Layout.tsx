@@ -31,7 +31,8 @@ export function Layout() {
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button
             onClick={() => navigate("/")}
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
+            aria-label="Inicio"
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/") && location.pathname === "/"
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -43,7 +44,8 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/search-pdv")}
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
+            aria-label="Buscar PDV"
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/search-pdv") || isActive("/route") || location.pathname.includes("/pos")
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -55,7 +57,8 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/alerts")}
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
+            aria-label="Alertas"
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/alerts") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -65,7 +68,8 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/sync")}
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
+            aria-label="Sincronizar"
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/sync") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -75,7 +79,8 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/profile")}
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
+            aria-label="Perfil"
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/profile") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
