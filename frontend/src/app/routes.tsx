@@ -34,7 +34,7 @@ import { RouteGeneratorPage } from "./pages/RouteGeneratorPage";
 import { VisitActionsPage } from "./pages/VisitActionsPage";
 import { VisitSummaryPage } from "./pages/VisitSummaryPage";
 import { EndOfDayPage } from "./pages/EndOfDayPage";
-import { getCurrentUser } from "../lib/auth";
+import { getCurrentUser } from "./lib/auth";
 
 function AdminGuard() {
   const user = getCurrentUser();
