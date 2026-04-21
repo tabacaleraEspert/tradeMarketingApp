@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -35,7 +35,7 @@ router = APIRouter(prefix="/forms", tags=["Formularios"])
 
 # --- Form ---
 @router.get("", response_model=list[Form])
-def list_forms(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_forms(skip: int = 0, limit: int = Query(default=100, le=500), db: Session = Depends(get_db)):
     return db.query(FormModel).order_by(FormModel.FormId).offset(skip).limit(limit).all()
 
 

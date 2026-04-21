@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 import bcrypt
 
@@ -69,7 +69,7 @@ def _ensure_role(db: Session, user_id: int, role_name: str) -> None:
 @router.get("", response_model=list[User])
 def list_users(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(default=100, le=500),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):

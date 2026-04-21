@@ -117,6 +117,13 @@ def create_visit(
             detail=f"Status inválido. Permitidos: {sorted(_VALID_STATUSES)}",
         )
 
+    # 4b. No permitir crear visitas directamente como COMPLETED/CLOSED
+    if data.Status and data.Status in _TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede crear una visita con Status '{data.Status}'. Solo se permite OPEN o IN_PROGRESS.",
+        )
+
     v = VisitModel(
         PdvId=data.PdvId,
         UserId=data.UserId,
@@ -356,7 +363,23 @@ def delete_visit(
 # ── Visit Answers ──────────────────────────────────────────
 
 @router.get("/{visit_id}/answers", response_model=list[VisitAnswer])
-def list_visit_answers(visit_id: int, db: Session = Depends(get_db)):
+def list_visit_answers(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    # Ownership check: only the visit owner or supervisor+ can see answers
+    role = get_user_role(db, current_user.UserId)
+    if v.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional"):
+        raise HTTPException(
+            status_code=403,
+            detail="Sólo el dueño de la visita o un supervisor pueden ver las respuestas",
+        )
+
     return (
         db.query(VisitAnswerModel)
         .filter(VisitAnswerModel.VisitId == visit_id)

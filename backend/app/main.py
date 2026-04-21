@@ -11,9 +11,15 @@ from .auth import create_access_token, create_refresh_token, decode_token, get_c
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
 from .observability import init_sentry
+from .config import settings
 
 configure_logging()
 init_sentry()
+
+# Issue 1.5: Warn loudly if JWT secret is still the default dev value
+if settings.jwt_secret_key == "dev-secret-CHANGEME-in-prod-please":
+    import logging
+    logging.getLogger("app").warning("⚠️  JWT_SECRET_KEY is using the default dev value! Set it in production!")
 
 app = FastAPI(
     title="Trade Marketing API",
@@ -23,7 +29,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.frontend_origin] if settings.frontend_origin else ["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -210,6 +216,9 @@ def change_password(
 
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="La nueva contraseña debe tener al menos 8 caracteres")
+
+    if bcrypt.checkpw(data.new_password.encode(), current_user.PasswordHash.encode()):
+        raise HTTPException(status_code=400, detail="La nueva contraseña debe ser diferente a la actual")
 
     current_user.PasswordHash = bcrypt.hashpw(data.new_password.encode(), bcrypt.gensalt()).decode()
     current_user.MustChangePassword = False

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import Distributor as DistributorModel
@@ -8,7 +8,7 @@ router = APIRouter(prefix="/distributors", tags=["Distribuidores"])
 
 
 @router.get("", response_model=list[Distributor])
-def list_distributors(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def list_distributors(skip: int = 0, limit: int = Query(default=100, le=500), db: Session = Depends(get_db)):
     return db.query(DistributorModel).order_by(DistributorModel.DistributorId).offset(skip).limit(limit).all()
 
 

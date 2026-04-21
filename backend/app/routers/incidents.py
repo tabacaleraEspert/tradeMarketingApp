@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
-from ..models import Incident as IncidentModel
+from ..models import Incident as IncidentModel, User as UserModel
 from ..schemas.incident import Incident, IncidentCreate, IncidentUpdate
+from ..auth import get_current_user, require_role
 
 router = APIRouter(prefix="/incidents", tags=["Incidencias"])
 
@@ -34,8 +35,12 @@ def get_incident(incident_id: int, db: Session = Depends(get_db)):
     return i
 
 
-@router.post("", response_model=Incident, status_code=201)
-def create_incident(data: IncidentCreate, db: Session = Depends(get_db)):
+@router.post("", response_model=Incident, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
+def create_incident(
+    data: IncidentCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     i = IncidentModel(
         VisitId=data.VisitId,
         PdvId=data.PdvId,
@@ -43,7 +48,7 @@ def create_incident(data: IncidentCreate, db: Session = Depends(get_db)):
         Status=data.Status,
         Priority=data.Priority,
         Notes=data.Notes,
-        CreatedBy=data.CreatedBy,
+        CreatedBy=current_user.UserId,
     )
     db.add(i)
     db.commit()
@@ -51,7 +56,7 @@ def create_incident(data: IncidentCreate, db: Session = Depends(get_db)):
     return i
 
 
-@router.patch("/{incident_id}", response_model=Incident)
+@router.patch("/{incident_id}", response_model=Incident, dependencies=[Depends(require_role("territory_manager"))])
 def update_incident(incident_id: int, data: IncidentUpdate, db: Session = Depends(get_db)):
     i = db.query(IncidentModel).filter(IncidentModel.IncidentId == incident_id).first()
     if not i:
@@ -63,7 +68,7 @@ def update_incident(incident_id: int, data: IncidentUpdate, db: Session = Depend
     return i
 
 
-@router.delete("/{incident_id}", status_code=204)
+@router.delete("/{incident_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_incident(incident_id: int, db: Session = Depends(get_db)):
     i = db.query(IncidentModel).filter(IncidentModel.IncidentId == incident_id).first()
     if not i:

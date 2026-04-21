@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from ..auth import require_role
 from ..database import get_db
 from ..models import Notification as NotificationModel
 from ..schemas.notification import Notification, NotificationCreate, NotificationUpdate
@@ -34,7 +35,7 @@ def get_notification(notification_id: int, db: Session = Depends(get_db)):
     return n
 
 
-@router.post("", response_model=Notification, status_code=201)
+@router.post("", response_model=Notification, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
 def create_notification(data: NotificationCreate, db: Session = Depends(get_db)):
     n = NotificationModel(
         Title=data.Title,
@@ -51,7 +52,7 @@ def create_notification(data: NotificationCreate, db: Session = Depends(get_db))
     return n
 
 
-@router.patch("/{notification_id}", response_model=Notification)
+@router.patch("/{notification_id}", response_model=Notification, dependencies=[Depends(require_role("territory_manager"))])
 def update_notification(notification_id: int, data: NotificationUpdate, db: Session = Depends(get_db)):
     n = db.query(NotificationModel).filter(NotificationModel.NotificationId == notification_id).first()
     if not n:
@@ -63,7 +64,7 @@ def update_notification(notification_id: int, data: NotificationUpdate, db: Sess
     return n
 
 
-@router.delete("/{notification_id}", status_code=204)
+@router.delete("/{notification_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_notification(notification_id: int, db: Session = Depends(get_db)):
     n = db.query(NotificationModel).filter(NotificationModel.NotificationId == notification_id).first()
     if not n:

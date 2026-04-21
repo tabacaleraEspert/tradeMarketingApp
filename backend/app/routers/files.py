@@ -175,6 +175,14 @@ def list_visit_photos(
     if not visit:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
 
+    # Ownership check: only the visit owner, territory_manager+, or admin can list photos
+    role = get_user_role(db, current_user.UserId)
+    if visit.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional"):
+        raise HTTPException(
+            status_code=403,
+            detail="Sólo el dueño de la visita o un supervisor pueden ver las fotos",
+        )
+
     rows = (
         db.query(VisitPhotoModel, FileModel)
         .join(FileModel, FileModel.FileId == VisitPhotoModel.FileId)

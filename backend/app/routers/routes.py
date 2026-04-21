@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
@@ -169,7 +169,7 @@ def routes_map_overview(db: Session = Depends(get_db)):
 @router.get("", response_model=list[Route])
 def list_routes(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(default=100, le=500),
     created_by: int | None = None,
     assigned_user_id: int | None = None,
     db: Session = Depends(get_db),

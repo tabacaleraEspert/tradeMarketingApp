@@ -1,6 +1,6 @@
 import uuid
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvContactModel, Distributor
@@ -92,7 +92,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
 @router.get("", response_model=list[Pdv])
 def list_pdvs(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(default=100, le=500),
     zone_id: int | None = None,
     distributor_id: int | None = None,
     db: Session = Depends(get_db),

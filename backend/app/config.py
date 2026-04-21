@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     database_password: str = ""
     database_connection_timeout: int = 60
 
+    # --- CORS ---
+    frontend_origin: str = "http://localhost:5173"
+
     # --- Auth / JWT ---
     # IMPORTANT: override JWT_SECRET_KEY via env var en producción
     jwt_secret_key: str = "dev-secret-CHANGEME-in-prod-please"
