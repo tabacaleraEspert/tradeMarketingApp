@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
-import { Badge } from "./ui/badge";
 import { authApi, type MeResponse } from "../../lib/api/services";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -32,7 +31,18 @@ export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isOnline] = useState(true);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => {
+      window.removeEventListener("online", on);
+      window.removeEventListener("offline", off);
+    };
+  }, []);
   const [currentUser, setCurrentUser] = useState<MeResponse | null>(null);
 
   useEffect(() => {
@@ -100,9 +110,6 @@ export function AdminLayout() {
             {/* Notifications */}
             <button className="relative p-2 hover:bg-muted rounded-lg transition-colors">
               <Bell size={20} />
-              <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs bg-espert-gold text-white border-0">
-                3
-              </Badge>
             </button>
 
             {/* User Menu */}

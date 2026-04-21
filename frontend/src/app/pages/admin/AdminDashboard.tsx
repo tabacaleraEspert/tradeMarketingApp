@@ -53,7 +53,7 @@ export function AdminDashboard() {
 
   // Reps without activity today
   const activeRepsToday = new Set(todayVisits.map((v) => v.UserId));
-  const inactiveReps = activeUsers.filter((u) => !activeRepsToday.has(u.UserId) && u.UserId > 2); // exclude admin/test
+  const inactiveReps = activeUsers.filter((u) => !activeRepsToday.has(u.UserId) && u.roleName === "vendedor");
 
   // Coverage gap: channels below 70%
   const lowCoverageChannels = channels.filter((c) => c.coverage < 70);

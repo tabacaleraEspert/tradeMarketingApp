@@ -3,7 +3,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Modal } from "../../components/ui/modal";
+import { Modal, ConfirmModal } from "../../components/ui/modal";
 import { Plus, Edit, Trash2, ChevronDown, ChevronRight } from "lucide-react";
 import {
   useApiList,
@@ -31,6 +31,7 @@ export function ChannelManagement() {
   const [channelName, setChannelName] = useState("");
   const [subchannelName, setSubchannelName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<{ type: "channel" | "subchannel"; id: number } | null>(null);
 
   const { data: subchannels, refetch: refetchSubchannels } = useApiList(
     () =>
@@ -75,7 +76,6 @@ export function ChannelManagement() {
   };
 
   const handleDeleteChannel = async (channelId: number) => {
-    if (!confirm("¿Desactivar este canal? Los PDVs que lo usen seguirán mostrándolo.")) return;
     try {
       await channelsApi.delete(channelId);
       toast.success("Canal desactivado");
@@ -129,7 +129,6 @@ export function ChannelManagement() {
   };
 
   const handleDeleteSubchannel = async (subchannelId: number) => {
-    if (!confirm("¿Desactivar este subcanal?")) return;
     try {
       await subchannelsApi.delete(subchannelId);
       toast.success("Subcanal desactivado");
@@ -137,6 +136,16 @@ export function ChannelManagement() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
     }
+  };
+
+  const handleConfirmDelete = () => {
+    if (!confirmDelete) return;
+    if (confirmDelete.type === "channel") {
+      handleDeleteChannel(confirmDelete.id);
+    } else {
+      handleDeleteSubchannel(confirmDelete.id);
+    }
+    setConfirmDelete(null);
   };
 
   return (
@@ -189,7 +198,7 @@ export function ChannelManagement() {
                       variant="outline"
                       size="sm"
                       className="text-red-600"
-                      onClick={() => handleDeleteChannel(ch.ChannelId)}
+                      onClick={() => setConfirmDelete({ type: "channel", id: ch.ChannelId })}
                     >
                       <Trash2 size={16} />
                     </Button>
@@ -232,7 +241,7 @@ export function ChannelManagement() {
                               variant="ghost"
                               size="sm"
                               className="text-red-600"
-                              onClick={() => handleDeleteSubchannel(sc.SubChannelId)}
+                              onClick={() => setConfirmDelete({ type: "subchannel", id: sc.SubChannelId })}
                             >
                               <Trash2 size={14} />
                             </Button>
@@ -275,6 +284,21 @@ export function ChannelManagement() {
           </div>
         </div>
       </Modal>
+
+      {/* Confirm Delete Modal */}
+      <ConfirmModal
+        isOpen={confirmDelete !== null}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={handleConfirmDelete}
+        title={confirmDelete?.type === "channel" ? "Desactivar Canal" : "Desactivar Subcanal"}
+        message={
+          confirmDelete?.type === "channel"
+            ? "¿Desactivar este canal? Los PDVs que lo usen seguirán mostrándolo."
+            : "¿Desactivar este subcanal?"
+        }
+        confirmText="Desactivar"
+        type="danger"
+      />
 
       {/* Modal Subcanal */}
       <Modal

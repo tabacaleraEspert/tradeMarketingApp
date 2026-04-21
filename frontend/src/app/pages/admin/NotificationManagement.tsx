@@ -3,7 +3,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Modal } from "../../components/ui/modal";
+import { Modal, ConfirmModal } from "../../components/ui/modal";
 import { Textarea } from "../../components/ui/textarea";
 import { Plus, Bell, Edit, Trash2 } from "lucide-react";
 import { useApiList, notificationsApi } from "@/lib/api";
@@ -23,6 +23,7 @@ export function NotificationManagement() {
     IsActive: true,
   });
   const [saving, setSaving] = useState(false);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
 
   const handleSave = async () => {
     if (!form.Title.trim() || !form.Message.trim()) {
@@ -50,7 +51,6 @@ export function NotificationManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("¿Eliminar esta notificación?")) return;
     try {
       await notificationsApi.delete(id);
       toast.success("Notificación eliminada");
@@ -146,7 +146,7 @@ export function NotificationManagement() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDelete(n.NotificationId)}
+                        onClick={() => setDeleteId(n.NotificationId)}
                       >
                         <Trash2 size={16} className="text-red-600" />
                       </Button>
@@ -257,6 +257,18 @@ export function NotificationManagement() {
           </div>
         </div>
       </Modal>
+
+      <ConfirmModal
+        isOpen={deleteId !== null}
+        onClose={() => setDeleteId(null)}
+        onConfirm={() => {
+          if (deleteId !== null) handleDelete(deleteId);
+        }}
+        title="Eliminar Notificación"
+        message="¿Eliminar esta notificación?"
+        confirmText="Eliminar"
+        type="danger"
+      />
     </div>
   );
 }
