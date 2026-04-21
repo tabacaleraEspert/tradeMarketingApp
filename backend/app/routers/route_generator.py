@@ -11,25 +11,50 @@ Endpoint:
 """
 import math
 import random
+import logging
+import time
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from ..auth import require_role, get_current_user
+from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
 from ..models.pdv import PDV as PDVModel
 from ..models import User as UserModel
+from ..hierarchy import get_all_subordinate_ids
 
+logger = logging.getLogger("app.route_generator")
 
 router = APIRouter(prefix="/routes", tags=["Generador de Rutas"])
 
+# ---------------------------------------------------------------------------
+# Constants (configurable per deployment)
+# ---------------------------------------------------------------------------
+DEFAULT_SPEED_KMH = 25
+DEFAULT_VISIT_MINUTES = 15
+DEFAULT_START_HOUR = 8
+LUNCH_START = 12 * 60
+LUNCH_END = 14 * 60
+SCORE_PENALTY_AFTER_CLOSE = 50
+SCORE_BONUS_URGENT_THRESHOLD = 60  # minutes
+SCORE_BONUS_URGENT = -5
+SCORE_PENALTY_BEFORE_OPEN = 10
+SCORE_PENALTY_LUNCH = 3
+MAX_PDV_IDS = 500
+
 
 class GenerateRequest(BaseModel):
-    pdv_ids: list[int]
-    max_routes: int = 10
-    min_pdvs_per_route: int = 25
-    max_pdvs_per_route: int = 35
-    route_name_prefix: str = "Ruta"
+    pdv_ids: list[int] = Field(..., min_length=1, max_length=MAX_PDV_IDS)
+    max_routes: int = Field(default=10, ge=1, le=50)
+    min_pdvs_per_route: int = Field(default=25, ge=1, le=200)
+    max_pdvs_per_route: int = Field(default=35, ge=1, le=200)
+    route_name_prefix: str = Field(default="Ruta", max_length=40)
+
+    @model_validator(mode="after")
+    def _min_le_max(self):
+        if self.min_pdvs_per_route > self.max_pdvs_per_route:
+            raise ValueError("min_pdvs_per_route no puede ser mayor que max_pdvs_per_route")
+        return self
 
 
 class RoutePdvProposal(BaseModel):
@@ -184,38 +209,29 @@ def _tsp_nn(
 
             dist = _haversine_km(points[current][0], points[current][1], points[j][0], points[j][1])
 
-            # Estimar tiempo de llegada: distancia/25kmh + 15 min visita actual
-            travel_min = (dist / 25) * 60
-            arrival_min = current_time_min + 15 + travel_min  # 15 min en PDV actual + viaje
+            travel_min = (dist / DEFAULT_SPEED_KMH) * 60
+            arrival_min = current_time_min + DEFAULT_VISIT_MINUTES + travel_min
 
-            # Score base = distancia
             score = dist
 
             if has_schedule:
                 close_j = close_mins[j]
                 open_j = open_mins[j]
 
-                # Penalizar si llegaríamos después del cierre
                 if close_j is not None and arrival_min > close_j:
-                    score += 50  # Penalización fuerte: llegaríamos tarde
+                    score += SCORE_PENALTY_AFTER_CLOSE
 
-                # Bonus: priorizar PDVs que cierran pronto (urgencia)
                 if close_j is not None:
                     time_left = close_j - arrival_min
-                    if 0 < time_left < 60:  # Cierra en menos de 1h
-                        score -= 5  # Bonus por urgencia
+                    if 0 < time_left < SCORE_BONUS_URGENT_THRESHOLD:
+                        score += SCORE_BONUS_URGENT
 
-                # Penalizar si el PDV no abrió todavía
                 if open_j is not None and arrival_min < open_j:
-                    score += 10  # Llegaríamos antes de que abra
+                    score += SCORE_PENALTY_BEFORE_OPEN
 
-                # Penalizar horario de almuerzo (12:00-14:00)
-                # Si el PDV cierra durante almuerzo, no penalizar (es cuando hay que ir)
-                LUNCH_START = 12 * 60
-                LUNCH_END = 14 * 60
                 if LUNCH_START <= arrival_min <= LUNCH_END:
                     if close_j is None or close_j > LUNCH_END:
-                        score += 3  # Leve penalización: mejor ir fuera de almuerzo
+                        score += SCORE_PENALTY_LUNCH
 
             if score < best_score:
                 best_score = score
@@ -310,11 +326,19 @@ def generate_route_proposal(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    if len(data.pdv_ids) == 0:
-        raise HTTPException(status_code=400, detail="Seleccioná al menos un PDV")
+    t0 = time.time()
 
-    # Load PDVs
-    pdvs = db.query(PDVModel).filter(PDVModel.PdvId.in_(data.pdv_ids), PDVModel.IsActive == True).all()
+    # Load PDVs with zone/hierarchy authorization
+    role = get_user_role(db, current_user.UserId)
+    q = db.query(PDVModel).filter(PDVModel.PdvId.in_(data.pdv_ids), PDVModel.IsActive == True)
+    if role not in ("admin",):
+        # Non-admin: only PDVs assigned to user or their subordinates
+        sub_ids = get_all_subordinate_ids(db, current_user.UserId)
+        sub_ids.add(current_user.UserId)
+        q = q.filter(
+            (PDVModel.AssignedUserId.in_(sub_ids)) | (PDVModel.AssignedUserId.is_(None))
+        )
+    pdvs = q.all()
     if not pdvs:
         raise HTTPException(status_code=404, detail="No se encontraron PDVs activos")
 
@@ -382,9 +406,8 @@ def generate_route_proposal(
                 curr = cluster_points[tsp_idx]
                 total_km += _haversine_km(prev[0], prev[1], curr[0], curr[1])
 
-        # Estimate time: ~25 km/h driving + 15 min per PDV
-        drive_min = (total_km / 25) * 60
-        visit_min = len(ordered_pdvs) * 15
+        drive_min = (total_km / DEFAULT_SPEED_KMH) * 60
+        visit_min = len(ordered_pdvs) * DEFAULT_VISIT_MINUTES
         est_minutes = round(drive_min + visit_min)
 
         route_idx += 1
@@ -395,6 +418,9 @@ def generate_route_proposal(
             total_distance_km=round(total_km, 1),
             estimated_minutes=est_minutes,
         ))
+
+    elapsed = round(time.time() - t0, 2)
+    logger.info(f"Route generation: {len(data.pdv_ids)} input PDVs → {len(route_proposals)} routes, {len(without_coords)} unassigned, {elapsed}s")
 
     return GenerateResponse(
         routes=route_proposals,
