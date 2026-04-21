@@ -27,6 +27,7 @@ import {
 import { usersApi, rolesApi, zonesApi } from "@/lib/api";
 import type { User, Role, Zone } from "@/lib/api";
 import { toast } from "sonner";
+import { getCurrentUser } from "../../lib/auth";
 
 interface UserWithRole extends User {
   roleId?: number | null;
@@ -221,7 +222,9 @@ export function UserManagement() {
     if (!roleName) return <Badge variant="outline">Sin rol</Badge>;
     const colors: Record<string, string> = {
       admin: "bg-espert-gold/10 text-espert-gold",
-      supervisor: "bg-espert-gold/10 text-espert-gold",
+      regional_manager: "bg-espert-gold/10 text-espert-gold",
+      territory_manager: "bg-blue-100 text-blue-800",
+      ejecutivo: "bg-purple-100 text-purple-800",
       vendedor: "bg-green-100 text-green-800",
     };
     return (
@@ -273,9 +276,9 @@ export function UserManagement() {
           <CardContent className="p-4 text-center">
             <Shield size={24} className="mx-auto text-espert-gold mb-1" />
             <p className="text-2xl font-bold text-foreground">
-              {users.filter((u) => u.roleName === "admin" || u.roleName === "supervisor").length}
+              {users.filter((u) => u.roleName === "admin" || u.roleName === "regional_manager").length}
             </p>
-            <p className="text-xs text-espert-gold">Admin/Supervisor</p>
+            <p className="text-xs text-espert-gold">Admin/Regional</p>
           </CardContent>
         </Card>
         <Card className="bg-amber-50 border-amber-200">
@@ -546,7 +549,13 @@ export function UserManagement() {
                   <SelectValue placeholder="Seleccionar rol..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {roles.map((r) => (
+                  {(() => {
+                    const cu = getCurrentUser();
+                    const hierarchy = ["admin", "regional_manager", "territory_manager", "ejecutivo", "vendedor"];
+                    const myIdx = hierarchy.indexOf(cu.role);
+                    const allowed = myIdx >= 0 ? hierarchy.slice(myIdx) : ["vendedor"];
+                    return roles.filter((r) => allowed.includes(r.Name));
+                  })().map((r) => (
                     <SelectItem key={r.RoleId} value={String(r.RoleId)}>
                       {r.Name.charAt(0).toUpperCase() + r.Name.slice(1)}
                     </SelectItem>

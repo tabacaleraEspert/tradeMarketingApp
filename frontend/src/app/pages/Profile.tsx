@@ -34,18 +34,20 @@ export function Profile() {
   };
 
   const getRoleBadge = (role: string) => {
-    const badges = {
-      vendedor: { label: "Vendedor", variant: "default" as const },
-      supervisor: { label: "Supervisor", variant: "secondary" as const },
-      admin: { label: "Administrador", variant: "outline" as const },
+    const badges: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
+      vendedor: { label: "Vendedor", variant: "default" },
+      ejecutivo: { label: "Ejecutivo", variant: "secondary" },
+      territory_manager: { label: "Territory Manager", variant: "secondary" },
+      regional_manager: { label: "Regional Manager", variant: "secondary" },
+      admin: { label: "Administrador", variant: "outline" },
     };
-    return badges[role as keyof typeof badges] || badges.vendedor;
+    return badges[role] || badges.vendedor;
   };
 
   const currentUser = getCurrentUser();
   const userId = Number(currentUser.id) || undefined;
   const { data: stats, loading: statsLoading } = useUserMonthlyStats(userId);
-  const roleBadge = getRoleBadge(currentUser.role as "vendedor" | "supervisor" | "admin");
+  const roleBadge = getRoleBadge(currentUser.role);
 
   // Cargar avatar actual del usuario
   useEffect(() => {

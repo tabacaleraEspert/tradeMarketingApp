@@ -11,8 +11,11 @@ import {
   subchannelsApi,
 } from "@/lib/api";
 import { toast } from "sonner";
+import { getCurrentUser } from "../../lib/auth";
 
 export function ChannelManagement() {
+  const currentUser = getCurrentUser();
+  const canDelete = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const { data: channels, refetch: refetchChannels } = useApiList(() =>
     channelsApi.listAll()
   );
@@ -181,6 +184,7 @@ export function ChannelManagement() {
                     >
                       <Edit size={16} />
                     </Button>
+                    {canDelete && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -189,6 +193,7 @@ export function ChannelManagement() {
                     >
                       <Trash2 size={16} />
                     </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -222,6 +227,7 @@ export function ChannelManagement() {
                             >
                               <Edit size={14} />
                             </Button>
+                            {canDelete && (
                             <Button
                               variant="ghost"
                               size="sm"
@@ -230,6 +236,7 @@ export function ChannelManagement() {
                             >
                               <Trash2 size={14} />
                             </Button>
+                            )}
                           </div>
                         </div>
                       ))}

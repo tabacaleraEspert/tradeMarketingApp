@@ -157,7 +157,7 @@ export function RouteEditorPage() {
   const [pdvCache, setPdvCache] = useState<Map<number, Pdv>>(new Map());
 
   const currentUser = getCurrentUser();
-  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
+  const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const { data: allPdvs, loading: pdvsLoading } = usePdvs();
   const { data: zones } = useZones();
   const { data: forms } = useForms();

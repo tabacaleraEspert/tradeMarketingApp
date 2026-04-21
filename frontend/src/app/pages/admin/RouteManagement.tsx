@@ -22,6 +22,7 @@ import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES } f
 import { api } from "@/lib/api/client";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-google-maps/api";
 import { toast } from "sonner";
+import { getCurrentUser } from "../../lib/auth";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -125,6 +126,8 @@ function formatFrequency(type: string | null, config: string | null): string {
 
 export function RouteManagement() {
   const navigate = useNavigate();
+  const currentUser = getCurrentUser();
+  const canDelete = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [formName, setFormName] = useState("");
@@ -695,6 +698,7 @@ export function RouteManagement() {
 
                   {/* Actions */}
                   <div className="flex items-center justify-end gap-1">
+                    {canDelete && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -708,6 +712,7 @@ export function RouteManagement() {
                     >
                       <Trash2 size={15} />
                     </button>
+                    )}
                     <ChevronRight size={16} className="text-muted-foreground" />
                   </div>
                 </div>

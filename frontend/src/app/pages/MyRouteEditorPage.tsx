@@ -36,7 +36,7 @@ export function MyRouteEditorPage() {
   const userId = Number(currentUser.id);
   const id = routeId ? Number(routeId) : null;
   // Todos los roles pueden editar rutas (el TM Rep arma y modifica sus propias rutas).
-  const canEdit = ["admin", "territory_manager", "regional_manager", "supervisor", "vendedor"].includes(
+  const canEdit = ["admin", "territory_manager", "regional_manager", "ejecutivo", "vendedor"].includes(
     (currentUser.role || "").toLowerCase()
   );
 

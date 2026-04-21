@@ -65,7 +65,7 @@ export function RouteFocoPage() {
 
   const completedPdvId = (location.state as { completedPdvId?: number } | null)?.completedPdvId;
 
-  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
+  const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
 
   useEffect(() => {

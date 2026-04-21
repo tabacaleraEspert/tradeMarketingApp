@@ -21,7 +21,7 @@ export function Home() {
   const { selectedDate, setSelectedDate, goToToday, isToday } = useSelectedDate();
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
-  const isAdmin = ["admin", "supervisor"].includes(currentUser.role);
+  const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
 
   const { data: routeDayPdvs, loading: loadingPdvs } = useRouteDayPdvsForDate(selectedDate, userIdForFilter);

@@ -29,7 +29,7 @@ export function EndOfDayPage() {
   const currentUser = getCurrentUser();
   const today = new Date();
 
-  const isAdmin = currentUser.role === "admin" || currentUser.role === "supervisor";
+  const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const userIdFilter = isAdmin ? undefined : Number(currentUser.id);
 
   const { data: routeDayPdvs, loading } = useRouteDayPdvsForDate(today, userIdFilter);
