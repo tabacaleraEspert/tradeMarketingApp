@@ -282,6 +282,39 @@ export function SurveyForm() {
     } catch { toast.error("Error al guardar borrador"); }
   };
 
+  // Autosave draft every 30 seconds
+  const answersChangedSinceLastSave = useRef(false);
+  useEffect(() => {
+    answersChangedSinceLastSave.current = Object.keys(answers).length > 0;
+  }, [answers]);
+
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      if (!answersChangedSinceLastSave.current) return;
+      const vid = visitId ?? visitIdFromState;
+      if (!vid) return;
+      try {
+        const isTempVisit = vid < 0;
+        if (isTempVisit || !navigator.onLine) {
+          await executeOrEnqueue({
+            kind: "visit_answers",
+            method: "POST",
+            url: `/visits/${vid}/answers`,
+            body: buildAnswerPayload(),
+            label: "Respuestas del formulario (borrador auto)",
+            _tempVisitId: isTempVisit ? vid : undefined,
+          });
+        } else {
+          await visitsApi.saveAnswers(vid, buildAnswerPayload());
+          await flushFormTimes(vid);
+        }
+        answersChangedSinceLastSave.current = false;
+        toast.success("Borrador guardado automáticamente", { duration: 2000 });
+      } catch { /* silent autosave failure */ }
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [visitId, visitIdFromState, flushFormTimes]);
+
   const handleSubmit = async () => {
     const vid = visitId ?? visitIdFromState;
     if (!vid) { toast.error("No hay visita activa"); return; }

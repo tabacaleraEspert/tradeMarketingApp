@@ -1,65 +1,116 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Badge } from "../components/ui/badge";
-import { Progress } from "../components/ui/progress";
 import {
   ArrowLeft,
   RefreshCw,
   Wifi,
   WifiOff,
-  FileText,
-  Camera,
   CheckCircle2,
   Clock,
   AlertCircle,
+  AlertTriangle,
+  Trash2,
 } from "lucide-react";
-import { syncStatus } from "../data/mockData";
+import { queue, subscribeQueueChanges, type QueuedOperation } from "@/lib/offline/queue";
+import { flushQueue } from "@/lib/offline/sync-worker";
 import { toast } from "sonner";
+
+const KIND_LABELS: Record<string, string> = {
+  visit_check: "Check de visita",
+  visit_create: "Crear visita",
+  visit_update: "Actualizar visita",
+  visit_answers: "Respuestas formulario",
+  visit_action_update: "Acción de visita",
+  photo_upload: "Subir foto",
+  pdv_create: "Crear PDV",
+  pdv_note_create: "Nota de PDV",
+};
+
+function formatAge(timestamp: number): string {
+  const diffMs = Date.now() - timestamp;
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return "Ahora";
+  if (diffMin < 60) return `Hace ${diffMin} min`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `Hace ${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `Hace ${diffDays}d`;
+}
 
 export function Sync() {
   const navigate = useNavigate();
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [syncProgress, setSyncProgress] = useState(0);
+  const [operations, setOperations] = useState<QueuedOperation[]>([]);
 
-  const handleSync = () => {
+  const refreshQueue = useCallback(async () => {
+    try {
+      const ops = await queue.list();
+      setOperations(ops);
+    } catch {
+      /* IDB not available */
+    }
+  }, []);
+
+  // Load queue on mount and subscribe to changes
+  useEffect(() => {
+    refreshQueue();
+    const unsub = subscribeQueueChanges(() => {
+      refreshQueue();
+    });
+    return unsub;
+  }, [refreshQueue]);
+
+  // Track online/offline status
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  const handleSync = async () => {
+    if (isSyncing || !isOnline) return;
     setIsSyncing(true);
-    setSyncProgress(0);
-
-    // Simulate sync progress
-    const interval = setInterval(() => {
-      setSyncProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsSyncing(false);
-          toast.success("Sincronización completada");
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 300);
-  };
-
-  const formatLastSync = (date: string) => {
-    const now = new Date();
-    const syncDate = new Date(date);
-    const diffMinutes = Math.floor((now.getTime() - syncDate.getTime()) / (1000 * 60));
-
-    if (diffMinutes < 60) {
-      return `Hace ${diffMinutes} minutos`;
-    } else if (diffMinutes < 1440) {
-      const hours = Math.floor(diffMinutes / 60);
-      return `Hace ${hours} ${hours === 1 ? "hora" : "horas"}`;
-    } else {
-      return syncDate.toLocaleDateString("es-AR", {
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+    try {
+      const result = await flushQueue();
+      await refreshQueue();
+      if (result.succeeded > 0 && result.failed === 0) {
+        toast.success(`Sincronización completada: ${result.succeeded} operaciones enviadas`);
+      } else if (result.succeeded > 0 && result.failed > 0) {
+        toast.warning(
+          `Parcial: ${result.succeeded} enviadas, ${result.failed} fallaron`
+        );
+      } else if (result.processed === 0 && operations.length === 0) {
+        toast.info("No hay operaciones pendientes");
+      } else if (result.failed > 0) {
+        toast.error(`${result.failed} operaciones fallaron. Se reintentarán luego.`);
+      }
+    } catch (e) {
+      toast.error("Error al sincronizar");
+      console.error("[Sync] flushQueue error:", e);
+    } finally {
+      setIsSyncing(false);
     }
   };
+
+  const handleClearQueue = async () => {
+    if (!confirm("¿Eliminar todas las operaciones pendientes? Esta acción no se puede deshacer.")) return;
+    await queue.clear();
+    await refreshQueue();
+    toast.success("Cola vaciada");
+  };
+
+  const pendingCount = operations.length;
+  const deadOps = operations.filter((op) => op.attempts >= 5);
+  const activeOps = operations.filter((op) => op.attempts < 5);
 
   return (
     <div className="min-h-screen bg-background">
@@ -83,7 +134,7 @@ export function Sync() {
         {/* Connection Status */}
         <Card
           className={
-            syncStatus.isOnline
+            isOnline
               ? "bg-green-50 border-green-200"
               : "bg-red-50 border-red-200"
           }
@@ -92,10 +143,10 @@ export function Sync() {
             <div className="flex items-center gap-3">
               <div
                 className={`rounded-full p-3 ${
-                  syncStatus.isOnline ? "bg-green-600" : "bg-red-600"
+                  isOnline ? "bg-green-600" : "bg-red-600"
                 }`}
               >
-                {syncStatus.isOnline ? (
+                {isOnline ? (
                   <Wifi size={24} className="text-white" />
                 ) : (
                   <WifiOff size={24} className="text-white" />
@@ -104,17 +155,17 @@ export function Sync() {
               <div className="flex-1">
                 <p
                   className={`font-semibold ${
-                    syncStatus.isOnline ? "text-green-900" : "text-red-900"
+                    isOnline ? "text-green-900" : "text-red-900"
                   }`}
                 >
-                  {syncStatus.isOnline ? "Conectado" : "Sin Conexión"}
+                  {isOnline ? "Conectado" : "Sin Conexión"}
                 </p>
                 <p
                   className={`text-sm ${
-                    syncStatus.isOnline ? "text-green-700" : "text-red-700"
+                    isOnline ? "text-green-700" : "text-red-700"
                   }`}
                 >
-                  {syncStatus.isOnline
+                  {isOnline
                     ? "Datos sincronizados en tiempo real"
                     : "Trabajando en modo offline"}
                 </p>
@@ -123,125 +174,147 @@ export function Sync() {
           </CardContent>
         </Card>
 
-        {/* Last Sync */}
+        {/* Queue Summary */}
         <Card>
           <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-4">
+            <div className="flex items-center gap-3">
               <div className="bg-espert-gold/10 rounded-full p-3">
                 <Clock size={24} className="text-espert-gold" />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-foreground">Última Sincronización</p>
+                <p className="font-semibold text-foreground">Operaciones Pendientes</p>
                 <p className="text-sm text-muted-foreground">
-                  {formatLastSync(syncStatus.lastSync)}
+                  {pendingCount === 0
+                    ? "Todo sincronizado"
+                    : `${pendingCount} operacion${pendingCount === 1 ? "" : "es"} en cola`}
                 </p>
               </div>
-              <Badge variant="secondary">
-                {new Date(syncStatus.lastSync).toLocaleTimeString("es-AR", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+              <Badge
+                variant={pendingCount > 0 ? "default" : "secondary"}
+                className="text-base px-3 py-1"
+              >
+                {pendingCount}
               </Badge>
             </div>
-
-            {isSyncing && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Sincronizando...</span>
-                  <span className="font-semibold text-espert-gold">{syncProgress}%</span>
-                </div>
-                <Progress value={syncProgress} />
-              </div>
-            )}
           </CardContent>
         </Card>
 
-        {/* Pending Items */}
-        <div className="space-y-3">
-          <h3 className="font-semibold text-foreground">Datos Pendientes de Sincronización</h3>
+        {/* Pending Operations List */}
+        {activeOps.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="font-semibold text-foreground">En Cola</h3>
+            {activeOps.map((op) => (
+              <Card key={op.id}>
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">
+                        {op.label || KIND_LABELS[op.kind] || op.kind}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                        <span>{KIND_LABELS[op.kind] || op.kind}</span>
+                        <span>·</span>
+                        <span>{formatAge(op.createdAt)}</span>
+                        {op.attempts > 0 && (
+                          <>
+                            <span>·</span>
+                            <span className="text-yellow-600">
+                              {op.attempts} intento{op.attempts > 1 ? "s" : ""}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {op.lastError && (
+                        <p className="text-xs text-red-500 mt-1 truncate">{op.lastError}</p>
+                      )}
+                    </div>
+                    <Badge variant="secondary" className="text-xs shrink-0">
+                      {op.method}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
-          {/* Pending Records */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-yellow-100 rounded-full p-2.5">
-                  <FileText size={20} className="text-yellow-600" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-foreground">Registros de Relevamiento</p>
-                  <p className="text-sm text-muted-foreground">
-                    Formularios y datos de visitas
-                  </p>
-                </div>
-                <Badge
-                  variant={syncStatus.pendingRecords > 0 ? "default" : "secondary"}
-                  className="text-base px-3 py-1"
-                >
-                  {syncStatus.pendingRecords}
-                </Badge>
-              </div>
+        {/* Dead Operations (>= 5 attempts) */}
+        {deadOps.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="font-semibold text-red-600 flex items-center gap-2">
+              <AlertTriangle size={18} />
+              Operaciones Fallidas ({deadOps.length})
+            </h3>
+            {deadOps.map((op) => (
+              <Card key={op.id} className="border-red-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-foreground truncate">
+                        {op.label || KIND_LABELS[op.kind] || op.kind}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+                        <span>{KIND_LABELS[op.kind] || op.kind}</span>
+                        <span>·</span>
+                        <span>{formatAge(op.createdAt)}</span>
+                        <span>·</span>
+                        <span className="text-red-500">{op.attempts} intentos fallidos</span>
+                      </div>
+                      {op.lastError && (
+                        <p className="text-xs text-red-500 mt-1 truncate">{op.lastError}</p>
+                      )}
+                    </div>
+                    <Badge variant="destructive" className="text-xs shrink-0">
+                      Error
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Empty State */}
+        {pendingCount === 0 && (
+          <Card className="bg-green-50 border-green-200">
+            <CardContent className="p-6 text-center">
+              <CheckCircle2 size={40} className="text-green-600 mx-auto mb-2" />
+              <p className="font-semibold text-green-900">Todo sincronizado</p>
+              <p className="text-sm text-green-700 mt-1">
+                No hay operaciones pendientes
+              </p>
             </CardContent>
           </Card>
-
-          {/* Pending Photos */}
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="bg-espert-gold/10 rounded-full p-2.5">
-                  <Camera size={20} className="text-espert-gold" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-foreground">Fotos Pendientes</p>
-                  <p className="text-sm text-muted-foreground">
-                    Evidencia fotográfica sin subir
-                  </p>
-                </div>
-                <Badge
-                  variant={syncStatus.pendingPhotos > 0 ? "default" : "secondary"}
-                  className="text-base px-3 py-1"
-                >
-                  {syncStatus.pendingPhotos}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Summary */}
-          <Card className="bg-muted">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <AlertCircle size={18} className="text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">Total pendiente</span>
-                </div>
-                <span className="text-lg font-bold text-foreground">
-                  {syncStatus.pendingRecords + syncStatus.pendingPhotos} items
-                </span>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+        )}
 
         {/* Sync Button */}
         <Button
           className="w-full h-14 text-base font-semibold"
           size="lg"
           onClick={handleSync}
-          disabled={
-            isSyncing ||
-            !syncStatus.isOnline ||
-            (syncStatus.pendingRecords === 0 && syncStatus.pendingPhotos === 0)
-          }
+          disabled={isSyncing || !isOnline || pendingCount === 0}
         >
           <RefreshCw size={20} className={`mr-2 ${isSyncing ? "animate-spin" : ""}`} />
           {isSyncing
             ? "Sincronizando..."
-            : syncStatus.pendingRecords === 0 && syncStatus.pendingPhotos === 0
+            : pendingCount === 0
             ? "Todo Sincronizado"
-            : "Sincronizar Ahora"}
+            : `Sincronizar Ahora (${pendingCount})`}
         </Button>
 
-        {/* Info Cards */}
+        {/* Clear Queue (only show when there are items) */}
+        {pendingCount > 0 && (
+          <Button
+            variant="outline"
+            className="w-full text-red-600 border-red-200 hover:bg-red-50"
+            onClick={handleClearQueue}
+          >
+            <Trash2 size={16} className="mr-2" />
+            Vaciar Cola
+          </Button>
+        )}
+
+        {/* Info Card */}
         <Card className="bg-espert-gold/10 border-espert-gold/30">
           <CardContent className="p-4">
             <div className="flex items-start gap-3">
@@ -250,15 +323,15 @@ export function Sync() {
                 <p className="font-semibold text-foreground mb-2">Modo Offline</p>
                 <ul className="space-y-1 text-sm text-espert-gold">
                   <li className="flex items-start gap-2">
-                    <span className="text-espert-gold font-bold">•</span>
+                    <span className="text-espert-gold font-bold">·</span>
                     <span>Todos los datos se guardan localmente en tu dispositivo</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-espert-gold font-bold">•</span>
+                    <span className="text-espert-gold font-bold">·</span>
                     <span>Se sincronizarán automáticamente al recuperar conexión</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="text-espert-gold font-bold">•</span>
+                    <span className="text-espert-gold font-bold">·</span>
                     <span>Puedes continuar trabajando sin interrupciones</span>
                   </li>
                 </ul>
@@ -267,7 +340,7 @@ export function Sync() {
           </CardContent>
         </Card>
 
-        {!syncStatus.isOnline && (
+        {!isOnline && (
           <Card className="bg-yellow-50 border-yellow-200">
             <CardContent className="p-4">
               <div className="flex items-start gap-3">

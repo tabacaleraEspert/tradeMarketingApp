@@ -142,7 +142,15 @@ export function Home() {
         {nextPdv && (
           <Card
             className="shadow-lg border-[#A48242]/30 overflow-hidden cursor-pointer active:scale-[0.98] transition-transform"
-            onClick={() => navigate(`/pos/${nextPdv.id}`, { state: nextPdv.routeDayId ? { routeDayId: nextPdv.routeDayId } : undefined })}
+            onClick={() => {
+              if (nextPdv.step === "checkin") {
+                navigate(`/pos/${nextPdv.id}/checkin`, { state: nextPdv.routeDayId ? { routeDayId: nextPdv.routeDayId } : undefined });
+              } else if (nextPdv.step === "relevamiento") {
+                navigate(`/pos/${nextPdv.id}/survey`, { state: nextPdv.routeDayId ? { routeDayId: nextPdv.routeDayId } : undefined });
+              } else {
+                navigate(`/pos/${nextPdv.id}`, { state: nextPdv.routeDayId ? { routeDayId: nextPdv.routeDayId } : undefined });
+              }
+            }}
           >
             <div className="bg-[#A48242] px-4 py-2 flex items-center gap-2">
               <Zap size={14} className="text-white" />
@@ -282,7 +290,15 @@ export function Home() {
             <Search size={18} className="text-[#A48242]" />
             <span className="text-[10px] font-medium text-foreground">Buscar</span>
           </button>
-          <button onClick={() => navigate("/end-of-day")} className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-card border border-border">
+          <button onClick={() => {
+            if (pendingVisits > 0) {
+              if (window.confirm(`Tenés ${pendingVisits} visita${pendingVisits > 1 ? "s" : ""} pendiente${pendingVisits > 1 ? "s" : ""}. ¿Querés ir al cierre de todos modos?`)) {
+                navigate("/end-of-day");
+              }
+            } else {
+              navigate("/end-of-day");
+            }
+          }} className="flex flex-col items-center gap-1 p-2.5 rounded-xl bg-card border border-border">
             <Clock size={18} className="text-[#53565A]" />
             <span className="text-[10px] font-medium text-foreground">Cierre</span>
           </button>
