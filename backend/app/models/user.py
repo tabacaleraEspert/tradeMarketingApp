@@ -13,7 +13,7 @@ class User(Base):
     DisplayName = Column(String(120), nullable=False)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
     # Jerarquía: quién es el superior directo de este usuario (null = top-level, típicamente admin)
-    ManagerUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    ManagerUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True, index=True)
     # Fuerza cambio de contraseña en el primer login
     MustChangePassword = Column(Boolean, default=False, nullable=False)
     # Avatar / foto de perfil (FK opcional a File)
@@ -36,5 +36,5 @@ class Role(Base):
 class UserRole(Base):
     __tablename__ = "UserRole"
 
-    UserId = Column(Integer, ForeignKey("User.UserId"), primary_key=True)
-    RoleId = Column(Integer, ForeignKey("Role.RoleId"), primary_key=True)
+    UserId = Column(Integer, ForeignKey("User.UserId", ondelete="CASCADE"), primary_key=True)
+    RoleId = Column(Integer, ForeignKey("Role.RoleId", ondelete="CASCADE"), primary_key=True)

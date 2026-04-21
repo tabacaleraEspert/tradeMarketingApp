@@ -15,18 +15,18 @@ class MandatoryActivity(Base):
     PhotoRequired = Column(Boolean, default=True, nullable=False)
 
     # Scope: global (null), by channel, or by route
-    ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True)
-    RouteId = Column(Integer, ForeignKey("Route.RouteId"), nullable=True)
+    ChannelId = Column(Integer, ForeignKey("Channel.ChannelId", ondelete="SET NULL"), nullable=True)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="SET NULL"), nullable=True)
 
     # Formulario opcional vinculado a la acción (datos a completar al ejecutarla)
-    FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=True)
+    FormId = Column(Integer, ForeignKey("Form.FormId", ondelete="SET NULL"), nullable=True)
 
     # Vigencia temporal (null = sin límite)
     ValidFrom = Column(Date, nullable=True)
     ValidTo = Column(Date, nullable=True)
 
     # Quién la creó (para filtrar por jerarquía)
-    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
 
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -12,11 +12,11 @@ class PdvNote(Base):
     __tablename__ = "PdvNote"
 
     PdvNoteId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=False, index=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=False, index=True)
     Content = Column(String(2000), nullable=False)
-    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
-    VisitId = Column(Integer, ForeignKey("Visit.VisitId"), nullable=True)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
+    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="SET NULL"), nullable=True)
     IsResolved = Column(Boolean, default=False, nullable=False)
-    ResolvedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    ResolvedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
     ResolvedAt = Column(DateTime(timezone=True), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

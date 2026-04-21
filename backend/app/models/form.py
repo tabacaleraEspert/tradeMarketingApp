@@ -16,7 +16,7 @@ class Form(Base):
     # Config JSON para frecuencia (interval, days, startDate, etc.)
     FrequencyConfig = Column(String(200), nullable=True)
     # Quién creó el formulario (null = legacy/admin)
-    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -24,7 +24,7 @@ class FormQuestion(Base):
     __tablename__ = "FormQuestion"
 
     QuestionId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=False)
+    FormId = Column(Integer, ForeignKey("Form.FormId", ondelete="CASCADE"), nullable=False)
     FormVersion = Column(Integer, nullable=False)
     SortOrder = Column(Integer, nullable=False)
     KeyName = Column(String(80), nullable=False)
@@ -38,7 +38,7 @@ class FormOption(Base):
     __tablename__ = "FormOption"
 
     OptionId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    QuestionId = Column(Integer, ForeignKey("FormQuestion.QuestionId"), nullable=False)
+    QuestionId = Column(Integer, ForeignKey("FormQuestion.QuestionId", ondelete="CASCADE"), nullable=False)
     Value = Column(String(120), nullable=False)
     Label = Column(String(200), nullable=False)
     SortOrder = Column(Integer, nullable=False)

@@ -8,9 +8,9 @@ class Incident(Base):
 
     IncidentId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     VisitId = Column(Integer, ForeignKey("Visit.VisitId"), nullable=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=True, index=True)
     Type = Column(String(30), nullable=False)
-    Status = Column(String(20), default="OPEN", nullable=False)
+    Status = Column(String(20), default="OPEN", nullable=False, index=True)
     Priority = Column(SmallInteger, default=3, nullable=False)
     Notes = Column(String(500), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

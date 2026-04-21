@@ -11,11 +11,11 @@ class PDV(Base):
     Name = Column(String(160), nullable=False)
     BusinessName = Column(String(200), nullable=True)  # Razón social legal (opcional)
     Channel = Column(String(40), nullable=True)  # Legacy, usar ChannelId
-    ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True)
+    ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True, index=True)
     SubChannelId = Column(Integer, ForeignKey("SubChannel.SubChannelId"), nullable=True)
     Address = Column(String(200), nullable=True)
     City = Column(String(80), nullable=True)
-    ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
+    ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True, index=True)
     DistributorId = Column(Integer, ForeignKey("Distributor.DistributorId"), nullable=True)
     Lat = Column(Numeric(9, 6), nullable=True)
     Lon = Column(Numeric(9, 6), nullable=True)
@@ -50,8 +50,8 @@ class PdvDistributor(Base):
     __tablename__ = "PdvDistributor"
 
     PdvDistributorId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=False)
-    DistributorId = Column(Integer, ForeignKey("Distributor.DistributorId"), nullable=False)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=False)
+    DistributorId = Column(Integer, ForeignKey("Distributor.DistributorId", ondelete="CASCADE"), nullable=False)
 
 
 class PdvAssignment(Base):

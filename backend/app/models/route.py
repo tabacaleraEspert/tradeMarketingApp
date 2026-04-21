@@ -14,7 +14,7 @@ class Route(Base):
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     # Trade Rep crea; Admin puede editar
-    CreatedByUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
     # Zona Bejerman (Litoral, GBA Sur, GBA Norte, Patagonia)
     BejermanZone = Column(String(80), nullable=True)
     # Frecuencia: every_15_days, weekly, specific_days
@@ -24,7 +24,7 @@ class Route(Base):
     # Solo visible para Admin
     EstimatedMinutes = Column(Integer, nullable=True)
     # Trade Marketer asignado a esta ruta (persistente)
-    AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    AssignedUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True, index=True)
     # Indica si el orden de los PDVs fue optimizado (por distancia/tiempo)
     IsOptimized = Column(Boolean, default=False, nullable=False)
 
@@ -33,8 +33,8 @@ class RouteForm(Base):
     """Formularios asignados a una ruta (muchos por ruta)."""
     __tablename__ = "RouteForm"
 
-    RouteId = Column(Integer, ForeignKey("Route.RouteId"), primary_key=True)
-    FormId = Column(Integer, ForeignKey("Form.FormId"), primary_key=True)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), primary_key=True)
+    FormId = Column(Integer, ForeignKey("Form.FormId", ondelete="CASCADE"), primary_key=True)
     SortOrder = Column(Integer, default=0, nullable=False)
 
     Form = relationship("Form", lazy="joined")
@@ -43,8 +43,8 @@ class RouteForm(Base):
 class RoutePdv(Base):
     __tablename__ = "RoutePdv"
 
-    RouteId = Column(Integer, ForeignKey("Route.RouteId"), primary_key=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), primary_key=True)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), primary_key=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), primary_key=True)
     SortOrder = Column(Integer, nullable=False)
     Priority = Column(SmallInteger, default=3, nullable=False)
 
@@ -53,9 +53,9 @@ class RouteDay(Base):
     __tablename__ = "RouteDay"
 
     RouteDayId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    RouteId = Column(Integer, ForeignKey("Route.RouteId"), nullable=False)
-    WorkDate = Column(Date, nullable=False)
-    AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=False)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), nullable=False)
+    WorkDate = Column(Date, nullable=False, index=True)
+    AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=False, index=True)
     Status = Column(String(20), default="PLANNED", nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -63,8 +63,8 @@ class RouteDay(Base):
 class RouteDayPdv(Base):
     __tablename__ = "RouteDayPdv"
 
-    RouteDayId = Column(Integer, ForeignKey("RouteDay.RouteDayId"), primary_key=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId"), primary_key=True)
+    RouteDayId = Column(Integer, ForeignKey("RouteDay.RouteDayId", ondelete="CASCADE"), primary_key=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), primary_key=True)
     PlannedOrder = Column(Integer, nullable=False)
     PlannedWindowFrom = Column(Time, nullable=True)
     PlannedWindowTo = Column(Time, nullable=True)
