@@ -58,8 +58,8 @@ def create_mandatory_activity(
         ChannelId=data.get("ChannelId"),
         RouteId=data.get("RouteId"),
         FormId=data.get("FormId"),
-        ValidFrom=data.get("ValidFrom"),
-        ValidTo=data.get("ValidTo"),
+        ValidFrom=date.fromisoformat(data["ValidFrom"]) if data.get("ValidFrom") else None,
+        ValidTo=date.fromisoformat(data["ValidTo"]) if data.get("ValidTo") else None,
         CreatedByUserId=current_user.UserId,
         IsActive=data.get("IsActive", True),
     )
@@ -77,7 +77,10 @@ def update_mandatory_activity(ma_id: int, data: dict, db: Session = Depends(get_
     for k in ("Name", "ActionType", "Description", "DetailsJson", "PhotoRequired",
               "ChannelId", "RouteId", "FormId", "ValidFrom", "ValidTo", "IsActive"):
         if k in data:
-            setattr(r, k, data[k])
+            val = data[k]
+            if k in ("ValidFrom", "ValidTo") and isinstance(val, str) and val:
+                val = date.fromisoformat(val)
+            setattr(r, k, val)
     db.commit()
     db.refresh(r)
     return _serialize(r)

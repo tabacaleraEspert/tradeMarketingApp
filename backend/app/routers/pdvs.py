@@ -73,6 +73,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
         ContactPhone=pdv.ContactPhone,
         OpeningTime=getattr(pdv, "OpeningTime", None),
         ClosingTime=getattr(pdv, "ClosingTime", None),
+        TimeSlotsJson=getattr(pdv, "TimeSlotsJson", None),
         VisitDay=getattr(pdv, "VisitDay", None),
         DefaultMaterialExternalId=pdv.DefaultMaterialExternalId,
         AssignedUserId=getattr(pdv, "AssignedUserId", None),

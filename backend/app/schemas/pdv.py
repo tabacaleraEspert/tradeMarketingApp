@@ -53,6 +53,7 @@ class PdvBase(BaseModel):
     ContactPhone: str | None = None  # Legacy
     OpeningTime: str | None = None
     ClosingTime: str | None = None
+    TimeSlotsJson: str | None = None
     VisitDay: int | None = None  # 0=Dom .. 6=Sáb
     DefaultMaterialExternalId: str | None = None
     AssignedUserId: int | None = None
@@ -76,6 +77,7 @@ class PdvCreate(BaseModel):
     Lon: Decimal | None = None
     OpeningTime: str | None = None
     ClosingTime: str | None = None
+    TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = None
@@ -128,6 +130,7 @@ class PdvUpdate(BaseModel):
     ContactPhone: str | None = None
     OpeningTime: str | None = None
     ClosingTime: str | None = None
+    TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = None

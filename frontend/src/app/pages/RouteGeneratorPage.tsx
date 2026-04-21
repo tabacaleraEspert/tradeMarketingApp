@@ -12,6 +12,10 @@ import { pdvsApi, routesApi } from "@/lib/api";
 import type { Pdv } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
+import { useJsApiLoader, GoogleMap, MarkerF, PolylineF } from "@react-google-maps/api";
+
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const ROUTE_COLORS = ["#A48242", "#2E86AB", "#22c55e", "#f59e0b", "#dc2626", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1"];
 
 type ProposalRoute = {
   index: number;
@@ -39,23 +43,43 @@ export function RouteGeneratorPage() {
   const [proposal, setProposal] = useState<ProposalRoute[]>([]);
   const [unassignedIds, setUnassignedIds] = useState<number[]>([]);
   const [namePrefix, setNamePrefix] = useState("Ruta");
+  const [maxRoutes, setMaxRoutes] = useState(5);
+  const [minPdvs, setMinPdvs] = useState(10);
+  const [maxPdvs, setMaxPdvs] = useState(15);
+
+  const { isLoaded: mapsLoaded } = useJsApiLoader({
+    id: "google-map-script-places",
+    googleMapsApiKey: GOOGLE_MAPS_KEY || " ",
+    libraries: ["places"] as any,
+    preventGoogleFontsLoading: true,
+  });
+  const [assignedPdvIds, setAssignedPdvIds] = useState<Set<number>>(new Set());
+  const [showAssigned, setShowAssigned] = useState(false);
 
   useEffect(() => {
-    pdvsApi.list({ active_only: true }).then((list) => {
+    Promise.all([
+      pdvsApi.list({ active_only: true }),
+      routesApi.listPdvAssignments().catch(() => [] as { pdvId: number; routeId: number }[]),
+    ]).then(([list, assignments]) => {
       setAllPdvs(list);
+      setAssignedPdvIds(new Set(assignments.map((a) => a.pdvId)));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
 
-  const filteredPdvs = useMemo(() => {
-    if (!searchTerm.trim()) return allPdvs;
+  // By default, only show PDVs NOT already in a route
+  const availablePdvs = useMemo(() => {
+    const base = showAssigned ? allPdvs : allPdvs.filter((p) => !assignedPdvIds.has(p.PdvId));
+    if (!searchTerm.trim()) return base;
     const s = searchTerm.toLowerCase();
-    return allPdvs.filter((p) =>
+    return base.filter((p) =>
       p.Name.toLowerCase().includes(s) ||
       (p.Address ?? "").toLowerCase().includes(s) ||
       (p.City ?? "").toLowerCase().includes(s)
     );
-  }, [allPdvs, searchTerm]);
+  }, [allPdvs, searchTerm, assignedPdvIds, showAssigned]);
+
+  const filteredPdvs = availablePdvs;
 
   const togglePdv = (id: number) => {
     setSelectedIds((prev) => {
@@ -83,6 +107,9 @@ export function RouteGeneratorPage() {
     try {
       const result = await routesApi.generateProposal({
         pdv_ids: [...selectedIds],
+        max_routes: maxRoutes,
+        min_pdvs_per_route: minPdvs,
+        max_pdvs_per_route: maxPdvs,
         route_name_prefix: namePrefix || "Ruta",
       });
       setProposal(result.routes);
@@ -100,24 +127,30 @@ export function RouteGeneratorPage() {
 
   const handleConfirm = async () => {
     setCreating(true);
+    let skipped = 0;
     try {
       for (const route of proposal) {
-        // Create route
         const newRoute = await routesApi.create({
           Name: route.name,
           AssignedUserId: userId,
           EstimatedMinutes: route.estimated_minutes,
         });
-        // Add PDVs
         for (const pdv of route.pdvs) {
-          await routesApi.addPdv(newRoute.RouteId, {
-            PdvId: pdv.PdvId,
-            SortOrder: pdv.SortOrder,
-            Priority: 3,
-          });
+          try {
+            await routesApi.addPdv(newRoute.RouteId, {
+              PdvId: pdv.PdvId,
+              SortOrder: pdv.SortOrder,
+              Priority: 3,
+            });
+          } catch {
+            skipped++;
+          }
         }
       }
-      toast.success(`${proposal.length} rutas creadas`);
+      const msg = skipped > 0
+        ? `${proposal.length} rutas creadas (${skipped} PDVs ya asignados se omitieron)`
+        : `${proposal.length} rutas creadas`;
+      toast.success(msg);
       navigate("/my-routes");
     } catch (e: any) {
       toast.error(e?.message ?? "Error al crear rutas");
@@ -177,17 +210,67 @@ export function RouteGeneratorPage() {
                     {selectedIds.size === filteredPdvs.length ? "Deseleccionar" : "Seleccionar"} todos
                   </Button>
                 </div>
-                <div className="flex gap-3">
+                {assignedPdvIds.size > 0 && (
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={showAssigned} onChange={(e) => setShowAssigned(e.target.checked)} />
+                    <span className="text-xs text-muted-foreground">Mostrar ya asignados ({assignedPdvIds.size})</span>
+                  </label>
+                )}
+                {assignedPdvIds.size > 0 && !showAssigned && (
+                  <p className="text-xs text-muted-foreground">
+                    {allPdvs.length - assignedPdvIds.size} PDVs disponibles · {assignedPdvIds.size} ya en rutas (ocultos)
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Config */}
+            <Card>
+              <CardContent className="p-4 space-y-3">
+                <h3 className="font-semibold text-foreground text-sm">Configuración</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs text-muted-foreground mb-1">Prefijo de nombre</label>
+                    <label className="block text-[11px] text-muted-foreground mb-1">Cantidad de rutas</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={maxRoutes}
+                      onChange={(e) => setMaxRoutes(Number(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-muted-foreground mb-1">PDVs por ruta (mín)</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={minPdvs}
+                      onChange={(e) => setMinPdvs(Number(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-muted-foreground mb-1">PDVs por ruta (máx)</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={maxPdvs}
+                      onChange={(e) => setMaxPdvs(Number(e.target.value) || 1)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] text-muted-foreground mb-1">Prefijo nombre</label>
                     <Input
                       value={namePrefix}
                       onChange={(e) => setNamePrefix(e.target.value)}
                       placeholder="Ruta"
-                      className="w-40"
                     />
                   </div>
                 </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Con {selectedIds.size} PDVs seleccionados → ~{selectedIds.size > 0 ? Math.ceil(selectedIds.size / ((minPdvs + maxPdvs) / 2)) : 0} rutas de ~{Math.round((minPdvs + maxPdvs) / 2)} PDVs
+                </p>
               </CardContent>
             </Card>
 
@@ -212,6 +295,11 @@ export function RouteGeneratorPage() {
                         <p className="text-sm font-medium text-foreground truncate">{pdv.Name}</p>
                         <p className="text-[11px] text-muted-foreground truncate">{pdv.Address}</p>
                       </div>
+                      {assignedPdvIds.has(pdv.PdvId) && (
+                        <Badge variant="outline" className="text-[9px] px-1 py-0 text-blue-600 border-blue-200">
+                          En ruta
+                        </Badge>
+                      )}
                       {pdv.Lat == null && (
                         <Badge variant="outline" className="text-[9px] px-1 py-0 text-amber-600 border-amber-200">
                           Sin GPS
@@ -278,12 +366,87 @@ export function RouteGeneratorPage() {
               </Card>
             </div>
 
-            {proposal.map((route) => (
+            {/* Map */}
+            {mapsLoaded && (() => {
+              const allPoints = proposal.flatMap((r) => r.pdvs.filter((p) => p.Lat && p.Lon));
+              if (allPoints.length === 0) return null;
+              const centerLat = allPoints.reduce((s, p) => s + p.Lat!, 0) / allPoints.length;
+              const centerLng = allPoints.reduce((s, p) => s + p.Lon!, 0) / allPoints.length;
+              return (
+                <Card className="overflow-hidden">
+                  <GoogleMap
+                    mapContainerStyle={{ width: "100%", height: "400px" }}
+                    center={{ lat: centerLat, lng: centerLng }}
+                    zoom={12}
+                    options={{ disableDefaultUI: true, zoomControl: true, streetViewControl: false }}
+                  >
+                    {proposal.map((route, ri) => {
+                      const color = ROUTE_COLORS[ri % ROUTE_COLORS.length];
+                      const routePoints = route.pdvs.filter((p) => p.Lat && p.Lon);
+                      return (
+                        <div key={route.index}>
+                          {/* Markers */}
+                          {routePoints.map((pdv, idx) => (
+                            <MarkerF
+                              key={pdv.PdvId}
+                              position={{ lat: pdv.Lat!, lng: pdv.Lon! }}
+                              label={{
+                                text: String(idx + 1),
+                                color: "#fff",
+                                fontSize: "10px",
+                                fontWeight: "bold",
+                              }}
+                              icon={{
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 12,
+                                fillColor: color,
+                                fillOpacity: 1,
+                                strokeColor: "#fff",
+                                strokeWeight: 2,
+                              }}
+                              title={`${route.name} #${idx + 1}: ${pdv.Name}`}
+                            />
+                          ))}
+                          {/* Polyline */}
+                          {routePoints.length > 1 && (
+                            <PolylineF
+                              path={routePoints.map((p) => ({ lat: p.Lat!, lng: p.Lon! }))}
+                              options={{
+                                strokeColor: color,
+                                strokeOpacity: 0.7,
+                                strokeWeight: 3,
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </GoogleMap>
+                  {/* Legend */}
+                  <div className="p-3 flex flex-wrap gap-3 border-t border-border">
+                    {proposal.map((route, ri) => (
+                      <div key={route.index} className="flex items-center gap-1.5 text-xs">
+                        <span
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: ROUTE_COLORS[ri % ROUTE_COLORS.length] }}
+                        />
+                        <span className="text-muted-foreground">{route.name} ({route.pdvs.length})</span>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              );
+            })()}
+
+            {proposal.map((route, ri) => (
               <Card key={route.index} className="overflow-hidden">
-                <div className="h-1 bg-[#A48242]" />
+                <div className="h-1" style={{ backgroundColor: ROUTE_COLORS[ri % ROUTE_COLORS.length] }} />
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-bold text-foreground">{route.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: ROUTE_COLORS[ri % ROUTE_COLORS.length] }} />
+                      <h3 className="font-bold text-foreground">{route.name}</h3>
+                    </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
                       <span className="flex items-center gap-1">
                         <Store size={12} /> {route.pdvs.length} PDVs
@@ -302,7 +465,7 @@ export function RouteGeneratorPage() {
                         key={pdv.PdvId}
                         className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-full bg-muted/60 text-muted-foreground"
                       >
-                        <span className="w-4 h-4 rounded-full bg-[#A48242] text-white text-[8px] font-bold flex items-center justify-center">
+                        <span className="w-4 h-4 rounded-full text-white text-[8px] font-bold flex items-center justify-center" style={{ backgroundColor: ROUTE_COLORS[ri % ROUTE_COLORS.length] }}>
                           {idx + 1}
                         </span>
                         <span className="truncate max-w-[120px]">{pdv.Name}</span>

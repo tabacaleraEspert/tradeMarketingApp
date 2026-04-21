@@ -46,6 +46,15 @@ export function NewPointOfSale() {
     { contactName: "", contactPhone: "", contactRole: "", decisionPower: "", birthday: "", notes: "", profileNotes: "" },
   ]);
 
+  // Franjas horarias
+  const [timeSlots, setTimeSlots] = useState<{ from: string; to: string; label: string }[]>([
+    { from: "08:00", to: "13:00", label: "Mañana" },
+  ]);
+
+  // Distribuidores: seleccionados de la lista + nuevos creados inline
+  const [selectedDistributorIds, setSelectedDistributorIds] = useState<number[]>([]);
+  const [newDistributors, setNewDistributors] = useState<{ name: string; phone: string }[]>([]);
+
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
@@ -216,17 +225,43 @@ export function NewPointOfSale() {
           ProfileNotes: c.profileNotes?.trim() || undefined,
         }));
 
+      // Time slots → OpeningTime/ClosingTime (first slot) + TimeSlotsJson (all)
+      const validSlots = timeSlots.filter((s) => s.from && s.to);
       const newPdv = await pdvsApi.create({
         Name: formData.name,
         Address: formData.address,
         ChannelId: Number(formData.channelId),
         SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         ZoneId: currentUser.zoneId ?? undefined,
-        DistributorId: formData.distributorId ? Number(formData.distributorId) : undefined,
+        DistributorId: selectedDistributorIds[0] || undefined,
+        DistributorIds: selectedDistributorIds.length > 0 ? selectedDistributorIds : undefined,
         Lat: formData.lat ?? undefined,
         Lon: formData.lon ?? undefined,
+        OpeningTime: validSlots[0]?.from || undefined,
+        ClosingTime: validSlots[0]?.to || undefined,
+        TimeSlotsJson: validSlots.length > 0 ? JSON.stringify(validSlots) : undefined,
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       });
+
+      // Create new distributors and associate them
+      if (newPdv?.PdvId) {
+        for (const nd of newDistributors) {
+          if (!nd.name.trim()) continue;
+          try {
+            const created = await distributorsApi.create({ Name: nd.name.trim(), Phone: nd.phone.trim() || undefined });
+            // Associate via the PDV update (add to DistributorIds)
+            selectedDistributorIds.push(created.DistributorId);
+          } catch {
+            // Ignore individual failures
+          }
+        }
+        // Update PDV with all distributor IDs if we created new ones
+        if (newDistributors.some((nd) => nd.name.trim())) {
+          try {
+            await pdvsApi.update(newPdv.PdvId, { DistributorIds: selectedDistributorIds });
+          } catch { /* best effort */ }
+        }
+      }
 
       // Add to route if selected
       if (selectedRouteId && newPdv?.PdvId) {
@@ -412,29 +447,179 @@ export function NewPointOfSale() {
           </CardContent>
         </Card>
 
-        {/* Distributor */}
+        {/* Franjas horarias */}
         <Card>
           <CardContent className="p-4 space-y-4">
-            <h3 className="font-semibold text-foreground">Distribuidor</h3>
-
-            <div className="space-y-2">
-              <Label htmlFor="distributor">Distribuidor Asociado</Label>
-              <Select
-                value={formData.distributorId}
-                onValueChange={(value) => setFormData({ ...formData, distributorId: value })}
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Horarios de atención</h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setTimeSlots([...timeSlots, { from: "14:00", to: "18:00", label: "" }])}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar distribuidor" />
-                </SelectTrigger>
-                <SelectContent>
-                  {distributors.map((d) => (
-                    <SelectItem key={d.DistributorId} value={String(d.DistributorId)}>
-                      {d.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <Plus size={16} className="mr-1" />
+                Franja
+              </Button>
             </div>
+
+            {/* Quick presets */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: "Corrido 8-20", slots: [{ from: "08:00", to: "20:00", label: "Corrido" }] },
+                { label: "Mañana + Tarde", slots: [{ from: "08:00", to: "13:00", label: "Mañana" }, { from: "16:00", to: "20:00", label: "Tarde" }] },
+                { label: "Mañana sola", slots: [{ from: "08:00", to: "13:00", label: "Mañana" }] },
+                { label: "24hs", slots: [{ from: "00:00", to: "23:59", label: "24hs" }] },
+              ].map((preset) => (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => setTimeSlots(preset.slots)}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-medium border border-border text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            {timeSlots.map((slot, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <Input
+                  type="time"
+                  value={slot.from}
+                  onChange={(e) => {
+                    const updated = [...timeSlots];
+                    updated[idx] = { ...slot, from: e.target.value };
+                    setTimeSlots(updated);
+                  }}
+                  className="w-28"
+                />
+                <span className="text-muted-foreground text-sm">a</span>
+                <Input
+                  type="time"
+                  value={slot.to}
+                  onChange={(e) => {
+                    const updated = [...timeSlots];
+                    updated[idx] = { ...slot, to: e.target.value };
+                    setTimeSlots(updated);
+                  }}
+                  className="w-28"
+                />
+                <Input
+                  placeholder="Ej: Mañana"
+                  value={slot.label}
+                  onChange={(e) => {
+                    const updated = [...timeSlots];
+                    updated[idx] = { ...slot, label: e.target.value };
+                    setTimeSlots(updated);
+                  }}
+                  className="flex-1"
+                />
+                {timeSlots.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setTimeSlots(timeSlots.filter((_, i) => i !== idx))}
+                    className="p-1 text-red-500 hover:text-red-700"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+
+            {timeSlots.length === 0 && (
+              <p className="text-xs text-muted-foreground">Sin horario definido. Agregá una franja o usá un preset.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Distributors */}
+        <Card>
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground">Distribuidores</h3>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setNewDistributors([...newDistributors, { name: "", phone: "" }])}
+              >
+                <Plus size={16} className="mr-1" />
+                Nuevo
+              </Button>
+            </div>
+
+            {/* Select from existing */}
+            <div className="space-y-2">
+              <Label>De la lista</Label>
+              <div className="flex flex-wrap gap-2">
+                {distributors.map((d) => {
+                  const selected = selectedDistributorIds.includes(d.DistributorId);
+                  return (
+                    <button
+                      key={d.DistributorId}
+                      type="button"
+                      onClick={() =>
+                        setSelectedDistributorIds((prev) =>
+                          selected ? prev.filter((id) => id !== d.DistributorId) : [...prev, d.DistributorId]
+                        )
+                      }
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        selected
+                          ? "bg-[#A48242]/10 border-[#A48242] text-[#A48242]"
+                          : "bg-muted border-border text-muted-foreground hover:bg-muted/80"
+                      }`}
+                    >
+                      {d.Name}
+                    </button>
+                  );
+                })}
+                {distributors.length === 0 && (
+                  <p className="text-xs text-muted-foreground">No hay distribuidores cargados</p>
+                )}
+              </div>
+            </div>
+
+            {/* New distributors inline */}
+            {newDistributors.map((nd, idx) => (
+              <div key={idx} className="p-3 bg-muted rounded-lg space-y-2 border border-border">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-muted-foreground">Nuevo distribuidor</span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={() => setNewDistributors(newDistributors.filter((_, i) => i !== idx))}
+                  >
+                    <Trash2 size={16} />
+                  </Button>
+                </div>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="Nombre del distribuidor"
+                    value={nd.name}
+                    onChange={(e) => {
+                      const updated = [...newDistributors];
+                      updated[idx] = { ...nd, name: e.target.value };
+                      setNewDistributors(updated);
+                    }}
+                    className="flex-1"
+                  />
+                  <Input
+                    type="tel"
+                    placeholder="Teléfono"
+                    value={nd.phone}
+                    onChange={(e) => {
+                      const updated = [...newDistributors];
+                      updated[idx] = { ...nd, phone: e.target.value };
+                      setNewDistributors(updated);
+                    }}
+                    className="w-36"
+                  />
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

@@ -29,6 +29,8 @@ class PDV(Base):
     DefaultMaterialExternalId = Column(String(50), nullable=True)
     # Trade Marketer asignado (heredado automáticamente al incluirse en una ruta)
     AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    # Franjas horarias múltiples (JSON): [{"from":"08:00","to":"13:00","label":"Mañana"},...]
+    TimeSlotsJson = Column(String, nullable=True)
     # Categorización: qué nos permite hacer el PDV (JSON de flags)
     # {"pop": true, "sueltos": true, "acciones": true, "exhibidor": false, "cigarrera": true}
     AllowsJson = Column(String, nullable=True)
