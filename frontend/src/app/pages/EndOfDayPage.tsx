@@ -246,7 +246,7 @@ export function EndOfDayPage() {
       </div>
 
       {/* Bottom bar */}
-      <div className="sticky bottom-0 bg-card border-t border-border p-3">
+      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button className="w-full h-12 text-base font-semibold" onClick={() => navigate("/")}>
           Volver al Inicio
         </Button>

@@ -59,6 +59,7 @@ export function PointOfSaleDetail() {
   const [loading, setLoading] = useState(true);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteNoteId, setDeleteNoteId] = useState<number | null>(null);
   const [showClosedModal, setShowClosedModal] = useState(false);
   const [closedReason, setClosedReason] = useState("");
   const [closingAsClosed, setClosingAsClosed] = useState(false);
@@ -256,7 +257,6 @@ export function PointOfSaleDetail() {
   };
 
   const handleDeleteNote = async (noteId: number) => {
-    if (!confirm("¿Eliminar esta nota?")) return;
     try {
       await pdvNotesApi.delete(noteId);
       reloadNotes();
@@ -490,12 +490,16 @@ export function PointOfSaleDetail() {
             <p className="text-sm text-muted-foreground">{pos.ChannelName || pos.Channel || "-"}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={openEditModal}>
-              <Edit size={18} />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setIsDeleteModalOpen(true)}>
-              <Trash2 size={18} className="text-red-600" />
-            </Button>
+            {!["vendedor"].includes((currentUser.role || "").toLowerCase()) && (
+              <Button variant="outline" size="sm" onClick={openEditModal}>
+                <Edit size={18} />
+              </Button>
+            )}
+            {!["vendedor", "tm_rep"].includes((currentUser.role || "").toLowerCase()) && (
+              <Button variant="outline" size="sm" onClick={() => setIsDeleteModalOpen(true)}>
+                <Trash2 size={18} className="text-red-600" />
+              </Button>
+            )}
           </div>
         </div>
       </div>
@@ -645,7 +649,7 @@ export function PointOfSaleDetail() {
                       <CheckCircle2 size={16} />
                     </button>
                     <button
-                      onClick={() => handleDeleteNote(n.PdvNoteId)}
+                      onClick={() => setDeleteNoteId(n.PdvNoteId)}
                       className="p-1.5 rounded hover:bg-red-100 text-muted-foreground hover:text-red-600"
                       title="Eliminar"
                     >
@@ -1419,6 +1423,17 @@ export function PointOfSaleDetail() {
         onConfirm={handleDelete}
         title="Eliminar PDV"
         message={`¿Estás seguro de que deseas eliminar "${pos.Name}"? Esta acción no se puede deshacer.`}
+        confirmText="Eliminar"
+        type="danger"
+      />
+
+      {/* Delete Note Confirmation */}
+      <ConfirmModal
+        isOpen={deleteNoteId !== null}
+        onClose={() => setDeleteNoteId(null)}
+        onConfirm={() => { if (deleteNoteId !== null) handleDeleteNote(deleteNoteId); }}
+        title="Eliminar nota"
+        message="¿Eliminar esta nota?"
         confirmText="Eliminar"
         type="danger"
       />

@@ -314,7 +314,7 @@ export function RouteGeneratorPage() {
               </Card>
             )}
 
-            <div className="sticky bottom-0 bg-card border-t border-border p-3 -mx-4">
+            <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4">
               <Button
                 className="w-full h-12 text-base font-semibold bg-[#A48242] hover:bg-[#8a6d35]"
                 onClick={handleGenerate}
@@ -476,7 +476,7 @@ export function RouteGeneratorPage() {
               </Card>
             ))}
 
-            <div className="sticky bottom-0 bg-card border-t border-border p-3 -mx-4 flex gap-3">
+            <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4 flex gap-3">
               <Button variant="outline" className="flex-1" onClick={() => setStep(1)}>
                 Volver a editar
               </Button>

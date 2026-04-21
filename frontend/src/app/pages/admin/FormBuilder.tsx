@@ -4,7 +4,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Modal } from "../../components/ui/modal";
+import { Modal, ConfirmModal } from "../../components/ui/modal";
 import {
   Plus,
   Edit,
@@ -118,6 +118,8 @@ export function FormBuilder() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterChannel, setFilterChannel] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+  const [confirmDeleteFormId, setConfirmDeleteFormId] = useState<number | null>(null);
+  const [confirmDeleteActivityId, setConfirmDeleteActivityId] = useState<number | null>(null);
 
   // Data
   const { data: routes } = useApiList(() => routesApi.list());
@@ -442,7 +444,7 @@ export function FormBuilder() {
                   {canEditForm(form) ? (
                     <>
                       <button onClick={() => navigate(`/admin/forms/${form.FormId}/edit`)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Editar"><Edit size={15} /></button>
-                      <button onClick={async () => { if (confirm("¿Eliminar?")) { await formsApi.delete(form.FormId); toast.success("Eliminado"); refetchForms(); } }} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Eliminar"><Trash2 size={15} /></button>
+                      <button onClick={() => setConfirmDeleteFormId(form.FormId)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Eliminar"><Trash2 size={15} /></button>
                     </>
                   ) : (
                     <span className="text-[10px] text-muted-foreground px-1">Solo lectura</span>
@@ -528,7 +530,7 @@ export function FormBuilder() {
                   </div>
                   <div className="flex items-center justify-end gap-0.5">
                     <button
-                      onClick={(e) => { e.stopPropagation(); if (confirm("¿Eliminar?")) { mandatoryActivitiesApi.delete(act.MandatoryActivityId).then(() => { toast.success("Eliminada"); refetchActivities(); }).catch((err) => toast.error(err instanceof Error ? err.message : "Error")); } }}
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteActivityId(act.MandatoryActivityId); }}
                       className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
                     >
                       <Trash2 size={15} />
@@ -1007,6 +1009,48 @@ export function FormBuilder() {
           )}
         </div>
       </Modal>
+
+      {/* Confirm delete form */}
+      <ConfirmModal
+        isOpen={confirmDeleteFormId !== null}
+        onClose={() => setConfirmDeleteFormId(null)}
+        onConfirm={async () => {
+          if (confirmDeleteFormId !== null) {
+            try {
+              await formsApi.delete(confirmDeleteFormId);
+              toast.success("Eliminado");
+              refetchForms();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Error");
+            }
+          }
+        }}
+        title="Eliminar formulario"
+        message="¿Eliminar este formulario?"
+        confirmText="Eliminar"
+        type="danger"
+      />
+
+      {/* Confirm delete activity */}
+      <ConfirmModal
+        isOpen={confirmDeleteActivityId !== null}
+        onClose={() => setConfirmDeleteActivityId(null)}
+        onConfirm={async () => {
+          if (confirmDeleteActivityId !== null) {
+            try {
+              await mandatoryActivitiesApi.delete(confirmDeleteActivityId);
+              toast.success("Eliminada");
+              refetchActivities();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "Error");
+            }
+          }
+        }}
+        title="Eliminar actividad"
+        message="¿Eliminar esta actividad?"
+        confirmText="Eliminar"
+        type="danger"
+      />
     </div>
   );
 }

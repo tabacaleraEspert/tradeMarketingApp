@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Progress } from "../components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, Save, Send, Camera, WifiOff, CheckCircle2, CircleDashed, Clock, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Save, Send, Camera, CheckCircle2, CircleDashed, Clock, Image as ImageIcon } from "lucide-react";
 import {
   pdvsApi,
   routesApi,
@@ -343,9 +343,6 @@ export function SurveyForm() {
             <h1 className="text-xl font-bold text-foreground">Relevamiento</h1>
             <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
-          <button className="text-muted-foreground">
-            <WifiOff size={20} />
-          </button>
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
@@ -428,7 +425,7 @@ export function SurveyForm() {
         <div className="h-36" />
 
         {/* Action buttons - sticky to bottom */}
-        <div className="sticky bottom-0 bg-card border-t border-border p-3 -mx-4 space-y-2">
+        <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4 space-y-2">
           <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleSubmit}>
             <Send className="mr-2" size={16} />
             Finalizar y Continuar

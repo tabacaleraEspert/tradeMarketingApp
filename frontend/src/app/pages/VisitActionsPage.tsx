@@ -559,7 +559,7 @@ export function VisitActionsPage() {
       </div>
 
       {/* Bottom bar */}
-      <div className="sticky bottom-0 bg-card border-t border-border p-3">
+      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleContinue}>
           <Camera className="mr-2" size={16} />
           Continuar a Fotos

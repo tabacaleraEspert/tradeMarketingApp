@@ -794,7 +794,7 @@ export function NewPointOfSale() {
         </Card>
 
         {/* Submit Button */}
-        <div className="sticky bottom-0 bg-card border-t border-border p-3">
+        <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
           <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={loading || addressOutOfRange}>
             <Send className="mr-2" size={18} />
             {loading ? "Creando..." : "Crear PDV"}

@@ -35,8 +35,7 @@ export function MyRouteEditorPage() {
   const currentUser = getCurrentUser();
   const userId = Number(currentUser.id);
   const id = routeId ? Number(routeId) : null;
-  // Sólo territory_manager, regional_manager y admin pueden editar rutas.
-  // Los vendedores (TM Reps) ven la ruta en modo lectura.
+  // Todos los roles pueden editar rutas (el TM Rep arma y modifica sus propias rutas).
   const canEdit = ["admin", "territory_manager", "regional_manager", "supervisor", "vendedor"].includes(
     (currentUser.role || "").toLowerCase()
   );

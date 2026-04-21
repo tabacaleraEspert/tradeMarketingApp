@@ -387,7 +387,7 @@ export function PhotoCapture() {
       </div>
 
       {/* Fixed Bottom Actions */}
-      <div className="sticky bottom-0 bg-card border-t border-border p-3">
+      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button
           className="w-full h-12 text-base font-semibold"
           onClick={handleFinish}

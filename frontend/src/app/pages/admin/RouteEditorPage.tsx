@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
+import { ConfirmModal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
@@ -137,6 +138,8 @@ export function RouteEditorPage() {
   const [routeDays, setRouteDays] = useState<Awaited<ReturnType<typeof routesApi.listDays>>>([]);
   const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
+  const [confirmRemoveDayId, setConfirmRemoveDayId] = useState<number | null>(null);
+  const [confirmRemoveFormId, setConfirmRemoveFormId] = useState<number | null>(null);
   const [showAddDay, setShowAddDay] = useState(false);
   const [newDayUser, setNewDayUser] = useState<number | "">("");
   const [newDayDate, setNewDayDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -353,10 +356,7 @@ export function RouteEditorPage() {
     const optimized = optimizeRouteOrder(orderedPdvs);
     setSaving(true);
     try {
-      // Remove all and re-add in optimized order
-      for (const rp of routePdvs) {
-        await routesApi.removePdv(id, rp.PdvId);
-      }
+      // Re-add with new SortOrder (backend updates in-place if same route)
       const newRoutePdvs = [];
       for (let i = 0; i < optimized.length; i++) {
         await routesApi.addPdv(id, {
@@ -367,13 +367,12 @@ export function RouteEditorPage() {
         newRoutePdvs.push({ RouteId: id, PdvId: optimized[i].PdvId, SortOrder: i, Priority: 3 });
       }
       setRoutePdvs(newRoutePdvs);
-      // Marcar la ruta como optimizada (task 11)
       const updated = await routesApi.update(id, { IsOptimized: true });
       setRoute(updated);
       setRouteDraft((d) => (d ? { ...d } : null));
       toast.success("Ruta optimizada por distancia");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error al optimizar");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Error al optimizar");
     } finally {
       setSaving(false);
     }
@@ -401,7 +400,6 @@ export function RouteEditorPage() {
   };
 
   const handleRemoveDay = async (routeDayId: number) => {
-    if (!confirm("¿Eliminar este día de la ruta?")) return;
     setSaving(true);
     try {
       await routesApi.deleteDay(routeDayId);
@@ -430,7 +428,7 @@ export function RouteEditorPage() {
   };
 
   const handleRemoveForm = async (formId: number) => {
-    if (!id || !confirm("¿Quitar este formulario de la ruta?")) return;
+    if (!id) return;
     setSaving(true);
     try {
       await routesApi.removeForm(id, formId);
@@ -650,7 +648,7 @@ export function RouteEditorPage() {
             )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
+            <div className={isMyRoute ? "md:col-span-2" : ""}>
               <label className="block text-sm font-medium text-muted-foreground mb-1">Nombre</label>
               <Input
                 value={routeDraft?.Name ?? ""}
@@ -660,43 +658,47 @@ export function RouteEditorPage() {
                 placeholder="Ej: Ruta Norte - Kioscos"
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">Zona</label>
-              <select
-                className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
-                value={routeDraft?.ZoneId ?? ""}
-                onChange={(e) => {
-                  const zoneId = e.target.value ? Number(e.target.value) : undefined;
-                  setRouteDraft((d) => (d ? { ...d, ZoneId: zoneId ?? null } : null));
-                }}
-              >
-                <option value="">Sin zona</option>
-                {zones.map((z) => (
-                  <option key={z.ZoneId} value={z.ZoneId}>
-                    {z.Name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-muted-foreground mb-1">Zona Bejerman</label>
-              <select
-                className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
-                value={routeDraft?.BejermanZone ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value || undefined;
-                  setRouteDraft((d) => (d ? { ...d, BejermanZone: v ?? null } : null));
-                }}
-              >
-                <option value="">Sin zona</option>
-                {BEJERMAN_ZONES.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {isAdmin && (
+            {!isMyRoute && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">Zona</label>
+                  <select
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
+                    value={routeDraft?.ZoneId ?? ""}
+                    onChange={(e) => {
+                      const zoneId = e.target.value ? Number(e.target.value) : undefined;
+                      setRouteDraft((d) => (d ? { ...d, ZoneId: zoneId ?? null } : null));
+                    }}
+                  >
+                    <option value="">Sin zona</option>
+                    {zones.map((z) => (
+                      <option key={z.ZoneId} value={z.ZoneId}>
+                        {z.Name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-muted-foreground mb-1">Zona Bejerman</label>
+                  <select
+                    className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
+                    value={routeDraft?.BejermanZone ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value || undefined;
+                      setRouteDraft((d) => (d ? { ...d, BejermanZone: v ?? null } : null));
+                    }}
+                  >
+                    <option value="">Sin zona</option>
+                    {BEJERMAN_ZONES.map((z) => (
+                      <option key={z} value={z}>
+                        {z}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+            {!isMyRoute && (
               <div>
                 <label className="block text-sm font-medium text-muted-foreground mb-1">
                   Tiempo estimado (min)
@@ -731,7 +733,7 @@ export function RouteEditorPage() {
                     {rf.Form.Name}
                     <button
                       type="button"
-                      onClick={() => handleRemoveForm(rf.FormId)}
+                      onClick={() => setConfirmRemoveFormId(rf.FormId)}
                       disabled={saving}
                       className="ml-1 p-0.5 hover:bg-secondary rounded"
                     >
@@ -828,88 +830,95 @@ export function RouteEditorPage() {
         </CardContent>
       </Card>
 
-      {/* Trade Marketer asignado + Frecuencia */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Trade Marketer */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-foreground flex items-center gap-2">
-                <User size={20} />
-                Trade Marketer asignado
-              </h3>
-            </div>
-            <select
-              className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
-              value={routeDraft?.AssignedUserId ?? ""}
-              onChange={(e) => {
-                const uid = e.target.value ? Number(e.target.value) : null;
-                setRouteDraft((d) => (d ? { ...d, AssignedUserId: uid } : null));
-              }}
-            >
-              <option value="">Sin asignar</option>
-              {users.filter((u) => u.IsActive).map((u) => (
-                <option key={u.UserId} value={u.UserId}>
-                  {u.DisplayName} ({u.Email})
-                </option>
-              ))}
-            </select>
-            {route?.AssignedUserName && !routeMetadataDirty && (
-              <p className="text-sm text-muted-foreground mt-2">
-                Asignado a: <span className="font-medium text-foreground">{route.AssignedUserName}</span>
-              </p>
-            )}
-            <p className="text-xs text-muted-foreground mt-2">
-              Este TM se asignará automáticamente a los nuevos días de ruta
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Frecuencia */}
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-foreground flex items-center gap-2">
-                <Calendar size={20} />
-                Frecuencia
-              </h3>
-            </div>
-            <div className="space-y-4">
+      {/* Trade Marketer + Frecuencia */}
+      <div className={`grid grid-cols-1 ${!isMyRoute ? "md:grid-cols-2" : ""} gap-6`}>
+        {/* Trade Marketer — solo admin */}
+        {!isMyRoute && (
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-semibold text-foreground flex items-center gap-2">
+                  <User size={20} />
+                  Trade Marketer asignado
+                </h3>
+              </div>
               <select
                 className="w-full px-3 py-2 border border-border rounded-lg focus:ring-2 focus:ring-espert-gold"
-                value={routeDraft?.FrequencyType ?? ""}
+                value={routeDraft?.AssignedUserId ?? ""}
                 onChange={(e) => {
-                  const ft = e.target.value || null;
-                  setRouteDraft((d) => {
-                    if (!d) return null;
-                    // Reset config when changing type
-                    let config = d.FrequencyConfig;
-                    if (ft === "specific_days" && !config) config = JSON.stringify({ days: [] });
-                    else if (ft !== "specific_days") config = ft === "every_x_days" ? JSON.stringify({ interval: 15 }) : null;
-                    return { ...d, FrequencyType: ft, FrequencyConfig: config };
-                  });
+                  const uid = e.target.value ? Number(e.target.value) : null;
+                  setRouteDraft((d) => (d ? { ...d, AssignedUserId: uid } : null));
                 }}
               >
-                <option value="">Sin frecuencia definida</option>
-                <option value="daily">Diaria</option>
-                <option value="specific_days">Días específicos de la semana</option>
-                <option value="weekly">Semanal</option>
-                <option value="every_x_days">Cada X días</option>
-                <option value="biweekly">Quincenal</option>
-                <option value="monthly">Mensual</option>
+                <option value="">Sin asignar</option>
+                {users.filter((u) => u.IsActive).map((u) => (
+                  <option key={u.UserId} value={u.UserId}>
+                    {u.DisplayName} ({u.Email})
+                  </option>
+                ))}
               </select>
+              {route?.AssignedUserName && !routeMetadataDirty && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Asignado a: <span className="font-medium text-foreground">{route.AssignedUserName}</span>
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Frecuencia — chips visuales */}
+        <Card>
+          <CardContent className="p-6">
+            <h3 className="font-semibold text-foreground flex items-center gap-2 mb-4">
+              <Calendar size={20} />
+              Frecuencia
+            </h3>
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: "", label: "Sin definir" },
+                  { value: "daily", label: "Diaria" },
+                  { value: "weekly", label: "Semanal" },
+                  { value: "biweekly", label: "Quincenal" },
+                  { value: "monthly", label: "Mensual" },
+                  { value: "specific_days", label: "Días específicos" },
+                  { value: "every_x_days", label: "Cada X días" },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      const ft = opt.value || null;
+                      setRouteDraft((d) => {
+                        if (!d) return null;
+                        let config = d.FrequencyConfig;
+                        if (ft === "specific_days" && !config) config = JSON.stringify({ days: [] });
+                        else if (ft !== "specific_days") config = ft === "every_x_days" ? JSON.stringify({ interval: 15 }) : null;
+                        return { ...d, FrequencyType: ft, FrequencyConfig: config };
+                      });
+                    }}
+                    className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                      (routeDraft?.FrequencyType ?? "") === opt.value
+                        ? "bg-[#A48242] text-white"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
 
               {/* Specific days selector */}
               {routeDraft?.FrequencyType === "specific_days" && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-2">Seleccioná los días de la semana:</p>
+                  <p className="text-xs text-muted-foreground mb-2">Seleccioná los días:</p>
                   <div className="flex gap-1.5">
-                    {["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"].map((label, idx) => (
+                    {["D", "L", "M", "X", "J", "V", "S"].map((label, idx) => (
                       <button
                         key={idx}
                         type="button"
                         onClick={() => toggleFrequencyDay(idx)}
-                        className={`w-10 h-10 rounded-full text-xs font-medium transition-colors ${
+                        className={`w-10 h-10 rounded-full text-sm font-bold transition-colors ${
                           frequencyDays.includes(idx)
                             ? "bg-[#A48242] text-white"
                             : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -922,19 +931,56 @@ export function RouteEditorPage() {
                 </div>
               )}
 
-              {/* Every X days interval */}
+              {/* Weekly: pick day */}
+              {routeDraft?.FrequencyType === "weekly" && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-2">¿Qué día de la semana?</p>
+                  <div className="flex gap-1.5">
+                    {["D", "L", "M", "X", "J", "V", "S"].map((label, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => updateFrequencyConfig({ day: idx })}
+                        className={`w-10 h-10 rounded-full text-sm font-bold transition-colors ${
+                          frequencyConfigParsed.day === idx
+                            ? "bg-[#A48242] text-white"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Biweekly / Monthly: start date */}
+              {(routeDraft?.FrequencyType === "biweekly" || routeDraft?.FrequencyType === "monthly") && (
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Fecha de inicio del ciclo</label>
+                  <Input
+                    type="date"
+                    value={frequencyStartDate}
+                    onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
+                    className="max-w-xs"
+                  />
+                </div>
+              )}
+
+              {/* Every X days */}
               {routeDraft?.FrequencyType === "every_x_days" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-muted-foreground mb-1">Cada cuántos días</label>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-muted-foreground">Cada</span>
                     <Input
                       type="number"
                       min={1}
                       max={90}
                       value={frequencyConfigParsed.interval ?? 15}
                       onChange={(e) => updateFrequencyConfig({ interval: Number(e.target.value) || 15 })}
-                      placeholder="15"
+                      className="w-20"
                     />
+                    <span className="text-sm text-muted-foreground">días</span>
                   </div>
                   <div>
                     <label className="block text-xs text-muted-foreground mb-1">A partir de</label>
@@ -942,40 +988,29 @@ export function RouteEditorPage() {
                       type="date"
                       value={frequencyStartDate}
                       onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
+                      className="max-w-xs"
                     />
-                    <p className="text-[10px] text-muted-foreground mt-1">Fecha de inicio del ciclo</p>
                   </div>
-                </div>
-              )}
-
-              {/* Start date for biweekly / monthly cycles */}
-              {(routeDraft?.FrequencyType === "biweekly" || routeDraft?.FrequencyType === "monthly") && (
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">A partir de</label>
-                  <Input
-                    type="date"
-                    value={frequencyStartDate}
-                    onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
-                    className="max-w-xs"
-                  />
-                  <p className="text-[10px] text-muted-foreground mt-1">Fecha de inicio del ciclo</p>
                 </div>
               )}
 
               {/* Summary */}
               {routeDraft?.FrequencyType && (
                 <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                  {routeDraft.FrequencyType === "daily" && "Se ejecuta todos los días"}
-                  {routeDraft.FrequencyType === "weekly" && "Se ejecuta una vez por semana"}
-                  {routeDraft.FrequencyType === "biweekly" && "Se ejecuta cada 2 semanas"}
-                  {routeDraft.FrequencyType === "monthly" && "Se ejecuta una vez al mes"}
+                  {routeDraft.FrequencyType === "daily" && "Se ejecuta todos los días hábiles"}
+                  {routeDraft.FrequencyType === "weekly" && (
+                    frequencyConfigParsed.day != null
+                      ? `Todos los ${["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"][frequencyConfigParsed.day]}`
+                      : "Seleccioná el día de la semana"
+                  )}
+                  {routeDraft.FrequencyType === "biweekly" && `Cada 2 semanas${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : " · Elegí fecha de inicio"}`}
+                  {routeDraft.FrequencyType === "monthly" && `Una vez al mes${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : " · Elegí fecha de inicio"}`}
                   {routeDraft.FrequencyType === "specific_days" && (
                     frequencyDays.length > 0
                       ? `Se ejecuta los ${frequencyDays.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d]).join(", ")}`
                       : "Seleccioná al menos un día"
                   )}
-                  {routeDraft.FrequencyType === "every_x_days" && `Se ejecuta cada ${frequencyConfigParsed.interval || 15} días`}
-                  {frequencyStartDate && ["every_x_days", "biweekly", "monthly"].includes(routeDraft.FrequencyType || "") && ` · A partir del ${frequencyStartDate}`}
+                  {routeDraft.FrequencyType === "every_x_days" && `Cada ${frequencyConfigParsed.interval || 15} días${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : ""}`}
                 </p>
               )}
             </div>
@@ -985,68 +1020,65 @@ export function RouteEditorPage() {
 
       {/* PDVs en la ruta */}
       <Card>
-        <CardContent className="p-6">
+        <CardContent className="p-4 sm:p-6">
           {/* Header with stats */}
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <h3 className="font-semibold text-foreground flex items-center gap-2">
-                <MapPin size={20} />
-                Puntos de venta ({routePdvs.length})
+          <div className="space-y-3 mb-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-foreground flex items-center gap-2 text-base">
+                <MapPin size={18} />
+                PDVs ({routePdvs.length})
               </h3>
-              {totalKm > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <Badge variant="outline" className="gap-1">
-                    <Route size={13} />
-                    {totalKm.toFixed(1)} km
-                  </Badge>
-                  <Badge variant="outline" className="gap-1 text-blue-600 border-blue-200">
-                    🚶 {formatMinutes(totalKm / WALK_KMH * 60)}
-                  </Badge>
-                  <Badge variant="outline" className="gap-1 text-green-600 border-green-200">
-                    🚗 {formatMinutes(totalKm / DRIVE_KMH * 60)}
-                  </Badge>
+              <div className="flex items-center gap-2">
+                {orderedPdvs.length >= 2 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleOptimizeRoute}
+                    disabled={saving}
+                    className="gap-1 text-xs h-8"
+                  >
+                    <Zap size={13} />
+                    <span className="hidden sm:inline">Optimizar</span>
+                  </Button>
+                )}
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  <button
+                    onClick={() => setPdvViewMode("list")}
+                    className={`px-2 py-1.5 text-xs transition-colors ${
+                      pdvViewMode === "list"
+                        ? "bg-[#A48242] text-white"
+                        : "bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <List size={14} />
+                  </button>
+                  <button
+                    onClick={() => setPdvViewMode("map")}
+                    className={`px-2 py-1.5 text-xs transition-colors ${
+                      pdvViewMode === "map"
+                        ? "bg-[#A48242] text-white"
+                        : "bg-card text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    <MapIcon size={14} />
+                  </button>
                 </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {orderedPdvs.length >= 2 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOptimizeRoute}
-                  disabled={saving}
-                  className="gap-1.5"
-                >
-                  <Zap size={15} />
-                  Optimizar ruta
-                </Button>
-              )}
-              {/* View toggle */}
-              <div className="flex rounded-lg border border-border overflow-hidden">
-                <button
-                  onClick={() => setPdvViewMode("list")}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    pdvViewMode === "list"
-                      ? "bg-[#A48242] text-white"
-                      : "bg-card text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  <List size={14} />
-                  Lista
-                </button>
-                <button
-                  onClick={() => setPdvViewMode("map")}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                    pdvViewMode === "map"
-                      ? "bg-[#A48242] text-white"
-                      : "bg-card text-muted-foreground hover:bg-muted"
-                  }`}
-                >
-                  <MapIcon size={14} />
-                  Mapa
-                </button>
               </div>
             </div>
+            {totalKm > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <Badge variant="outline" className="gap-1 text-xs">
+                  <Route size={11} />
+                  {totalKm.toFixed(1)} km
+                </Badge>
+                <Badge variant="outline" className="gap-1 text-xs text-blue-600 border-blue-200">
+                  🚶 {formatMinutes(totalKm / WALK_KMH * 60)}
+                </Badge>
+                <Badge variant="outline" className="gap-1 text-xs text-green-600 border-green-200">
+                  🚗 {formatMinutes(totalKm / DRIVE_KMH * 60)}
+                </Badge>
+              </div>
+            )}
           </div>
 
           {pdvViewMode === "map" ? (
@@ -1321,8 +1353,8 @@ export function RouteEditorPage() {
         </CardContent>
       </Card>
 
-      {/* Días de ruta */}
-      <Card>
+      {/* Días de ruta — solo admin */}
+      {!isMyRoute && (<Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-foreground flex items-center gap-2">
@@ -1449,7 +1481,7 @@ export function RouteEditorPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleRemoveDay(d.RouteDayId)}
+                      onClick={() => setConfirmRemoveDayId(d.RouteDayId)}
                       disabled={saving}
                     >
                       <Trash2 size={16} className="text-red-500" />
@@ -1460,7 +1492,28 @@ export function RouteEditorPage() {
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>)}
+      {/* Confirm remove day */}
+      <ConfirmModal
+        isOpen={confirmRemoveDayId !== null}
+        onClose={() => setConfirmRemoveDayId(null)}
+        onConfirm={() => { if (confirmRemoveDayId !== null) handleRemoveDay(confirmRemoveDayId); }}
+        title="Eliminar día"
+        message="¿Eliminar este día de la ruta?"
+        confirmText="Eliminar"
+        type="danger"
+      />
+
+      {/* Confirm remove form */}
+      <ConfirmModal
+        isOpen={confirmRemoveFormId !== null}
+        onClose={() => setConfirmRemoveFormId(null)}
+        onConfirm={() => { if (confirmRemoveFormId !== null) handleRemoveForm(confirmRemoveFormId); }}
+        title="Quitar formulario"
+        message="¿Quitar este formulario de la ruta?"
+        confirmText="Quitar"
+        type="danger"
+      />
     </div>
   );
 }

@@ -369,9 +369,9 @@ export function VisitSummaryPage() {
       </div>
 
       {/* Close button */}
-      <div className="sticky bottom-0 bg-card border-t border-border p-3">
+      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button
-          className="w-full h-11 text-sm font-semibold bg-red-600 hover:bg-red-700"
+          className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8a6d35]"
           onClick={handleClose}
           disabled={closing}
         >

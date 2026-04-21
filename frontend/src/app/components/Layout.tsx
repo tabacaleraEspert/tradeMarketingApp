@@ -31,7 +31,7 @@ export function Layout() {
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button
             onClick={() => navigate("/")}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
               isActive("/") && location.pathname === "/"
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -43,7 +43,7 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/search-pdv")}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
               isActive("/search-pdv") || isActive("/route") || location.pathname.includes("/pos")
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -55,7 +55,7 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/alerts")}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
               isActive("/alerts") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -65,7 +65,7 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/sync")}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
               isActive("/sync") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -75,7 +75,7 @@ export function Layout() {
 
           <button
             onClick={() => navigate("/profile")}
-            className={`flex flex-col items-center gap-1 px-4 py-2 rounded-lg transition-colors ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors ${
               isActive("/profile") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >

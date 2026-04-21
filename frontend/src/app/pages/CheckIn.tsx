@@ -194,11 +194,9 @@ export function CheckIn() {
       setCurrentVisitId(visitId);
       setIsCheckedIn(true);
 
-      setTimeout(() => {
-        navigate(`/pos/${id}/survey`, {
-          state: { routeDayId, visitId: visit.VisitId },
-        });
-      }, 1500);
+      navigate(`/pos/${id}/survey`, {
+        state: { routeDayId, visitId },
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al registrar check-in");
     } finally {
@@ -586,7 +584,7 @@ export function CheckIn() {
         )}
 
         {/* Actions */}
-        <div className="space-y-3 pb-4">
+        <div className="space-y-3 pb-4 pb-[env(safe-area-inset-bottom)]">
           {!isCheckedIn ? (
             <>
               {/* Banner de alerta GPS si corresponde */}
@@ -611,12 +609,20 @@ export function CheckIn() {
               )}
 
               <Button
-                className="w-full h-14 text-base font-semibold"
+                className={`w-full h-14 text-base font-semibold ${
+                  gpsStatus !== "ok" && gpsStatus !== "checking"
+                    ? "bg-amber-500 hover:bg-amber-600 text-white"
+                    : ""
+                }`}
                 size="lg"
                 onClick={handleCheckIn}
                 disabled={saving || gpsStatus === "checking"}
               >
-                <CheckCircle2 className="mr-2" size={20} />
+                {gpsStatus !== "ok" && gpsStatus !== "checking" ? (
+                  <AlertTriangle className="mr-2" size={20} />
+                ) : (
+                  <CheckCircle2 className="mr-2" size={20} />
+                )}
                 {saving
                   ? "Registrando..."
                   : gpsStatus === "checking"
