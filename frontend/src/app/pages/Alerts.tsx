@@ -14,7 +14,7 @@ import {
   DialogTrigger,
 } from "../components/ui/dialog";
 import { Label } from "../components/ui/label";
-import { ArrowLeft, AlertTriangle, Plus, Search } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Plus, Search, Package, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { useIncidentsWithPdvNames, useActiveNotifications, incidentsApi } from "@/lib/api";
 import { incidentToAlertUI, notificationToAlertUI } from "@/lib/api";
@@ -50,7 +50,16 @@ export function Alerts() {
   });
 
   const getAlertIcon = (type: string) => {
-    return <AlertTriangle size={20} />;
+    switch (type) {
+      case "stock-out":
+        return <Package size={20} />;
+      case "price-issue":
+        return <Tag size={20} />;
+      case "missing-material":
+        return <Package size={20} />;
+      default:
+        return <AlertTriangle size={20} />;
+    }
   };
 
   const getAlertTypeLabel = (type: string) => {

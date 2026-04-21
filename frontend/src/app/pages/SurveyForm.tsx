@@ -426,12 +426,12 @@ export function SurveyForm() {
 
         {/* Action buttons - sticky to bottom */}
         <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4 space-y-2">
-          <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleSubmit}>
+          <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white" onClick={handleSubmit}>
             <Send className="mr-2" size={16} />
             Finalizar y Continuar
           </Button>
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1 h-9 text-xs" onClick={handleSaveDraft}>
+            <Button variant="outline" className="flex-1 h-9 text-xs border-muted-foreground/30 text-muted-foreground" onClick={handleSaveDraft}>
               <Save className="mr-1.5" size={14} />
               Borrador
             </Button>

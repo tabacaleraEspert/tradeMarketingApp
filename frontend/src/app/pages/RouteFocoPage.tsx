@@ -170,13 +170,13 @@ export function RouteFocoPage() {
           </div>
           {!isToday && (
             <button onClick={goToToday}
-              className="px-2 py-1 bg-[#A48242] text-white rounded-lg text-[10px] font-bold uppercase tracking-wider hover:bg-[#A48242]/90"
+              className="px-3 py-2 bg-[#A48242] text-white rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-[#A48242]/90"
               title="Ir a hoy">
               Hoy
             </button>
           )}
           <button onClick={() => setIsDateSelectorOpen(true)}
-            className="px-2 py-1 bg-[#A48242]/10 rounded-lg text-[#A48242] text-sm font-medium">
+            className="px-3 py-2 bg-[#A48242]/10 rounded-lg text-[#A48242] text-sm font-medium">
             {selectedDate.getDate()}/{selectedDate.getMonth() + 1}
           </button>
         </div>

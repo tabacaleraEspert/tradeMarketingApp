@@ -87,7 +87,7 @@ export function Home() {
               className="bg-white/10 rounded-lg px-2.5 py-1 cursor-pointer hover:bg-white/15 active:scale-95 border border-white/5 text-center"
               onClick={() => setIsDateSelectorOpen(true)}
             >
-              <p className="text-[9px] text-[#979B9B]">{dateDisplay.dayShort}</p>
+              <p className="text-[10px] text-[#979B9B]">{dateDisplay.dayShort}</p>
               <p className="text-sm font-bold leading-tight">{dateDisplay.day} {dateDisplay.month}</p>
             </div>
           </div>

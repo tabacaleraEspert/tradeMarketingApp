@@ -29,7 +29,7 @@ export function OfflineBanner() {
   if (isOnline) return null;
 
   return (
-    <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-white shadow-md">
+    <div className="fixed top-0 left-0 right-0 z-[100] bg-amber-500 text-white shadow-md pt-[env(safe-area-inset-top)]">
       <div className="max-w-3xl mx-auto px-4 py-2 flex items-center gap-2 text-sm font-medium">
         <WifiOff size={16} className="flex-shrink-0" />
         <span className="flex-1">

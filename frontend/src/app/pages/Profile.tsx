@@ -140,10 +140,10 @@ export function Profile() {
               <button
                 type="button"
                 onClick={handleRemoveAvatar}
-                className="absolute -bottom-1 -right-1 bg-rose-600 text-white rounded-full p-1.5 hover:bg-rose-700 shadow-lg"
+                className="absolute -bottom-1 -right-1 bg-rose-600 text-white rounded-full h-10 w-10 flex items-center justify-center hover:bg-rose-700 shadow-lg"
                 title="Eliminar foto"
               >
-                <Trash2 size={12} />
+                <Trash2 size={16} />
               </button>
             )}
           </div>

@@ -3,7 +3,7 @@ import { Modal } from "./ui/modal";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Lock, ShieldAlert } from "lucide-react";
+import { Lock, ShieldAlert, Eye, EyeOff } from "lucide-react";
 import { authApi, ApiError } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -17,6 +17,7 @@ export function ForcePasswordChangeModal({ isOpen, onSuccess }: Props) {
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -77,45 +78,72 @@ export function ForcePasswordChangeModal({ isOpen, onSuccess }: Props) {
         </div>
 
         <div>
-          <Label className="text-sm font-medium">Contraseña actual</Label>
+          <Label htmlFor="pwd-current" className="text-sm font-medium">Contraseña actual</Label>
           <div className="relative mt-1">
             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              type="password"
+              id="pwd-current"
+              type={showPassword ? "text" : "password"}
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
               placeholder="La que usaste para entrar"
-              className="pl-9"
+              className="pl-9 pr-9"
               autoFocus
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
           </div>
         </div>
 
         <div>
-          <Label className="text-sm font-medium">Nueva contraseña</Label>
+          <Label htmlFor="pwd-next" className="text-sm font-medium">Nueva contraseña</Label>
           <div className="relative mt-1">
             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              type="password"
+              id="pwd-next"
+              type={showPassword ? "text" : "password"}
               value={next}
               onChange={(e) => setNext(e.target.value)}
               placeholder="Mínimo 8 caracteres"
-              className="pl-9"
+              className="pl-9 pr-9"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
           </div>
         </div>
 
         <div>
-          <Label className="text-sm font-medium">Confirmar nueva contraseña</Label>
+          <Label htmlFor="pwd-confirm" className="text-sm font-medium">Confirmar nueva contraseña</Label>
           <div className="relative mt-1">
             <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              type="password"
+              id="pwd-confirm"
+              type={showPassword ? "text" : "password"}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="Repetí la nueva contraseña"
-              className="pl-9"
+              className="pl-9 pr-9"
             />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+            >
+              {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
           </div>
         </div>
       </div>

@@ -465,7 +465,7 @@ export function History() {
                               className="w-full h-20 object-cover rounded-lg border border-border"
                             />
                             <div className="absolute bottom-0.5 left-0.5">
-                              <Badge variant="secondary" className="text-[8px] px-1 py-0">{p.PhotoType}</Badge>
+                              <Badge variant="secondary" className="text-[10px] px-1 py-0">{p.PhotoType}</Badge>
                             </div>
                           </div>
                         ))}

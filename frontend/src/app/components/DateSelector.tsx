@@ -12,7 +12,9 @@ interface DateSelectorProps {
 }
 
 const DAYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const DAYS_FULL = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const MONTHS_LOWER = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
 
 export function DateSelector({ isOpen, onClose, selectedDate, onDateSelect }: DateSelectorProps) {
   const today = useMemo(() => new Date(), []);
@@ -165,10 +167,14 @@ export function DateSelector({ isOpen, onClose, selectedDate, onDateSelect }: Da
             const selected = isSelected(cell.day, cell.month, cell.year);
             const route = cell.current && hasRoute(cell.day, cell.month, cell.year);
 
+            const cellDate = new Date(cell.year, cell.month, cell.day);
+            const dayLabel = `${DAYS_FULL[cellDate.getDay()]} ${cell.day} de ${MONTHS_LOWER[cell.month]}`;
+
             return (
               <button
                 key={i}
                 onClick={() => handleSelect(cell.day, cell.month, cell.year)}
+                aria-label={dayLabel}
                 className={`relative flex flex-col items-center justify-center h-11 rounded-lg text-sm transition-colors ${
                   selected
                     ? "bg-[#A48242] text-white font-bold"

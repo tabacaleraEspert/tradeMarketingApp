@@ -198,14 +198,21 @@ export function AddressAutocomplete({
         className={className}
         disabled={disabled || !isLoaded}
         autoComplete="off"
+        role="combobox"
+        aria-expanded={showDropdown && predictions.length > 0}
+        aria-controls="address-autocomplete-list"
+        aria-activedescendant={activeIndex >= 0 ? `address-option-${activeIndex}` : undefined}
       />
 
       {showDropdown && predictions.length > 0 && (
-        <div className="absolute z-[10000] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+        <div id="address-autocomplete-list" role="listbox" className="absolute z-[10000] left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
           {predictions.map((prediction, index) => (
             <button
               key={prediction.placeId}
+              id={`address-option-${index}`}
               type="button"
+              role="option"
+              aria-selected={index === activeIndex}
               className={`w-full flex items-start gap-3 px-3 py-2.5 text-left text-sm transition-colors ${
                 index === activeIndex
                   ? "bg-amber-50"
