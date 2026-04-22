@@ -27,6 +27,12 @@ jobs:
 
       - name: Build
         working-directory: frontend
+        env:
+          VITE_API_URL: https://espert-trade-api.azurewebsites.net
+          VITE_GOOGLE_MAPS_API_KEY: ${{ secrets.VITE_GOOGLE_MAPS_API_KEY }}
+          VITE_SENTRY_DSN: ${{ secrets.VITE_SENTRY_DSN }}
+          VITE_SENTRY_ENVIRONMENT: production
+          VITE_APP_RELEASE: ${{ github.sha }}
         run: npm run build
 
       - name: Deploy to Azure Static Web Apps
