@@ -51,13 +51,24 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
                 exc,
             )
             logger.error("Traceback: %s", traceback.format_exc())
+
+            # Build CORS headers so the browser can read the error response
+            cors_headers: dict[str, str] = {"X-Request-ID": rid}
+            origin = request.headers.get("origin")
+            if origin:
+                from .config import settings
+                allowed = settings.frontend_origin
+                if allowed and origin == allowed:
+                    cors_headers["Access-Control-Allow-Origin"] = origin
+                    cors_headers["Access-Control-Allow-Credentials"] = "true"
+
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "detail": "Error interno del servidor",
                     "request_id": rid,
                 },
-                headers={"X-Request-ID": rid},
+                headers=cors_headers,
             )
         response.headers["X-Request-ID"] = rid
         return response
