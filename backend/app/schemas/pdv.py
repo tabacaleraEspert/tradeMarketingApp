@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 from .pdv_contact import PdvContact, PdvContactCreate
 
@@ -37,50 +37,50 @@ def _validate_hhmm(v: str | None) -> str | None:
 
 
 class PdvBase(BaseModel):
-    Code: str | None = None
-    Name: str
-    BusinessName: str | None = None  # Razón social legal
-    Channel: str | None = None  # Legacy, preferir ChannelId
+    Code: str | None = Field(None, max_length=50)
+    Name: str = Field(..., max_length=160)
+    BusinessName: str | None = Field(None, max_length=200)
+    Channel: str | None = Field(None, max_length=40)
     ChannelId: int | None = None
     SubChannelId: int | None = None
-    Address: str | None = None
-    City: str | None = None
+    Address: str | None = Field(None, max_length=200)
+    City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
-    DistributorId: int | None = None  # Legacy single distributor
+    DistributorId: int | None = None
     Lat: Decimal | None = None
     Lon: Decimal | None = None
-    ContactName: str | None = None  # Legacy
-    ContactPhone: str | None = None  # Legacy
-    OpeningTime: str | None = None
-    ClosingTime: str | None = None
+    ContactName: str | None = Field(None, max_length=120)
+    ContactPhone: str | None = Field(None, max_length=40)
+    OpeningTime: str | None = Field(None, max_length=5)
+    ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None  # 0=Dom .. 6=Sáb
-    DefaultMaterialExternalId: str | None = None
+    DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     AssignedUserId: int | None = None
     IsActive: bool = True
-    InactiveReason: str | None = None
+    InactiveReason: str | None = Field(None, max_length=500)
     ReactivateOn: date | None = None
 
 
 class PdvCreate(BaseModel):
-    Code: str | None = None
-    Name: str
-    BusinessName: str | None = None
+    Code: str | None = Field(None, max_length=50)
+    Name: str = Field(..., max_length=160)
+    BusinessName: str | None = Field(None, max_length=200)
     ChannelId: int
     SubChannelId: int | None = None
-    Address: str | None = None
-    City: str | None = None
+    Address: str | None = Field(None, max_length=200)
+    City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
-    DistributorId: int | None = None  # Legacy compat
+    DistributorId: int | None = None
     DistributorIds: list[int] | None = None
     Lat: Decimal | None = None
     Lon: Decimal | None = None
-    OpeningTime: str | None = None
-    ClosingTime: str | None = None
+    OpeningTime: str | None = Field(None, max_length=5)
+    ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     Contacts: list[PdvContactCreate] | None = None
-    DefaultMaterialExternalId: str | None = None
+    DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     IsActive: bool = True
 
     @field_validator("Lat")
@@ -114,29 +114,28 @@ class PdvCreate(BaseModel):
 
 
 class PdvUpdate(BaseModel):
-    Code: str | None = None
-    Name: str | None = None
-    BusinessName: str | None = None
+    Code: str | None = Field(None, max_length=50)
+    Name: str | None = Field(None, max_length=160)
+    BusinessName: str | None = Field(None, max_length=200)
     ChannelId: int | None = None
     SubChannelId: int | None = None
-    Address: str | None = None
-    City: str | None = None
+    Address: str | None = Field(None, max_length=200)
+    City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
-    DistributorId: int | None = None  # Legacy compat
+    DistributorId: int | None = None
     DistributorIds: list[int] | None = None
     Lat: Decimal | None = None
     Lon: Decimal | None = None
-    ContactName: str | None = None
-    ContactPhone: str | None = None
-    OpeningTime: str | None = None
-    ClosingTime: str | None = None
+    ContactName: str | None = Field(None, max_length=120)
+    ContactPhone: str | None = Field(None, max_length=40)
+    OpeningTime: str | None = Field(None, max_length=5)
+    ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     Contacts: list[PdvContactCreate] | None = None
-    DefaultMaterialExternalId: str | None = None
+    DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     IsActive: bool | None = None
-    # Cuando se desactiva, el frontend manda InactiveReason. ReactivateOn se autocompleta a +60 días.
-    InactiveReason: str | None = None
+    InactiveReason: str | None = Field(None, max_length=500)
     ReactivateOn: date | None = None
 
     @field_validator("Lat")

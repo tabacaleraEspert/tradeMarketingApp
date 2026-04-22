@@ -19,9 +19,10 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, get_user_role
 from ..database import get_db
-from ..models import User as UserModel, Visit as VisitModel
+from ..models import User as UserModel, Visit as VisitModel, PDV as PDVModel
 from ..models.file import File as FileModel
 from ..models.visit import VisitPhoto as VisitPhotoModel
+from ..models.pdv import PdvPhoto as PdvPhotoModel
 from ..storage import storage, compute_sha256
 
 
@@ -48,6 +49,18 @@ class VisitPhotoRead(BaseModel):
     SortOrder: int
     Notes: str | None
     # Metadata del File enriquecida
+    url: str
+    content_type: str | None
+    size_bytes: int | None
+    created_at: datetime
+
+
+class PdvPhotoRead(BaseModel):
+    PdvId: int
+    FileId: int
+    PhotoType: str
+    SortOrder: int
+    Notes: str | None
     url: str
     content_type: str | None
     size_bytes: int | None
@@ -249,3 +262,132 @@ def get_file_metadata(
         HashSha256=f.HashSha256,
         CreatedAt=f.CreatedAt,
     )
+
+
+# ============================================================================
+# PDV Photos
+# ============================================================================
+def _serialize_pdv_photo(pp: PdvPhotoModel, f: FileModel) -> PdvPhotoRead:
+    url = storage.get_url(f.BlobKey) if f.BlobKey else (f.Url or "")
+    return PdvPhotoRead(
+        PdvId=pp.PdvId,
+        FileId=pp.FileId,
+        PhotoType=pp.PhotoType,
+        SortOrder=pp.SortOrder,
+        Notes=pp.Notes,
+        url=url,
+        content_type=f.ContentType,
+        size_bytes=int(f.SizeBytes) if f.SizeBytes else None,
+        created_at=f.CreatedAt,
+    )
+
+
+@router.post("/photos/pdv/{pdv_id}", response_model=PdvPhotoRead, status_code=201)
+async def upload_pdv_photo(
+    pdv_id: int,
+    file: UploadFile = File(...),
+    photo_type: str = Form(default="fachada"),
+    sort_order: int = Form(default=1),
+    notes: str | None = Form(default=None),
+    lat: float | None = Form(default=None),
+    lon: float | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Sube una foto y la asocia al PDV indicado."""
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
+    if not pdv:
+        raise HTTPException(status_code=404, detail="PDV no encontrado")
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tipo de archivo no permitido: {content_type}. Sólo imágenes (jpg, png, webp, heic).",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Archivo vacío")
+    if len(data) > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Archivo demasiado grande ({len(data)} bytes). Máximo {MAX_FILE_SIZE // (1024 * 1024)} MB.",
+        )
+
+    subdir = f"pdvs/{pdv_id}"
+    blob_key = storage.upload_bytes(data=data, content_type=content_type, subdir=subdir)
+    url = storage.get_url(blob_key)
+    sha = compute_sha256(data)
+
+    file_record = FileModel(
+        BlobKey=blob_key,
+        Url=url,
+        ContentType=content_type,
+        SizeBytes=len(data),
+        HashSha256=sha,
+        TakenAt=datetime.now(timezone.utc),
+        Lat=lat,
+        Lon=lon,
+    )
+    db.add(file_record)
+    db.flush()
+
+    pp = PdvPhotoModel(
+        PdvId=pdv_id,
+        FileId=file_record.FileId,
+        PhotoType=photo_type or "fachada",
+        SortOrder=sort_order or 1,
+        Notes=notes,
+    )
+    db.add(pp)
+    db.commit()
+    db.refresh(file_record)
+    db.refresh(pp)
+
+    return _serialize_pdv_photo(pp, file_record)
+
+
+@router.get("/photos/pdv/{pdv_id}", response_model=list[PdvPhotoRead])
+def list_pdv_photos(
+    pdv_id: int,
+    db: Session = Depends(get_db),
+):
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
+    if not pdv:
+        raise HTTPException(status_code=404, detail="PDV no encontrado")
+
+    rows = (
+        db.query(PdvPhotoModel, FileModel)
+        .join(FileModel, FileModel.FileId == PdvPhotoModel.FileId)
+        .filter(PdvPhotoModel.PdvId == pdv_id)
+        .order_by(PdvPhotoModel.SortOrder.asc(), PdvPhotoModel.FileId.asc())
+        .all()
+    )
+    return [_serialize_pdv_photo(pp, f) for pp, f in rows]
+
+
+@router.delete("/photos/pdv/{pdv_id}/{file_id}", status_code=204)
+def delete_pdv_photo(
+    pdv_id: int,
+    file_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    pp = (
+        db.query(PdvPhotoModel)
+        .filter(PdvPhotoModel.PdvId == pdv_id, PdvPhotoModel.FileId == file_id)
+        .first()
+    )
+    if not pp:
+        raise HTTPException(status_code=404, detail="Foto no encontrada")
+
+    f = db.query(FileModel).filter(FileModel.FileId == file_id).first()
+    if f and f.BlobKey:
+        storage.delete(f.BlobKey)
+
+    db.delete(pp)
+    if f:
+        db.delete(f)
+    db.commit()
+    return None

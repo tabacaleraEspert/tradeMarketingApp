@@ -209,6 +209,40 @@ export const subchannelsApi = {
 };
 
 // --- PDVs ---
+// --- PDV Photos ---
+export interface PdvPhotoRead {
+  PdvId: number;
+  FileId: number;
+  PhotoType: string;
+  SortOrder: number;
+  Notes: string | null;
+  url: string;
+  content_type: string | null;
+  size_bytes: number | null;
+  created_at: string;
+}
+
+export const pdvPhotosApi = {
+  list: (pdvId: number) =>
+    api.get<PdvPhotoRead[]>(`/files/photos/pdv/${pdvId}`),
+  upload: async (
+    pdvId: number,
+    file: Blob,
+    opts: { photoType?: string; sortOrder?: number; notes?: string; lat?: number; lon?: number } = {}
+  ) => {
+    const form = new FormData();
+    form.append("file", file, `pdv-photo-${Date.now()}.jpg`);
+    if (opts.photoType) form.append("photo_type", opts.photoType);
+    if (opts.sortOrder != null) form.append("sort_order", String(opts.sortOrder));
+    if (opts.notes) form.append("notes", opts.notes);
+    if (opts.lat != null) form.append("lat", String(opts.lat));
+    if (opts.lon != null) form.append("lon", String(opts.lon));
+    return api.upload<PdvPhotoRead>(`/files/photos/pdv/${pdvId}`, form);
+  },
+  delete: (pdvId: number, fileId: number) =>
+    api.delete<void>(`/files/photos/pdv/${pdvId}/${fileId}`),
+};
+
 export interface PdvCreateData {
   Code?: string;
   Name: string;

@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # Versión de la app (auto-completar en CI/CD via git sha o tag)
     app_release: str = "dev"
 
+    # --- Azure Monitor / Application Insights ---
+    # Connection string de App Insights (obtener de Azure Portal > App Insights > Overview)
+    # Si está vacío, no se activa. App Service puede auto-inyectarlo via APPLICATIONINSIGHTS_CONNECTION_STRING.
+    applicationinsights_connection_string: str = ""
+
     # --- Storage (Azure Blob / fallback disco local) ---
     # Si `azure_storage_connection_string` está seteado, usamos Azure Blob.
     # Si no, caemos a disco local en `./uploads/`.

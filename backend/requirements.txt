@@ -12,3 +12,4 @@ alembic>=1.13
 azure-storage-blob>=12.19
 pillow>=10.0
 sentry-sdk[fastapi]>=2.0
+azure-monitor-opentelemetry>=1.6

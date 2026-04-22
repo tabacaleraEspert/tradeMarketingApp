@@ -71,7 +71,7 @@ def list_bejerman_zones():
 
 
 # --- PDV Assignments (literal path, must be declared before /{route_id}) ---
-@router.get("/pdv-assignments")
+@router.get("/pdv-assignments", dependencies=[Depends(get_current_user)])
 def pdv_assignments(db: Session = Depends(get_db)):
     """Mapping of PdvId -> RouteId for every PDV currently assigned to a route.
     Used by the route editor to enforce PDV exclusivity (a PDV can only belong to one route).
@@ -81,7 +81,7 @@ def pdv_assignments(db: Session = Depends(get_db)):
 
 
 # --- Route Map Overview ---
-@router.get("/map-overview")
+@router.get("/map-overview", dependencies=[Depends(get_current_user)])
 def routes_map_overview(db: Session = Depends(get_db)):
     """All routes with their PDV coordinates for map visualization."""
     routes = db.query(RouteModel).filter(RouteModel.IsActive== True).all()
@@ -274,7 +274,7 @@ def list_route_pdvs(route_id: int, db: Session = Depends(get_db)):
     return db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).order_by(RoutePdvModel.SortOrder).all()
 
 
-@router.post("/{route_id}/pdvs", response_model=RoutePdv, status_code=201)
+@router.post("/{route_id}/pdvs", response_model=RoutePdv, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get_db)):
     # Enforce PDV exclusivity: a PDV can only belong to one route at a time
     existing = (
@@ -399,7 +399,7 @@ def add_route_form(
     return rf
 
 
-@router.delete("/{route_id}/forms/{form_id}", status_code=204)
+@router.delete("/{route_id}/forms/{form_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def remove_route_form(route_id: int, form_id: int, db: Session = Depends(get_db)):
     rf = db.query(RouteFormModel).filter(
         RouteFormModel.RouteId == route_id,

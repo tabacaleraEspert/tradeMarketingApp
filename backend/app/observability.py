@@ -78,6 +78,31 @@ def init_sentry() -> bool:
     return True
 
 
+def init_app_insights() -> bool:
+    """Activa Azure Monitor / Application Insights si hay connection string configurado.
+    Usa OpenTelemetry bajo el capó via azure-monitor-opentelemetry."""
+    conn_str = settings.applicationinsights_connection_string
+    if not conn_str:
+        logger.info("Application Insights desactivado (sin APPLICATIONINSIGHTS_CONNECTION_STRING)")
+        return False
+
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+    except ImportError:
+        logger.warning(
+            "azure-monitor-opentelemetry no instalado. "
+            "Corré: pip install azure-monitor-opentelemetry"
+        )
+        return False
+
+    configure_azure_monitor(
+        connection_string=conn_str,
+        enable_live_metrics=True,
+    )
+    logger.info("Application Insights inicializado")
+    return True
+
+
 def capture_request_id(request_id: str, user_id: int | None = None) -> None:
     """Adjunta el request_id (y opcionalmente el user_id) al scope actual de Sentry,
     para que cualquier excepción capturada incluya estos tags."""

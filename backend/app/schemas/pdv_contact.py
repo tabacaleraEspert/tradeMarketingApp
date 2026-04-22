@@ -1,15 +1,22 @@
 from datetime import date, datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 
 class PdvContactBase(BaseModel):
-    ContactName: str
-    ContactPhone: str | None = None
-    ContactRole: str | None = None         # dueño, empleado, encargado
-    DecisionPower: str | None = None       # alto, medio, bajo
+    ContactName: str = Field(..., max_length=120)
+    ContactPhone: str | None = Field(None, max_length=40)
+    ContactRole: str | None = Field(None, max_length=40)
+    DecisionPower: str | None = Field(None, max_length=20)
     Birthday: date | None = None
-    Notes: str | None = None               # Observaciones operativas
-    ProfileNotes: str | None = None        # Perfil del contacto (preferencias, qué evitar)
+    Notes: str | None = Field(None, max_length=1000)
+    ProfileNotes: str | None = Field(None, max_length=1000)
+
+    @field_validator("ContactName")
+    @classmethod
+    def _v_contact_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("El nombre del contacto no puede estar vacío")
+        return v.strip()
 
 
 class PdvContactCreate(PdvContactBase):

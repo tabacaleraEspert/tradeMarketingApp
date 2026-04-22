@@ -1,0 +1,58 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+env:
+  ACR_NAME: espertapi
+  IMAGE_NAME: trade-marketing-api
+  APP_SERVICE_NAME: espert-trade-api
+  RESOURCE_GROUP: Espert-Desarrollo
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    needs: []  # Add "ci" job reference once CI workflow is confirmed working
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push Docker image
+        working-directory: backend
+        run: |
+          TAG="${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}"
+          SHORT_SHA="${GITHUB_SHA::8}"
+          docker build -t "$TAG:$SHORT_SHA" -t "$TAG:latest" .
+          docker push "$TAG:$SHORT_SHA"
+          docker push "$TAG:latest"
+
+      - name: Deploy to App Service
+        run: |
+          az webapp config container set \
+            --name ${{ env.APP_SERVICE_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --container-image-name "${{ env.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${GITHUB_SHA::8}"
+
+      - name: Wait for deployment and health check
+        run: |
+          echo "Waiting 30s for container to start..."
+          sleep 30
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ env.APP_SERVICE_NAME }}.azurewebsites.net/health")
+          if [ "$STATUS" -ne 200 ]; then
+            echo "Health check failed with status $STATUS"
+            exit 1
+          fi
+          echo "Health check passed"

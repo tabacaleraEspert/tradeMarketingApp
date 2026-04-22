@@ -4,7 +4,7 @@ from .pdv_contact import PdvContact
 from .user import User, Role, UserRole
 from .device import Device, SyncLog, DeviceState
 from .distributor import Distributor
-from .pdv import PDV, PdvDistributor, PdvAssignment
+from .pdv import PDV, PdvDistributor, PdvPhoto, PdvAssignment
 from .route import Route, RouteForm, RoutePdv, RouteDay, RouteDayPdv
 from .form import Form, FormQuestion, FormOption
 from .visit import Visit, VisitCheck, VisitAnswer, VisitPhoto
@@ -35,6 +35,7 @@ __all__ = [
     "Distributor",
     "PDV",
     "PdvDistributor",
+    "PdvPhoto",
     "PdvAssignment",
     "Route",
     "RouteForm",

@@ -260,11 +260,11 @@ export function ChannelManagement() {
       {/* Modal Canal */}
       <Modal
         isOpen={channelModal !== null}
-        onClose={() => setChannelModal(null)}
+        onClose={() => { setChannelModal(null); setChannelName(""); }}
         title={channelModal === "create" ? "Nuevo Canal" : "Editar Canal"}
         footer={
           <>
-            <Button variant="outline" onClick={() => setChannelModal(null)}>
+            <Button variant="outline" onClick={() => { setChannelModal(null); setChannelName(""); }}>
               Cancelar
             </Button>
             <Button onClick={handleSaveChannel} disabled={saving}>

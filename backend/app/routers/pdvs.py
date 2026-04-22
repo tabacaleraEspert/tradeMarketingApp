@@ -130,6 +130,17 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Canal no encontrado")
     channel_name = channel.Name
 
+    # Detectar duplicado por nombre + zona
+    dup_q = db.query(PDVModel).filter(PDVModel.Name == data.Name.strip())
+    if data.ZoneId is not None:
+        dup_q = dup_q.filter(PDVModel.ZoneId == data.ZoneId)
+    existing = dup_q.first()
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Ya existe un PDV con ese nombre en la zona (ID: {existing.PdvId})",
+        )
+
     # Use first distributor as legacy DistributorId for backward compat
     legacy_dist_id = data.DistributorId
     if not legacy_dist_id and data.DistributorIds:

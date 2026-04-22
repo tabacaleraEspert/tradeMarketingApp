@@ -12,6 +12,7 @@ import {
   useUsers, usePdvs, useApiList, routesApi, visitsApi, incidentsApi, reportsApi,
 } from "@/lib/api";
 import { api } from "@/lib/api/client";
+import { toast } from "sonner";
 
 interface Summary { totalVisits: number; closedVisits: number; totalPdvs: number; pdvsVisited: number; coverage: number; visitsWithGps: number; visitsWithPhoto: number; avgDurationMin: number; }
 interface VendorRow { userId: number; name: string; zone: string; visits: number; closed: number; pdvsVisited: number; compliance: number; withGps: number; withPhoto: number; avgTimeMin: number; rank: number; }
@@ -33,13 +34,14 @@ export function AdminDashboard() {
   const [gpsAlerts, setGpsAlerts] = useState<Awaited<ReturnType<typeof reportsApi.gpsAlerts>>>([]);
 
   useEffect(() => {
-    reportsApi.summary().then(setSummary).catch(() => {});
-    reportsApi.vendorRanking().then(setVendors).catch(() => {});
-    reportsApi.channelCoverage().then(setChannels).catch(() => {});
-    reportsApi.perfectStore().then(setPerfectStore).catch(() => {});
-    reportsApi.trending({ months: 3 }).then(setTrending).catch(() => {});
-    reportsApi.smartAlerts().then(setSmartAlerts).catch(() => {});
-    reportsApi.gpsAlerts({ days: 7 }).then(setGpsAlerts).catch(() => {});
+    const onErr = () => toast.error("Error al cargar datos del dashboard");
+    reportsApi.summary().then(setSummary).catch(onErr);
+    reportsApi.vendorRanking().then(setVendors).catch(onErr);
+    reportsApi.channelCoverage().then(setChannels).catch(onErr);
+    reportsApi.perfectStore().then(setPerfectStore).catch(onErr);
+    reportsApi.trending({ months: 3 }).then(setTrending).catch(onErr);
+    reportsApi.smartAlerts().then(setSmartAlerts).catch(onErr);
+    reportsApi.gpsAlerts({ days: 7 }).then(setGpsAlerts).catch(onErr);
   }, []);
 
   const openIncidents = incidents.filter((i) => i.Status === "OPEN" || i.Status === "IN_PROGRESS");

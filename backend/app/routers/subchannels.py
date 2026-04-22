@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..auth import require_role
 from ..models import SubChannel as SubChannelModel
 from ..schemas.channel import SubChannel, SubChannelCreate, SubChannelUpdate
 
@@ -42,7 +43,7 @@ def get_subchannel(subchannel_id: int, db: Session = Depends(get_db)):
     return sc
 
 
-@router.post("", response_model=SubChannel, status_code=201)
+@router.post("", response_model=SubChannel, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
 def create_subchannel(data: SubChannelCreate, db: Session = Depends(get_db)):
     sc = SubChannelModel(
         ChannelId=data.ChannelId,
@@ -55,7 +56,7 @@ def create_subchannel(data: SubChannelCreate, db: Session = Depends(get_db)):
     return sc
 
 
-@router.patch("/{subchannel_id}", response_model=SubChannel)
+@router.patch("/{subchannel_id}", response_model=SubChannel, dependencies=[Depends(require_role("territory_manager"))])
 def update_subchannel(subchannel_id: int, data: SubChannelUpdate, db: Session = Depends(get_db)):
     sc = db.query(SubChannelModel).filter(SubChannelModel.SubChannelId == subchannel_id).first()
     if not sc:
@@ -71,7 +72,7 @@ def update_subchannel(subchannel_id: int, data: SubChannelUpdate, db: Session = 
     return sc
 
 
-@router.delete("/{subchannel_id}", status_code=204)
+@router.delete("/{subchannel_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_subchannel(subchannel_id: int, db: Session = Depends(get_db)):
     sc = db.query(SubChannelModel).filter(SubChannelModel.SubChannelId == subchannel_id).first()
     if not sc:

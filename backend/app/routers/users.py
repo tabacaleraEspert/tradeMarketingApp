@@ -127,7 +127,7 @@ def list_subordinates(
     return [_attach_role(s, db) for s in subs]
 
 
-@router.get("/{user_id}/stats/monthly")
+@router.get("/{user_id}/stats/monthly", dependencies=[Depends(get_current_user)])
 def get_user_monthly_stats(user_id: int, db: Session = Depends(get_db)):
     """Estadísticas del mes actual: visitas, cumplimiento, PDV nuevos."""
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
@@ -256,7 +256,13 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
 
 
 @router.delete("/{user_id}", status_code=204, dependencies=[Depends(require_role("admin"))])
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    if user_id == current_user.UserId:
+        raise HTTPException(status_code=400, detail="No podés eliminar tu propia cuenta")
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
@@ -275,15 +281,33 @@ def get_user_role(user_id: int, db: Session = Depends(get_db)):
     return {"userId": user_id, "roleId": ur.RoleId, "roleName": role.Name if role else None}
 
 
-@router.put("/{user_id}/role", dependencies=[Depends(require_role("admin"))])
-def set_user_role(user_id: int, data: dict, db: Session = Depends(get_db)):
+@router.put("/{user_id}/role", dependencies=[Depends(require_role("territory_manager"))])
+def set_user_role(
+    user_id: int,
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
     """Payload: { roleId: int }"""
+    from ..auth import ROLE_HIERARCHY
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     role_id = data.get("roleId")
     if not role_id:
         raise HTTPException(status_code=400, detail="roleId requerido")
+    # Validate hierarchy: caller cannot assign a role higher than their own
+    target_role = db.query(RoleModel).filter(RoleModel.RoleId == role_id).first()
+    if not target_role:
+        raise HTTPException(status_code=400, detail="Rol no encontrado")
+    caller_role = _auth_get_user_role(db, current_user.UserId)
+    caller_level = ROLE_HIERARCHY.get(caller_role.lower(), 0)
+    target_level = ROLE_HIERARCHY.get(target_role.Name.lower(), 0)
+    if target_level > caller_level:
+        raise HTTPException(
+            status_code=403,
+            detail=f"No podés asignar un rol superior al tuyo ({caller_role})",
+        )
     # Upsert
     ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).first()
     if ur:
@@ -292,8 +316,7 @@ def set_user_role(user_id: int, data: dict, db: Session = Depends(get_db)):
         ur = UserRoleModel(UserId=user_id, RoleId=role_id)
         db.add(ur)
     db.commit()
-    role = db.query(RoleModel).filter(RoleModel.RoleId == role_id).first()
-    return {"userId": user_id, "roleId": role_id, "roleName": role.Name if role else None}
+    return {"userId": user_id, "roleId": role_id, "roleName": target_role.Name}
 
 
 # ── Avatar (foto de perfil) ─────────────────────────────────

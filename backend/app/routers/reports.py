@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
 from ..database import get_db
+from ..auth import get_current_user
 from ..models import (
     Visit as VisitModel,
     User as UserModel,
@@ -16,7 +17,7 @@ from ..models.visit_form_time import VisitFormTime as VisitFormTimeModel
 from ..models.user import UserRole as UserRoleModel, Role as RoleModel
 from ..models.zone import Zone as ZoneModel
 
-router = APIRouter(prefix="/reports", tags=["Reportes"])
+router = APIRouter(prefix="/reports", tags=["Reportes"], dependencies=[Depends(get_current_user)])
 
 
 def _date_range(year: int, month: int):

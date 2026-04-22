@@ -95,7 +95,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/plant",
-    Component: PlantLayout,
+    Component: AdminGuard,
     children: [
       { index: true, Component: PlantDashboard },
     ],

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Badge } from "../components/ui/badge";
 import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { pdvsApi, distributorsApi, routesApi, ApiError } from "@/lib/api";
+import { pdvsApi, pdvPhotosApi, pdvNotesApi, distributorsApi, routesApi, ApiError } from "@/lib/api";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
@@ -58,7 +58,8 @@ export function NewPointOfSale() {
   const [distributors, setDistributors] = useState<Distributor[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
-  const [photos, setPhotos] = useState<string[]>([]);
+  const submittingRef = useRef(false);
+  const [photos, setPhotos] = useState<{ url: string; file: File }[]>([]);
 
   const userId = Number(currentUser.id) || undefined;
   const { data: myRoutes } = useMyRoutes(userId);
@@ -176,12 +177,12 @@ export function NewPointOfSale() {
       return;
     }
     const localUrl = URL.createObjectURL(file);
-    setPhotos([...photos, localUrl]);
+    setPhotos([...photos, { url: localUrl, file }]);
     toast.success("Foto capturada");
   };
 
   const addContact = () => {
-    setContacts([...contacts, { contactName: "", contactPhone: "", birthday: "" }]);
+    setContacts([...contacts, { contactName: "", contactPhone: "", contactRole: "", decisionPower: "", birthday: "", notes: "", profileNotes: "" }]);
   };
 
   const removeContact = (index: number) => {
@@ -199,7 +200,9 @@ export function NewPointOfSale() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.address || !formData.channelId) {
+    if (submittingRef.current) return;
+
+    if (!formData.name.trim() || !formData.address.trim() || !formData.channelId) {
       toast.error("Por favor completa los campos obligatorios");
       return;
     }
@@ -211,6 +214,7 @@ export function NewPointOfSale() {
       return;
     }
 
+    submittingRef.current = true;
     setLoading(true);
     try {
       const contactsToSend = contacts
@@ -228,8 +232,8 @@ export function NewPointOfSale() {
       // Time slots → OpeningTime/ClosingTime (first slot) + TimeSlotsJson (all)
       const validSlots = timeSlots.filter((s) => s.from && s.to);
       const newPdv = await pdvsApi.create({
-        Name: formData.name,
-        Address: formData.address,
+        Name: formData.name.trim(),
+        Address: formData.address.trim(),
         ChannelId: Number(formData.channelId),
         SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         ZoneId: currentUser.zoneId ?? undefined,
@@ -243,23 +247,55 @@ export function NewPointOfSale() {
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       });
 
-      // Create new distributors and associate them
       if (newPdv?.PdvId) {
+        // Upload photos
+        const failedPhotos: number[] = [];
+        for (let i = 0; i < photos.length; i++) {
+          try {
+            await pdvPhotosApi.upload(newPdv.PdvId, photos[i].file, {
+              photoType: "fachada",
+              sortOrder: i + 1,
+            });
+          } catch {
+            failedPhotos.push(i + 1);
+          }
+        }
+        if (failedPhotos.length > 0) {
+          toast.warning(`No se pudieron subir ${failedPhotos.length} foto(s)`);
+        }
+
+        // Save observations as PdvNote
+        const obs = formData.observations.trim();
+        if (obs) {
+          try {
+            await pdvNotesApi.create(newPdv.PdvId, { Content: obs, CreatedByUserId: userId });
+          } catch {
+            toast.warning("Observaciones no se pudieron guardar");
+          }
+        }
+
+        // Create new distributors and associate them
+        const allDistributorIds = [...selectedDistributorIds];
+        const failedDistributors: string[] = [];
         for (const nd of newDistributors) {
           if (!nd.name.trim()) continue;
           try {
             const created = await distributorsApi.create({ Name: nd.name.trim(), Phone: nd.phone.trim() || undefined });
-            // Associate via the PDV update (add to DistributorIds)
-            selectedDistributorIds.push(created.DistributorId);
+            allDistributorIds.push(created.DistributorId);
           } catch {
-            // Ignore individual failures
+            failedDistributors.push(nd.name.trim());
           }
         }
+        if (failedDistributors.length > 0) {
+          toast.warning(`No se pudieron crear distribuidores: ${failedDistributors.join(", ")}`);
+        }
         // Update PDV with all distributor IDs if we created new ones
-        if (newDistributors.some((nd) => nd.name.trim())) {
+        if (allDistributorIds.length > selectedDistributorIds.length) {
           try {
-            await pdvsApi.update(newPdv.PdvId, { DistributorIds: selectedDistributorIds });
-          } catch { /* best effort */ }
+            await pdvsApi.update(newPdv.PdvId, { DistributorIds: allDistributorIds });
+          } catch {
+            toast.warning("No se pudieron asociar los nuevos distribuidores al PDV");
+          }
         }
       }
 
@@ -279,6 +315,7 @@ export function NewPointOfSale() {
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el PDV");
     } finally {
+      submittingRef.current = false;
       setLoading(false);
     }
   };
@@ -765,7 +802,7 @@ export function NewPointOfSale() {
                 {photos.map((photo, index) => (
                   <img
                     key={index}
-                    src={photo}
+                    src={photo.url}
                     alt={`Foto ${index + 1}`}
                     className="w-full h-24 object-cover rounded-lg"
                   />

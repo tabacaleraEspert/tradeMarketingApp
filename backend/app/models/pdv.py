@@ -54,6 +54,17 @@ class PdvDistributor(Base):
     DistributorId = Column(Integer, ForeignKey("Distributor.DistributorId", ondelete="CASCADE"), nullable=False)
 
 
+class PdvPhoto(Base):
+    """Fotos del punto de venta (fachada, interior, etc.)."""
+    __tablename__ = "PdvPhoto"
+
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), primary_key=True)
+    FileId = Column(Integer, ForeignKey("File.FileId", ondelete="CASCADE"), primary_key=True)
+    PhotoType = Column(String(30), default="fachada", nullable=False)
+    SortOrder = Column(Integer, default=1, nullable=False)
+    Notes = Column(String(300), nullable=True)
+
+
 class PdvAssignment(Base):
     __tablename__ = "PdvAssignment"
 

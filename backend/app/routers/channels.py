@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from ..database import get_db
+from ..auth import require_role
 from ..models import Channel as ChannelModel
 from ..schemas.channel import Channel, ChannelCreate, ChannelUpdate
 
@@ -33,7 +34,7 @@ def get_channel(channel_id: int, db: Session = Depends(get_db)):
     return ch
 
 
-@router.post("", response_model=Channel, status_code=201)
+@router.post("", response_model=Channel, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
 def create_channel(data: ChannelCreate, db: Session = Depends(get_db)):
     ch = ChannelModel(Name=data.Name, IsActive=data.IsActive)
     db.add(ch)
@@ -42,7 +43,7 @@ def create_channel(data: ChannelCreate, db: Session = Depends(get_db)):
     return ch
 
 
-@router.patch("/{channel_id}", response_model=Channel)
+@router.patch("/{channel_id}", response_model=Channel, dependencies=[Depends(require_role("territory_manager"))])
 def update_channel(channel_id: int, data: ChannelUpdate, db: Session = Depends(get_db)):
     ch = db.query(ChannelModel).filter(ChannelModel.ChannelId == channel_id).first()
     if not ch:
@@ -56,7 +57,7 @@ def update_channel(channel_id: int, data: ChannelUpdate, db: Session = Depends(g
     return ch
 
 
-@router.delete("/{channel_id}", status_code=204)
+@router.delete("/{channel_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_channel(channel_id: int, db: Session = Depends(get_db)):
     ch = db.query(ChannelModel).filter(ChannelModel.ChannelId == channel_id).first()
     if not ch:

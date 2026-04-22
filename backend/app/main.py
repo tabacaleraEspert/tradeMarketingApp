@@ -10,16 +10,25 @@ from .routers import zones, users, roles, distributors, channels, subchannels, p
 from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
-from .observability import init_sentry
+from .observability import init_sentry, init_app_insights
 from .config import settings
 
 configure_logging()
 init_sentry()
+init_app_insights()
 
-# Issue 1.5: Warn loudly if JWT secret is still the default dev value
-if settings.jwt_secret_key == "dev-secret-CHANGEME-in-prod-please":
+# Fail-fast: block startup if JWT secret is the default and we're on Azure SQL (production)
+_DEFAULT_JWT_SECRET = "dev-secret-CHANGEME-in-prod-please"
+if settings.jwt_secret_key == _DEFAULT_JWT_SECRET:
+    _using_azure_sql = not settings.use_sqlite and settings.database_user
+    if _using_azure_sql:
+        raise RuntimeError(
+            "FATAL: JWT_SECRET_KEY tiene el valor default de desarrollo y estás conectado a Azure SQL. "
+            "Seteá JWT_SECRET_KEY con un valor seguro (ej: python -c \"import secrets; print(secrets.token_hex(32))\") "
+            "en las Application Settings del App Service antes de arrancar."
+        )
     import logging
-    logging.getLogger("app").warning("⚠️  JWT_SECRET_KEY is using the default dev value! Set it in production!")
+    logging.getLogger("app").warning("JWT_SECRET_KEY usando valor default de desarrollo. Setear en produccion.")
 
 app = FastAPI(
     title="Trade Marketing API",
@@ -268,5 +277,28 @@ def root():
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok"}
+def health(db: Session = Depends(get_db)):
+    """Health check para Azure App Service probe. Verifica DB y storage."""
+    checks: dict = {}
+
+    # DB check
+    try:
+        db.execute(__import__("sqlalchemy").text("SELECT 1"))
+        checks["db"] = "ok"
+    except Exception as e:
+        checks["db"] = f"error: {e}"
+
+    # Storage check
+    try:
+        from .storage import storage
+        checks["storage"] = storage.__class__.__name__
+    except Exception as e:
+        checks["storage"] = f"error: {e}"
+
+    all_ok = all(v == "ok" or "error" not in str(v) for v in checks.values())
+    status_code = 200 if all_ok else 503
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=status_code,
+        content={"status": "ok" if all_ok else "degraded", "checks": checks},
+    )

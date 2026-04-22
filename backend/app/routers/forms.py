@@ -136,7 +136,7 @@ class BulkAssignRoutes(BaseModel):
     assign_to_all: bool = False
 
 
-@router.post("/{form_id}/routes/bulk")
+@router.post("/{form_id}/routes/bulk", dependencies=[Depends(require_role("territory_manager"))])
 def bulk_assign_form_to_routes(
     form_id: int,
     data: BulkAssignRoutes,
@@ -177,7 +177,7 @@ def bulk_assign_form_to_routes(
     return {"assigned": assigned, "skipped": len(route_ids) - assigned}
 
 
-@router.delete("/{form_id}/routes/{route_id}", status_code=204)
+@router.delete("/{form_id}/routes/{route_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def remove_form_from_route(form_id: int, route_id: int, db: Session = Depends(get_db)):
     """Quitar formulario de una ruta."""
     rf = db.query(RouteFormModel).filter(
@@ -195,7 +195,7 @@ def list_form_questions(form_id: int, db: Session = Depends(get_db)):
     return db.query(FormQuestionModel).filter(FormQuestionModel.FormId == form_id).order_by(FormQuestionModel.SortOrder).all()
 
 
-@router.post("/{form_id}/questions", response_model=FormQuestion, status_code=201)
+@router.post("/{form_id}/questions", response_model=FormQuestion, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def create_form_question(form_id: int, data: FormQuestionCreate, db: Session = Depends(get_db)):
     form = db.query(FormModel).filter(FormModel.FormId == form_id).first()
     if not form:
@@ -224,7 +224,7 @@ def get_form_question(question_id: int, db: Session = Depends(get_db)):
     return q
 
 
-@router.patch("/questions/{question_id}", response_model=FormQuestion)
+@router.patch("/questions/{question_id}", response_model=FormQuestion, dependencies=[Depends(require_role("vendedor"))])
 def update_form_question(question_id: int, data: FormQuestionUpdate, db: Session = Depends(get_db)):
     q = db.query(FormQuestionModel).filter(FormQuestionModel.QuestionId == question_id).first()
     if not q:
@@ -236,7 +236,7 @@ def update_form_question(question_id: int, data: FormQuestionUpdate, db: Session
     return q
 
 
-@router.delete("/questions/{question_id}", status_code=204)
+@router.delete("/questions/{question_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_form_question(question_id: int, db: Session = Depends(get_db)):
     q = db.query(FormQuestionModel).filter(FormQuestionModel.QuestionId == question_id).first()
     if not q:
@@ -253,7 +253,7 @@ def list_form_options(question_id: int, db: Session = Depends(get_db)):
     return db.query(FormOptionModel).filter(FormOptionModel.QuestionId == question_id).order_by(FormOptionModel.SortOrder).all()
 
 
-@router.post("/questions/{question_id}/options", response_model=FormOption, status_code=201)
+@router.post("/questions/{question_id}/options", response_model=FormOption, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def create_form_option(question_id: int, data: FormOptionCreate, db: Session = Depends(get_db)):
     opt = FormOptionModel(
         QuestionId=question_id,
@@ -275,7 +275,7 @@ def get_form_option(option_id: int, db: Session = Depends(get_db)):
     return opt
 
 
-@router.patch("/options/{option_id}", response_model=FormOption)
+@router.patch("/options/{option_id}", response_model=FormOption, dependencies=[Depends(require_role("vendedor"))])
 def update_form_option(option_id: int, data: FormOptionUpdate, db: Session = Depends(get_db)):
     opt = db.query(FormOptionModel).filter(FormOptionModel.OptionId == option_id).first()
     if not opt:
@@ -287,7 +287,7 @@ def update_form_option(option_id: int, data: FormOptionUpdate, db: Session = Dep
     return opt
 
 
-@router.delete("/options/{option_id}", status_code=204)
+@router.delete("/options/{option_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_form_option(option_id: int, db: Session = Depends(get_db)):
     opt = db.query(FormOptionModel).filter(FormOptionModel.OptionId == option_id).first()
     if not opt:

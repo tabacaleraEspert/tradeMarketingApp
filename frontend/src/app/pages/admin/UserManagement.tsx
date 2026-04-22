@@ -79,17 +79,13 @@ export function UserManagement() {
       setRoles(roleList);
       setZones(zoneList);
 
-      // Fetch roles for each user
-      const usersWithRoles: UserWithRole[] = await Promise.all(
-        userList.map(async (u) => {
-          try {
-            const r = await usersApi.getRole(u.UserId);
-            return { ...u, roleId: r.roleId, roleName: r.roleName };
-          } catch {
-            return { ...u, roleId: null, roleName: null };
-          }
-        })
-      );
+      // RoleName ya viene incluido en la respuesta de list() via _attach_role
+      const roleMap = new Map(roleList.map((r) => [r.Name, r.RoleId]));
+      const usersWithRoles: UserWithRole[] = userList.map((u) => ({
+        ...u,
+        roleId: u.RoleName ? (roleMap.get(u.RoleName) ?? null) : null,
+        roleName: u.RoleName ?? null,
+      }));
       setUsers(usersWithRoles);
     } catch {
       toast.error("Error al cargar usuarios");
@@ -137,9 +133,15 @@ export function UserManagement() {
     setIsModalOpen(true);
   };
 
+  const currentUser = getCurrentUser();
+
   const handleSave = async () => {
     if (!form.Email || !form.DisplayName) {
       toast.error("Email y nombre son obligatorios");
+      return;
+    }
+    if (!editingUser && !form.Password) {
+      toast.error("La contraseña es obligatoria al crear un usuario");
       return;
     }
     setSaving(true);
@@ -461,9 +463,11 @@ export function UserManagement() {
                         <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                           <Edit size={16} />
                         </Button>
+                        {u.UserId !== Number(currentUser.id) && (
                         <Button variant="ghost" size="sm" onClick={() => setDeleteUser(u)}>
                           <Trash2 size={16} className="text-red-500" />
                         </Button>
+                        )}
                       </div>
                     </td>
                   </tr>

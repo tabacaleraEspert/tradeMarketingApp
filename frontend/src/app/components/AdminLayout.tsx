@@ -1,4 +1,4 @@
-import { Outlet, useNavigate, useLocation } from "react-router";
+import { Outlet, useNavigate, useLocation, Navigate } from "react-router";
 import {
   LayoutDashboard,
   MapPin,
@@ -45,9 +45,23 @@ export function AdminLayout() {
   }, []);
   const [currentUser, setCurrentUser] = useState<MeResponse | null>(null);
 
+  const [roleKicked, setRoleKicked] = useState(false);
+
   useEffect(() => {
-    authApi.me().then(setCurrentUser).catch(() => {});
+    authApi.me().then((me) => {
+      setCurrentUser(me);
+      const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo"];
+      if (!adminRoles.includes(me.Role || "")) {
+        setRoleKicked(true);
+      }
+    }).catch(() => {
+      setRoleKicked(true);
+    });
   }, []);
+
+  if (roleKicked) {
+    return <Navigate to="/" replace />;
+  }
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
