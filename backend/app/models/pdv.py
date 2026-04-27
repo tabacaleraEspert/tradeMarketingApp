@@ -34,8 +34,10 @@ class PDV(Base):
     # Categorización: qué nos permite hacer el PDV (JSON de flags)
     # {"pop": true, "sueltos": true, "acciones": true, "exhibidor": false, "cigarrera": true}
     AllowsJson = Column(String, nullable=True)
-    # Categoría derivada: A (todo), B (parcial), C (mínimo) — calculada por el frontend o un report
-    Category = Column(String(1), nullable=True)
+    # Volumen mensual estimado en atados de cigarrillos (toda la categoría)
+    MonthlyVolume = Column(Integer, nullable=True)
+    # Categoría por volumen: Chico (0-800), Mediano (800-1500), Grande (>1500)
+    Category = Column(String(10), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     # Si se desactiva, registrar la razón y la fecha sugerida para reactivar (60 días después por default)
     InactiveReason = Column(String(500), nullable=True)

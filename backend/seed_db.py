@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import engine, SessionLocal, Base
-from app.models import Zone, User, Role, UserRole, Distributor, Form, FormQuestion, FormOption, Channel, SubChannel
+from app.models import Zone, User, Role, UserRole, Distributor, Form, FormQuestion, FormOption, Channel, SubChannel, Product
 from app.config import settings
 
 
@@ -174,32 +174,72 @@ def seed(db: Session) -> None:
         db.commit()
         print(f"  ✓ Distribuidor creado: {dist.Name}")
 
-    # Crear canales y subcanales
+    # Crear canales y subcanales (según doc Categorización de PDVs v1.0)
     channels_data = [
-        ("Kiosco", ["Tradicional", "Kiosco con autoservicio"]),
-        ("Almacén", ["Barrial", "Premium"]),
-        ("Autoservicio", ["Chino", "Independiente"]),
-        ("Supermercado", ["Cadena nacional", "Cadena regional"]),
-        ("Estación de Servicio", ["YPF", "Shell", "Axion", "Puma"]),
-        ("Maxikiosco", ["24hs", "Diurno"]),
-        ("Gastronomía", ["Bar", "Restaurante", "Pub"]),
+        (
+            "Convenience",
+            "Puntos de venta pequeños orientados al consumo rápido (quioscos y variantes).",
+            [
+                ("Quiosco", "Punto de venta pequeño con venta de cigarrillos, golosinas y artículos de consumo rápido."),
+                ("Quiosco ventana", "Quiosco con atención exclusivamente desde una ventana, sin acceso al interior del local."),
+                ("Maxiquiosco", "Versión ampliada del quiosco, mayor variedad de productos y capacidad de exhibición."),
+            ],
+        ),
+        (
+            "Grocery",
+            "Comercios de alimentación y consumo básico de barrio.",
+            [
+                ("Almacén / Despensa", "Comercio de barrio con venta de alimentos y productos de consumo básico."),
+                ("Autoservicio / Supermercado independiente", "Mayor escala que el almacén, con góndolas y mayor variedad de categorías."),
+            ],
+        ),
+        (
+            "Especializado",
+            "Comercios especializados en tabaco y productos relacionados.",
+            [
+                ("Tabaquería", "Comercio especializado en tabaco, cigarrillos y productos relacionados."),
+                ("Growshop", "Local especializado en cultivo y accesorios, con venta de productos de nicotina y tabaco."),
+            ],
+        ),
+        (
+            "Estación de Servicio",
+            "Estaciones de servicio independientes o de bandera. Se registra categoría, subcategoría y nombre del local o red.",
+            [
+                ("Independiente", "Estación sin bandera de cadena. Se registra el nombre específico del local."),
+                ("De bandera", "Estación perteneciente a una red (YPF, Shell, Axion, otra). Se registra la marca de la cadena."),
+            ],
+        ),
+        (
+            "Cadenas de Proximidad",
+            "Cadenas con gestión centralizada. Ejecución sujeta a acuerdos negociados a nivel central. Puede requerir un TMR dedicado.",
+            [
+                ("Chica (menos de 10 PDVs)", "Cadena con estructura de gestión centralizada y menos de 10 puntos de venta."),
+                ("Mediana (11 a 30 PDVs)", "Cadena con estructura de gestión centralizada y entre 11 y 30 puntos de venta."),
+                ("Grande (más de 30 PDVs)", "Cadena con estructura de gestión centralizada y más de 30 puntos de venta."),
+            ],
+        ),
     ]
-    for ch_name, subs in channels_data:
+    for ch_name, ch_desc, subs in channels_data:
         ch = db.query(Channel).filter(Channel.Name == ch_name).first()
         if not ch:
-            ch = Channel(Name=ch_name, IsActive=True)
+            ch = Channel(Name=ch_name, Description=ch_desc, IsActive=True)
             db.add(ch)
             db.commit()
             db.refresh(ch)
             print(f"  ✓ Canal creado: {ch.Name}")
-        for sub_name in subs:
+        elif not ch.Description:
+            ch.Description = ch_desc
+            db.commit()
+        for sub_name, sub_desc in subs:
             sub = db.query(SubChannel).filter(
                 SubChannel.ChannelId == ch.ChannelId,
                 SubChannel.Name == sub_name,
             ).first()
             if not sub:
-                sub = SubChannel(ChannelId=ch.ChannelId, Name=sub_name, IsActive=True)
+                sub = SubChannel(ChannelId=ch.ChannelId, Name=sub_name, Description=sub_desc, IsActive=True)
                 db.add(sub)
+            elif not sub.Description:
+                sub.Description = sub_desc
         db.commit()
 
 
@@ -358,6 +398,84 @@ def seed_forms(db: Session) -> None:
     print("  Formularios de relevamiento tabacalero listos.")
 
 
+def seed_products(db: Session) -> None:
+    """Seed product catalog from paso-a-paso document v1.5."""
+    if db.query(Product).first():
+        print("  - Productos ya existen, saltando seed.")
+        return
+
+    # (Category, Manufacturer, Name, IsOwn)
+    products = [
+        # --- CIGARRILLOS ---
+        ("Cigarrillos", "Espert", "Milenio Red", True),
+        ("Cigarrillos", "Espert", "Milenio Gold", True),
+        ("Cigarrillos", "Espert", "Milenio Mint", True),
+        ("Cigarrillos", "Espert", "Milenio Icergy", True),
+        ("Cigarrillos", "Espert", "Milenio Pink", True),
+        ("Cigarrillos", "Espert", "Milenio Vid", True),
+        ("Cigarrillos", "Espert", "Mill Red", True),
+        ("Cigarrillos", "Espert", "Mill Explosion", True),
+        ("Cigarrillos", "Espert", "Melbourne Red", True),
+        ("Cigarrillos", "Espert", "Melbourne Gold", True),
+        ("Cigarrillos", "Espert", "Melbourne Mint", True),
+        ("Cigarrillos", "Espert", "Bold", True),
+        ("Cigarrillos", "Real Tabacalera", "Pier Red", False),
+        ("Cigarrillos", "Real Tabacalera", "Liverpoll", False),
+        ("Cigarrillos", "Real Tabacalera", "Dolchester", False),
+        ("Cigarrillos", "Real Tabacalera", "Corona", False),
+        ("Cigarrillos", "Massalin", "Marlboro Craft KS", False),
+        ("Cigarrillos", "Massalin", "Marlboro Craft Coral", False),
+        ("Cigarrillos", "Massalin", "Marlboro Craft Forward", False),
+        ("Cigarrillos", "Massalin", "Marlboro Craft Purple", False),
+        ("Cigarrillos", "Massalin", "Philip Morris Red Select", False),
+        ("Cigarrillos", "BAT", "Lucky LS Origen", False),
+        ("Cigarrillos", "BAT", "Lucky LS Origen Caps", False),
+        ("Cigarrillos", "BAT", "Luckies Red", False),
+        ("Cigarrillos", "Tabacalera Sarandí", "Red Point KS", False),
+        ("Cigarrillos", "Tabacalera Sarandí", "Red Point ON", False),
+        ("Cigarrillos", "Tabacalera Sarandí", "Red Point Sixt", False),
+        ("Cigarrillos", "Tabacalera Sarandí", "Master KS", False),
+        ("Cigarrillos", "Tabacalera Sarandí", "Kiel", False),
+        ("Cigarrillos", "Todo Tabaco", "Golden King", False),
+        ("Cigarrillos", "Todo Tabaco", "Golden King Caps", False),
+        ("Cigarrillos", "Cigarrillos y Tabacos", "GO", False),
+        ("Cigarrillos", "Cigarrillos y Tabacos", "CJ", False),
+        # --- TABACOS ---
+        ("Tabacos", "Espert", "Van Kiff", True),
+        ("Tabacos", "Espert", "Lebonn", True),
+        ("Tabacos", None, "Van Hasenn", False),
+        ("Tabacos", "Sairi", "Sairi", False),
+        ("Tabacos", "Tabacalera Sarandí", "4 Leguas", False),
+        ("Tabacos", None, "Flandria", False),
+        ("Tabacos", "Tabes", "Pachamama", False),
+        ("Tabacos", "Tabes", "Las Hojas", False),
+        # --- PAPELILLOS ---
+        ("Papelillos", None, "Smoking", False),
+        ("Papelillos", "Espert", "Blank", True),
+        ("Papelillos", None, "OCB", False),
+        ("Papelillos", None, "Giseh", False),
+        ("Papelillos", None, "Zeus", False),
+        ("Papelillos", None, "Rizla", False),
+        # --- VAPES ---
+        ("Vapers", None, "Ignite", False),
+        ("Vapers", None, "Elfbar", False),
+        ("Vapers", None, "Geek", False),
+        ("Vapers", "Espert", "Dito", True),
+        # --- POUCHES DE NICOTINA ---
+        ("Pouches de nicotina", "Espert", "Fleek", True),
+        ("Pouches de nicotina", "Massalin", "Zyn", False),
+        ("Pouches de nicotina", "BAT", "Velo", False),
+    ]
+
+    for i, (cat, mfr, name, is_own) in enumerate(products):
+        db.add(Product(
+            Name=name, Category=cat, Manufacturer=mfr,
+            IsOwn=is_own, IsActive=True, SortOrder=i,
+        ))
+    db.commit()
+    print(f"  ✓ {len(products)} productos creados")
+
+
 def main():
     print("Creando tablas...")
     Base.metadata.create_all(bind=engine)
@@ -368,6 +486,8 @@ def main():
         seed(db)
         print("\nCreando formularios de relevamiento...")
         seed_forms(db)
+        print("\nCreando catálogo de productos...")
+        seed_products(db)
         print("\n" + "=" * 50)
         print("Usuarios de prueba para login:")
         print("  Admin:      {email} / {password}".format(**ADMIN_USER))

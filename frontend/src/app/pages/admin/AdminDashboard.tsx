@@ -9,8 +9,10 @@ import {
   AlertTriangle, Store,
 } from "lucide-react";
 import {
-  useUsers, usePdvs, useApiList, routesApi, visitsApi, incidentsApi, reportsApi,
+  useUsers, usePdvs, useApiList, routesApi, visitsApi, incidentsApi, reportsApi, notificationsApi,
 } from "@/lib/api";
+import type { Notification } from "@/lib/api/types";
+import { Bell } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { toast } from "sonner";
 
@@ -45,6 +47,10 @@ export function AdminDashboard() {
   }, []);
 
   const openIncidents = incidents.filter((i) => i.Status === "OPEN" || i.Status === "IN_PROGRESS");
+  const [routeNotifs, setRouteNotifs] = useState<Notification[]>([]);
+  useEffect(() => {
+    notificationsApi.list({ active_only: true }).then(setRouteNotifs).catch(() => {});
+  }, []);
   const activeUsers = users.filter((u) => u.IsActive);
 
   // Today's activity
@@ -191,6 +197,15 @@ export function AdminDashboard() {
               Alertas
             </h3>
             <div className="space-y-2">
+              {routeNotifs.length > 0 && (
+                <div className="flex items-center justify-between p-2 bg-blue-50/60 border border-blue-100 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors" onClick={() => navigate("/admin/notifications")}>
+                  <span className="text-xs font-medium text-blue-700/80 flex items-center gap-1.5">
+                    <Bell size={12} />
+                    {routeNotifs.length} notificación{routeNotifs.length !== 1 ? "es" : ""} de TM Reps
+                  </span>
+                  <ArrowRight size={14} className="text-blue-400/70" />
+                </div>
+              )}
               {openIncidents.length > 0 && (
                 <div className="flex items-center justify-between p-2 bg-rose-50/60 border border-rose-100 rounded-lg cursor-pointer hover:bg-rose-50 transition-colors" onClick={() => navigate("/admin/reports")}>
                   <span className="text-xs font-medium text-rose-700/80">{openIncidents.length} incidencias abiertas</span>

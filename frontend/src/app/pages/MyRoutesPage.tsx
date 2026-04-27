@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   MapPin,
   Calendar,
+  CalendarDays,
   Clock,
   Route as RouteIcon,
   Zap,
@@ -21,6 +22,7 @@ import {
   ExternalLink,
   Plus,
 } from "lucide-react";
+import { RouteCalendar } from "../components/RouteCalendar";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { useMyRoutes, routesApi, pdvsApi } from "@/lib/api";
@@ -326,6 +328,15 @@ export function MyRoutesPage() {
             >
               <MapIcon size={16} />
             </button>
+            <button
+              onClick={() => setViewMode("calendar")}
+              className={`px-3 py-2 transition-colors ${
+                viewMode === "calendar" ? "bg-[#A48242] text-white" : "text-muted-foreground hover:bg-muted"
+              }`}
+              title="Calendario"
+            >
+              <CalendarDays size={16} />
+            </button>
           </div>
         </div>
       </div>
@@ -358,6 +369,10 @@ export function MyRoutesPage() {
         )}
 
         {/* === MAP VIEW === */}
+        {!loading && !enriching && viewMode === "calendar" && (
+          <RouteCalendar userId={Number(getCurrentUser().id)} compact />
+        )}
+
         {!loading && !enriching && enrichedRoutes.length > 0 && viewMode === "map" && (
           <div className="space-y-3">
             {/* Filter bar */}

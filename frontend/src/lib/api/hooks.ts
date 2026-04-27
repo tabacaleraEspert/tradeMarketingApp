@@ -265,6 +265,6 @@ export function useIncidentsWithPdvNames(filters?: Parameters<typeof incidentsAp
 }
 
 /** Hook para notificaciones activas (vista Trade) */
-export function useActiveNotifications() {
-  return useApiList(() => notificationsApi.list({ active_only: true }));
+export function useActiveNotifications(userId?: number) {
+  return useApiList(() => notificationsApi.list({ active_only: true, for_user: userId }), [userId]);
 }

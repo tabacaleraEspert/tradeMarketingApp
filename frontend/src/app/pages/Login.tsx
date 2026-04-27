@@ -49,16 +49,20 @@ export function Login() {
     await doLogin(email, password);
   };
 
-  // Usuarios con acceso rápido (producción)
+  // Acceso rápido DEV — solo para desarrollo local
+  const isDev = import.meta.env.DEV;
+  const DEV_PW = "Espert2026!";
   const demoUsers = [
-    { label: "Admin (Juampi)",      sub: "Panel admin — todo",                 email: "juampi@espert.com.ar",             password: "Espert2026!", icon: "shield", color: "text-amber-400" },
-    { label: "Martin Lescano",      sub: "Gte Regional — Región Bs As",       email: "martin.lescano@espert.com.ar",     password: "Espert2026!", icon: "shield", color: "text-violet-400" },
-    { label: "Emmanuel Anzorena",   sub: "Territory Manager — Cuyo",           email: "emmanuel.anzorena@espert.com.ar",  password: "Espert2026!", icon: "user",   color: "text-emerald-400" },
+    { label: "Equipo País",           sub: "Admin — acceso total",               email: "equipo.pais",          password: DEV_PW, icon: "shield", color: "text-amber-400" },
+    { label: "Martín Lezcano",        sub: "Gte Regional — Región BA",           email: "martin.lezcano",       password: DEV_PW, icon: "shield", color: "text-violet-400" },
+    { label: "Sebastián Morales",     sub: "TM Rep — GBA (347 PDVs cargados)",   email: "sebastian.morales",    password: DEV_PW, icon: "user",   color: "text-emerald-400" },
   ];
 
   const otherUsers = [
-    { label: "TM Cuyo 1",      email: "tmcuyo1@espert.com.ar",     password: "Espert2026!", icon: "user", color: "text-[#979B9B]" },
-    { label: "Lilian Noguera",  email: "lilian.noguera@espert.com.ar", password: "Espert2026!", icon: "user", color: "text-[#979B9B]" },
+    { label: "Ariel Muñoz",       email: "ariel.munoz",        password: DEV_PW, icon: "user", color: "text-[#979B9B]" },
+    { label: "Franco García",     email: "franco.garcia",      password: DEV_PW, icon: "user", color: "text-[#979B9B]" },
+    { label: "Germán Jaretchi",   email: "german.jaretchi",    password: DEV_PW, icon: "user", color: "text-[#979B9B]" },
+    { label: "Carlos Guardia",    email: "carlos.guardia",     password: DEV_PW, icon: "user", color: "text-[#979B9B]" },
   ];
 
   return (
@@ -118,8 +122,8 @@ export function Login() {
           </button>
         </form>
 
-        {/* Quick Login - Usuarios DEMO con datos cargados */}
-        <div className="mt-6 pt-6 border-t border-white/10">
+        {/* Quick Login — solo en desarrollo */}
+        {isDev && <div className="mt-6 pt-6 border-t border-white/10">
           <div className="flex items-center justify-center gap-2 mb-3">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <p className="text-xs text-emerald-400 text-center font-bold uppercase tracking-widest">
@@ -174,7 +178,7 @@ export function Login() {
               ))}
             </div>
           </details>
-        </div>
+        </div>}
 
         {/* Connection Status */}
         <div className="mt-6 pt-6 border-t border-white/10">

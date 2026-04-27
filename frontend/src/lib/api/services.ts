@@ -7,6 +7,7 @@ export interface LoginResponse {
   DisplayName: string;
   ZoneId: number | null;
   ZoneName?: string | null;
+  ManagerUserId?: number | null;
   Role?: string;
   IsActive: boolean;
   MustChangePassword?: boolean;
@@ -98,6 +99,13 @@ import type {
   PdvNote,
   Holiday,
   UserVacation,
+  Product,
+  PdvProductCategory,
+  VisitCoverageItem,
+  CoverageDiff,
+  VisitPOPItem,
+  VisitLooseSurvey,
+  VisitIndicators,
 } from "./types";
 
 // --- Zones ---
@@ -187,11 +195,68 @@ export const channelsApi = {
   list: () => api.get<Channel[]>("/channels"),
   listAll: () => api.get<Channel[]>("/channels/all"),
   get: (id: number) => api.get<Channel>(`/channels/${id}`),
-  create: (data: { Name: string; IsActive?: boolean }) =>
+  create: (data: { Name: string; Description?: string; IsActive?: boolean }) =>
     api.post<Channel>("/channels", data),
-  update: (id: number, data: { Name?: string; IsActive?: boolean }) =>
+  update: (id: number, data: { Name?: string; Description?: string; IsActive?: boolean }) =>
     api.patch<Channel>(`/channels/${id}`, data),
   delete: (id: number) => api.delete(`/channels/${id}`),
+};
+
+// --- Products ---
+export const productsApi = {
+  list: (params?: { category?: string; active_only?: boolean }) =>
+    api.get<Product[]>("/products", params),
+  get: (id: number) => api.get<Product>(`/products/${id}`),
+};
+
+// --- PDV Product Categories ---
+export const pdvProductCategoriesApi = {
+  list: (pdvId: number) =>
+    api.get<PdvProductCategory[]>(`/pdvs/${pdvId}/product-categories`),
+  bulkUpsert: (pdvId: number, categories: Array<{ Category: string; Status: string }>) =>
+    api.put<PdvProductCategory[]>(`/pdvs/${pdvId}/product-categories`, { categories }),
+  update: (pdvId: number, categoryId: number, data: { Status: string }) =>
+    api.patch<PdvProductCategory>(`/pdvs/${pdvId}/product-categories/${categoryId}`, data),
+};
+
+// --- Visit Coverage ---
+export const visitCoverageApi = {
+  list: (visitId: number) =>
+    api.get<VisitCoverageItem[]>(`/visits/${visitId}/coverage`),
+  bulkSave: (visitId: number, items: Array<{ ProductId: number; Works: boolean; Price?: number; Availability?: string }>) =>
+    api.put<VisitCoverageItem[]>(`/visits/${visitId}/coverage`, { items }),
+  diff: (visitId: number) =>
+    api.get<CoverageDiff[]>(`/visits/${visitId}/coverage/diff`),
+  requirements: (visitId: number) =>
+    api.get<{
+      ownRequired: boolean;
+      competitorRequired: boolean;
+      competitorEveryN: number;
+      visitNumber: number;
+      nextCompetitorAt: number;
+    }>(`/visits/${visitId}/coverage/requirements`),
+};
+
+// --- Visit POP ---
+export const visitPOPApi = {
+  list: (visitId: number) =>
+    api.get<VisitPOPItem[]>(`/visits/${visitId}/pop`),
+  bulkSave: (visitId: number, items: Array<{ MaterialType: string; MaterialName: string; Company?: string; Present: boolean; HasPrice?: boolean }>) =>
+    api.put<VisitPOPItem[]>(`/visits/${visitId}/pop`, { items }),
+};
+
+// --- Visit Loose Survey ---
+export const visitLooseApi = {
+  get: (visitId: number) =>
+    api.get<VisitLooseSurvey | null>(`/visits/${visitId}/loose-survey`),
+  save: (visitId: number, data: { SellsLoose: boolean; ProductsJson?: string; ExchangeJson?: string }) =>
+    api.put<VisitLooseSurvey>(`/visits/${visitId}/loose-survey`, data),
+};
+
+// --- Visit Indicators ---
+export const visitIndicatorsApi = {
+  get: (visitId: number) =>
+    api.get<VisitIndicators>(`/visits/${visitId}/indicators`),
 };
 
 // --- SubChannels ---
@@ -201,9 +266,9 @@ export const subchannelsApi = {
   listAll: (channelId?: number) =>
     api.get<SubChannel[]>("/subchannels/all", channelId ? { channel_id: channelId } : {}),
   get: (id: number) => api.get<SubChannel>(`/subchannels/${id}`),
-  create: (data: { ChannelId: number; Name: string; IsActive?: boolean }) =>
+  create: (data: { ChannelId: number; Name: string; Description?: string; IsActive?: boolean }) =>
     api.post<SubChannel>("/subchannels", data),
-  update: (id: number, data: { ChannelId?: number; Name?: string; IsActive?: boolean }) =>
+  update: (id: number, data: { ChannelId?: number; Name?: string; Description?: string; IsActive?: boolean }) =>
     api.patch<SubChannel>(`/subchannels/${id}`, data),
   delete: (id: number) => api.delete(`/subchannels/${id}`),
 };
@@ -385,6 +450,17 @@ export const routesApi = {
   ) => api.post<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs`, data),
   updateDayPdv: (routeDayId: number, pdvId: number, data: { ExecutionStatus?: string }) =>
     api.patch<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs/${pdvId}`, data),
+
+  // Reorder PDVs
+  reorderPdvs: (routeId: number, pdvIds: number[]) =>
+    api.put<RoutePdv[]>(`/routes/${routeId}/pdvs/reorder`, pdvIds),
+
+  // Overlap detection
+  checkOverlap: (routeId: number) =>
+    api.get<{
+      overlaps: Array<{ routeId: number; routeName: string; overlapDates: string[]; overlapCount: number }>;
+      hasOverlap: boolean;
+    }>(`/routes/${routeId}/check-overlap`),
 
   // Route Generation
   generateProposal: (data: {
@@ -594,7 +670,7 @@ export const incidentsApi = {
 
 // --- Notifications ---
 export const notificationsApi = {
-  list: (params?: { skip?: number; limit?: number; active_only?: boolean }) =>
+  list: (params?: { skip?: number; limit?: number; active_only?: boolean; for_user?: number }) =>
     api.get<Notification[]>("/notifications", params),
   get: (id: number) => api.get<Notification>(`/notifications/${id}`),
   create: (data: {
@@ -605,6 +681,7 @@ export const notificationsApi = {
     IsActive?: boolean;
     ExpiresAt?: string | null;
     CreatedBy?: number | null;
+    TargetUserId?: number | null;
   }) => api.post<Notification>("/notifications", data),
   update: (id: number, data: Partial<Notification>) =>
     api.patch<Notification>(`/notifications/${id}`, data),

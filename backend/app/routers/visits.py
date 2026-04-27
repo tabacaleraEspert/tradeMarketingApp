@@ -8,6 +8,9 @@ from ..models.visit import VisitAnswer as VisitAnswerModel, VisitCheck as VisitC
 from ..models.visit_action import VisitAction as VisitActionModel
 from ..models.mandatory_activity import MandatoryActivity as MAModel
 from ..models.pdv import PDV as PDVModel
+from ..models.visit_coverage import VisitCoverage as CoverageModel
+from ..models.visit_pop import VisitPOPItem as POPModel
+from ..models.product import Product as ProductModel
 from ..models.visit_form_time import VisitFormTime as VisitFormTimeModel
 from ..models.form import FormQuestion as FormQuestionModel
 from ..models.route import RouteForm as RouteFormModel, RouteDay as RouteDayModel
@@ -467,6 +470,64 @@ def validate_visit_close(visit_id: int, db: Session = Depends(get_db)):
             for q in required_qs:
                 if q.QuestionId not in answered_qids:
                     missing.append({"questionId": q.QuestionId, "label": q.Label, "formId": q.FormId})
+
+    # Check mandatory steps from paso-a-paso (pasos 6, 10, 11)
+    # Paso 6: Proveedor de cigarrillos
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == v.PdvId).first()
+    if pdv and pdv.DistributorId is None:
+        missing.append({"label": "Proveedor de cigarrillos no asignado (paso 6)"})
+
+    # Paso 10: Cobertura y precios
+    # - Productos propios (Espert): obligatorios CADA visita
+    # - Productos competencia: obligatorios cada N visitas (configurable)
+    from ..routers.app_settings import get_setting
+
+    coverage_count = db.query(CoverageModel).filter(CoverageModel.VisitId == visit_id).count()
+    if coverage_count == 0:
+        missing.append({"label": "Cobertura y precios no completada (paso 10)"})
+    else:
+        # Own products: always required
+        own_coverage = (
+            db.query(CoverageModel)
+            .join(ProductModel, CoverageModel.ProductId == ProductModel.ProductId)
+            .filter(CoverageModel.VisitId == visit_id, ProductModel.IsOwn == True)
+            .count()
+        )
+        if own_coverage == 0:
+            missing.append({"label": "Faltan productos Espert en cobertura (obligatorios cada visita)"})
+
+        # Competitor products: required every N visits
+        n_str = get_setting(db, "competitor_coverage_every_n_visits")
+        n = int(n_str) if n_str.isdigit() else 4
+
+        # Count closed visits to this PDV (before this one)
+        closed_visits_count = (
+            db.query(VisitModel)
+            .filter(
+                VisitModel.PdvId == v.PdvId,
+                VisitModel.VisitId != visit_id,
+                VisitModel.Status.in_(["CLOSED", "COMPLETED"]),
+            )
+            .count()
+        )
+        # Visit number (1-based): this is visit #(closed+1)
+        visit_number = closed_visits_count + 1
+        competitor_due = (visit_number % n) == 0 or visit_number == 1  # first visit + every N
+
+        if competitor_due:
+            competitor_coverage = (
+                db.query(CoverageModel)
+                .join(ProductModel, CoverageModel.ProductId == ProductModel.ProductId)
+                .filter(CoverageModel.VisitId == visit_id, ProductModel.IsOwn == False)
+                .count()
+            )
+            if competitor_coverage == 0:
+                missing.append({"label": f"Cobertura de competencia obligatoria (cada {n} visitas, visita #{visit_number})"})
+
+    # Paso 11: Censo POP
+    pop_count = db.query(POPModel).filter(POPModel.VisitId == visit_id).count()
+    if pop_count == 0:
+        missing.append({"label": "Censo de materiales POP no completado (paso 11)"})
 
     # Check execution actions have photos
     actions_without_photo = (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -30,8 +30,16 @@ import {
   ArrowRight,
   Flag,
   Calendar,
+  BarChart3,
+  PhoneCall,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp,
+  ImageIcon,
 } from "lucide-react";
-import { pdvsApi, visitsApi, pdvNotesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, ApiError } from "@/lib/api";
+import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, ApiError } from "@/lib/api";
+import type { PdvPhotoRead } from "@/lib/api";
+import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
 import type { PdvNote } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
@@ -57,6 +65,9 @@ export function PointOfSaleDetail() {
   const currentUser = getCurrentUser();
   const cameFromCompletedVisit = (location.state as { completedPdvId?: number; fromNextButton?: boolean } | null)?.fromNextButton;
   const [loading, setLoading] = useState(true);
+  const [pdvPhotos, setPdvPhotos] = useState<PdvPhotoRead[]>([]);
+  const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteNoteId, setDeleteNoteId] = useState<number | null>(null);
@@ -72,6 +83,7 @@ export function PointOfSaleDetail() {
     address: "",
     zoneId: "" as number | "",
     distributorId: "" as number | "",
+    monthlyVolume: "" as number | "",
     distributorIds: [] as number[],
     isActive: true,
     inactiveReason: "",
@@ -109,10 +121,12 @@ export function PointOfSaleDetail() {
       }),
       visitsApi.list({ pdv_id: pdvId }).catch(() => []),
       pdvNotesApi.list(pdvId).catch(() => [] as PdvNote[]),
-    ]).then(([p, v, n]) => {
+      pdvPhotosApi.list(pdvId).catch(() => [] as PdvPhotoRead[]),
+    ]).then(([p, v, n, photos]) => {
       setPos(p);
       setVisits(v);
       setPdvNotes(n);
+      setPdvPhotos(photos);
       if (p) {
         const contactsFromPdv = p.Contacts?.length
           ? p.Contacts.map((c) => ({
@@ -135,6 +149,7 @@ export function PointOfSaleDetail() {
           address: p.Address || "",
           zoneId: p.ZoneId ?? "",
           distributorId: p.DistributorId ?? "",
+          monthlyVolume: p.MonthlyVolume ?? "",
           distributorIds: p.Distributors?.map((d) => d.DistributorId) || (p.DistributorId ? [p.DistributorId] : []),
           isActive: p.IsActive,
           inactiveReason: p.InactiveReason ?? "",
@@ -289,6 +304,7 @@ export function PointOfSaleDetail() {
         address: pos.Address || "",
         zoneId: pos.ZoneId ?? "",
         distributorId: pos.DistributorId ?? "",
+        monthlyVolume: pos.MonthlyVolume ?? "",
         distributorIds: pos.Distributors?.map((d) => d.DistributorId) || (pos.DistributorId ? [pos.DistributorId] : []),
         isActive: pos.IsActive,
         inactiveReason: pos.InactiveReason ?? "",
@@ -330,6 +346,7 @@ export function PointOfSaleDetail() {
         BusinessName: formData.businessName || undefined,
         ChannelId: Number(formData.channelId),
         SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
+        MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
         Address: formData.address || undefined,
         ZoneId: formData.zoneId || undefined,
         DistributorId: formData.distributorId || undefined,
@@ -460,7 +477,7 @@ export function PointOfSaleDetail() {
   const isVisitInProgress = !!openVisit;
 
   // Check if TODAY's visit for this routeDay is already completed
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = todayAR();
   const isTodayCompleted = routeDayId
     ? posVisits.some((v) =>
         v.RouteDayId === routeDayId &&
@@ -490,11 +507,9 @@ export function PointOfSaleDetail() {
             <p className="text-sm text-muted-foreground">{pos.ChannelName || pos.Channel || "-"}</p>
           </div>
           <div className="flex items-center gap-2">
-            {!["vendedor"].includes((currentUser.role || "").toLowerCase()) && (
-              <Button variant="outline" size="sm" onClick={openEditModal}>
-                <Edit size={18} />
-              </Button>
-            )}
+            <Button variant="outline" size="sm" onClick={openEditModal}>
+              <Edit size={18} />
+            </Button>
             {!["vendedor", "tm_rep"].includes((currentUser.role || "").toLowerCase()) && (
               <Button variant="outline" size="sm" onClick={() => setIsDeleteModalOpen(true)}>
                 <Trash2 size={18} className="text-red-600" />
@@ -520,11 +535,7 @@ export function PointOfSaleDetail() {
                     <p className="text-[11px] text-rose-700/80 mt-1">
                       Recordatorio para reactivar:{" "}
                       <strong>
-                        {new Date(pos.ReactivateOn).toLocaleDateString("es-AR", {
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}
+                        {formatDateLong(pos.ReactivateOn)}
                       </strong>
                     </p>
                   )}
@@ -638,7 +649,7 @@ export function PointOfSaleDetail() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-foreground whitespace-pre-wrap break-words">{n.Content}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {n.CreatedByName ?? "Usuario"} · {new Date(n.CreatedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
+                        {n.CreatedByName ?? "Usuario"} · {formatDateCompact(n.CreatedAt)}
                       </p>
                     </div>
                     <button
@@ -667,7 +678,7 @@ export function PointOfSaleDetail() {
                         <div key={n.PdvNoteId} className="text-xs text-muted-foreground line-through pl-3 border-l-2 border-emerald-200">
                           {n.Content}
                           <span className="block text-[9px] no-underline">
-                            ✓ {n.ResolvedByName ?? "Usuario"} · {n.ResolvedAt ? new Date(n.ResolvedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" }) : ""}
+                            ✓ {n.ResolvedByName ?? "Usuario"} · {n.ResolvedAt ? formatDateCompact(n.ResolvedAt) : ""}
                           </span>
                         </div>
                       ))}
@@ -705,6 +716,63 @@ export function PointOfSaleDetail() {
                 disabled={saving}
               />
             </div>
+            {/* === CONTACTOS (paso 4) === */}
+            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null, Notes: null, ProfileNotes: null }] : []).length > 0 && (
+              <div className="pt-1">
+                <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mb-2">Contactos</p>
+              </div>
+            )}
+            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null, Notes: null, ProfileNotes: null }] : []).map((c, i) => {
+              const isExpanded = expandedContactIdx === i;
+              const phone = c.ContactPhone?.replace(/[^0-9+]/g, "") || "";
+              return (
+                <div key={i} className="p-3 bg-muted rounded-lg">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-[#A48242]/10 flex items-center justify-center shrink-0">
+                      <User size={16} className="text-[#A48242]" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-foreground text-sm">{c.ContactName}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {c.ContactRole && <Badge variant="outline" className="text-[10px] py-0">{c.ContactRole}</Badge>}
+                        {c.DecisionPower && <Badge variant={c.DecisionPower === "alto" ? "default" : "secondary"} className="text-[10px] py-0">Decisión: {c.DecisionPower}</Badge>}
+                        {c.Birthday && (
+                          <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                            <Cake size={10} />
+                            {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "short" })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {phone && (
+                      <div className="flex gap-1 shrink-0">
+                        <a href={`tel:${phone}`} className="p-1.5 rounded-lg bg-green-100 hover:bg-green-200 transition-colors" title="Llamar">
+                          <PhoneCall size={14} className="text-green-700" />
+                        </a>
+                        <a href={`https://wa.me/549${phone.replace(/^\+?54?9?/, "")}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors" title="WhatsApp">
+                          <MessageCircle size={14} className="text-emerald-700" />
+                        </a>
+                      </div>
+                    )}
+                    <button onClick={() => setExpandedContactIdx(isExpanded ? null : i)} className="p-1 text-muted-foreground hover:text-foreground">
+                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+                  </div>
+                  {c.ContactPhone && <p className="text-xs text-muted-foreground mt-1 ml-10">{c.ContactPhone}</p>}
+                  {isExpanded && (
+                    <div className="mt-2 pt-2 border-t border-border/50 ml-10 space-y-1.5">
+                      {c.Birthday && <div className="flex items-center gap-1.5"><Cake size={13} className="text-muted-foreground" /><span className="text-xs text-foreground">Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "long" })}</span></div>}
+                      {(c as any).Notes && <div className="p-2 bg-amber-50/50 rounded text-xs text-amber-900"><span className="font-semibold">Notas:</span> {(c as any).Notes}</div>}
+                      {(c as any).ProfileNotes && <div className="p-2 bg-blue-50/50 rounded text-xs text-blue-900"><span className="font-semibold">Perfil:</span> {(c as any).ProfileNotes}</div>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* === DATOS DEL LOCAL (pasos 5-8) === */}
+            <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mt-3 mb-1">Datos del local</p>
+
             {/* Razón social */}
             {pos.BusinessName && (
               <div className="flex items-start gap-2">
@@ -750,6 +818,28 @@ export function PointOfSaleDetail() {
               </div>
             )}
 
+            {/* Volumen / Categoría */}
+            {(pos.MonthlyVolume != null || pos.Category) && (
+              <div className="flex items-start gap-2">
+                <BarChart3 size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Volumen mensual</p>
+                  <p className="font-medium text-foreground">
+                    {pos.MonthlyVolume != null ? `${pos.MonthlyVolume.toLocaleString()} atados/mes` : "-"}
+                    {pos.Category && (
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded ${
+                        pos.Category === "Grande" ? "bg-emerald-100 text-emerald-800" :
+                        pos.Category === "Mediano" ? "bg-amber-100 text-amber-800" :
+                        "bg-slate-100 text-slate-700"
+                      }`}>
+                        {pos.Category}
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {pos.Lat != null && pos.Lon != null && (
               <div className="mt-3">
                 <LocationMap
@@ -778,47 +868,8 @@ export function PointOfSaleDetail() {
               </div>
             </div>
 
-            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null }] : []).map((c, i) => (
-              <div key={i} className="space-y-1 p-2 bg-muted rounded-lg">
-                <div className="flex items-start gap-2">
-                  <User size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm text-muted-foreground">Contacto</p>
-                    <p className="font-medium text-foreground">{c.ContactName}</p>
-                    {(c.ContactRole || c.DecisionPower) && (
-                      <div className="flex gap-1 mt-1">
-                        {c.ContactRole && <Badge variant="outline" className="text-xs">{c.ContactRole}</Badge>}
-                        {c.DecisionPower && <Badge variant={c.DecisionPower === "alto" ? "default" : "secondary"} className="text-xs">Decisión: {c.DecisionPower}</Badge>}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {c.ContactPhone && (
-                  <div className="flex items-center gap-2 ml-6">
-                    <Phone size={14} className="text-muted-foreground" />
-                    <span className="text-sm text-foreground">{c.ContactPhone}</span>
-                  </div>
-                )}
-                {c.Birthday && (
-                  <div className="flex items-center gap-2 ml-6">
-                    <Cake size={14} className="text-muted-foreground" />
-                    <span className="text-sm text-foreground">
-                      Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { day: "numeric", month: "long" })}
-                    </span>
-                  </div>
-                )}
-                {(c as any).Notes && (
-                  <div className="ml-6 mt-1 p-2 bg-amber-50/50 dark:bg-amber-950/20 rounded text-xs text-amber-900 dark:text-amber-300">
-                    <span className="font-semibold">Observaciones:</span> {(c as any).Notes}
-                  </div>
-                )}
-                {(c as any).ProfileNotes && (
-                  <div className="ml-6 mt-1 p-2 bg-blue-50/50 dark:bg-blue-950/20 rounded text-xs text-blue-900 dark:text-blue-300">
-                    <span className="font-semibold">Perfil:</span> {(c as any).ProfileNotes}
-                  </div>
-                )}
-              </div>
-            ))}
+            {/* === UBICACIÓN === */}
+            <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mt-3 mb-1">Ubicación</p>
 
             {(pos?.Address || (pos?.Lat != null && pos?.Lon != null)) ? (
               <Button variant="outline" className="w-full mt-2" size="sm" asChild>
@@ -840,6 +891,90 @@ export function PointOfSaleDetail() {
                 <Navigation size={16} className="mr-2" />
                 Cómo llegar
               </Button>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Galería de fotos del PDV */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-foreground flex items-center gap-2">
+                <ImageIcon size={18} className="text-[#A48242]" />
+                Fotos del local
+              </h3>
+              <div>
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file || !id) return;
+                    try {
+                      const photo = await pdvPhotosApi.upload(Number(id), file, { photoType: "fachada" });
+                      setPdvPhotos((prev) => [...prev, photo]);
+                      toast.success("Foto subida");
+                    } catch {
+                      toast.error("Error al subir foto");
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="gap-1"
+                >
+                  <Camera size={14} />
+                  Agregar
+                </Button>
+              </div>
+            </div>
+            {pdvPhotos.length === 0 ? (
+              <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                <Camera size={32} className="mx-auto text-muted-foreground mb-2 opacity-40" />
+                <p className="text-xs text-muted-foreground">Sin fotos del local</p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="mt-2 text-xs text-[#A48242]"
+                >
+                  Tomar primera foto
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {pdvPhotos.map((photo) => (
+                  <div key={photo.FileId} className="relative group">
+                    <img
+                      src={photo.url}
+                      alt={photo.PhotoType}
+                      className="w-full h-24 object-cover rounded-lg border border-border"
+                    />
+                    <div className="absolute bottom-1 left-1">
+                      <Badge variant="secondary" className="text-[8px] px-1 py-0">{photo.PhotoType}</Badge>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!id) return;
+                        try {
+                          await pdvPhotosApi.delete(Number(id), photo.FileId);
+                          setPdvPhotos((prev) => prev.filter((p) => p.FileId !== photo.FileId));
+                          toast.success("Foto eliminada");
+                        } catch { toast.error("Error al eliminar"); }
+                      }}
+                      className="absolute top-1 right-1 p-0.5 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={12} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -878,11 +1013,7 @@ export function PointOfSaleDetail() {
               <div className="mt-3 pt-3 border-t border-border">
                 <p className="text-xs text-muted-foreground">Última visita</p>
                 <p className="text-sm font-medium text-foreground">
-                  {new Date(lastVisit.OpenedAt).toLocaleDateString("es-AR", {
-                    day: "numeric",
-                    month: "long",
-                    year: "numeric",
-                  })}
+                  {formatDateLong(lastVisit.OpenedAt)}
                 </p>
               </div>
             )}
@@ -925,7 +1056,7 @@ export function PointOfSaleDetail() {
                 <CardContent className="p-3">
                   <p className="text-xs font-medium text-[#A48242] mb-2 flex items-center gap-1">
                     <Clock size={12} />
-                    Visita en curso — {new Date(openVisit!.OpenedAt).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                    Visita en curso — {formatTime24(openVisit!.OpenedAt)}
                   </p>
                   <div className="space-y-2">
                     <Button
@@ -1119,6 +1250,27 @@ export function PointOfSaleDetail() {
                 </SelectContent>
               </Select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-foreground mb-1">Volumen mensual (atados)</label>
+            <Input
+              type="number"
+              min={0}
+              placeholder="Ej: 500"
+              value={formData.monthlyVolume === "" ? "" : formData.monthlyVolume}
+              onChange={(e) =>
+                setFormData((f) => ({ ...f, monthlyVolume: e.target.value ? Number(e.target.value) : "" }))
+              }
+            />
+            {formData.monthlyVolume !== "" && (
+              <p className={`text-xs mt-1 font-medium ${
+                Number(formData.monthlyVolume) > 1500 ? "text-emerald-700" :
+                Number(formData.monthlyVolume) > 800 ? "text-amber-700" : "text-slate-600"
+              }`}>
+                Categoría: {Number(formData.monthlyVolume) > 1500 ? "Grande" : Number(formData.monthlyVolume) > 800 ? "Mediano" : "Chico"}
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-4">

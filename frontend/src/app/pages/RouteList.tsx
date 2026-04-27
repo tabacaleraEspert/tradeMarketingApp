@@ -1,11 +1,13 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
-  MapPin, ArrowLeft, Map, List, Search, ChevronRight, Store,
+  MapPin, ArrowLeft, Map, List, Search, ChevronRight, Store, Route as RouteIcon,
 } from "lucide-react";
-import { usePdvs } from "@/lib/api";
+import { usePdvs, routesApi, useMyRoutes } from "@/lib/api";
+import type { RoutePdv } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
 import { useJsApiLoader, GoogleMap, MarkerF } from "@react-google-maps/api";
 
@@ -21,9 +23,35 @@ export function RouteList() {
 
   // TM Reps sólo ven PDVs de su zona. Territory Manager+ ve todos.
   const userZoneId = currentUser.zoneId;
+  const userId = Number(currentUser.id) || undefined;
   const isFieldRep = ["vendedor", "ejecutivo"].includes((currentUser.role || "").toLowerCase());
   const { data: allPdvs, loading } = usePdvs(isFieldRep ? userZoneId : undefined);
   const pdvs = allPdvs;
+
+  // Load route assignments to show route names per PDV
+  const { data: myRoutes } = useMyRoutes(userId);
+  const [pdvRouteMap, setPdvRouteMap] = useState<Record<number, string[]>>({});
+  const [routeFilter, setRouteFilter] = useState<"all" | "with" | "without">("all");
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 50;
+
+  useEffect(() => {
+    if (myRoutes.length === 0) return;
+    const map: Record<number, string[]> = {};
+    const fetchAll = async () => {
+      for (const r of myRoutes) {
+        try {
+          const rpdvs = await routesApi.listPdvs(r.RouteId);
+          for (const rp of rpdvs) {
+            if (!map[rp.PdvId]) map[rp.PdvId] = [];
+            if (!map[rp.PdvId].includes(r.Name)) map[rp.PdvId].push(r.Name);
+          }
+        } catch { /* skip */ }
+      }
+      setPdvRouteMap({ ...map });
+    };
+    fetchAll();
+  }, [myRoutes]);
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
     id: "google-map-script-places",
@@ -37,17 +65,26 @@ export function RouteList() {
     [pdvs]
   );
 
-  const [showInactive, setShowInactive] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<"active" | "inactive" | "all">("active");
   const [sortBy, setSortBy] = useState<"name" | "recent">("name");
 
   const filteredPdvs = useMemo(() => {
+    setPage(0); // Reset page on filter change
     const filtered = pdvs.filter((p) => {
-      if (!p.IsActive && !showInactive) return false;
+      // Active/Inactive filter
+      if (activeFilter === "active" && !p.IsActive) return false;
+      if (activeFilter === "inactive" && p.IsActive) return false;
+      // Route filter
+      const hasRoute = (pdvRouteMap[p.PdvId] || []).length > 0;
+      if (routeFilter === "with" && !hasRoute) return false;
+      if (routeFilter === "without" && hasRoute) return false;
       const search = searchTerm.toLowerCase();
       const matchesSearch = !search ||
         p.Name.toLowerCase().includes(search) ||
         (p.Address || "").toLowerCase().includes(search) ||
-        (p.City || "").toLowerCase().includes(search);
+        (p.City || "").toLowerCase().includes(search) ||
+        (p.ContactName || "").toLowerCase().includes(search) ||
+        (pdvRouteMap[p.PdvId] || []).some((r) => r.toLowerCase().includes(search));
       const ch = p.ChannelName || p.Channel || "";
       const matchesChannel = channelFilter === "all" || ch === channelFilter;
       return matchesSearch && matchesChannel;
@@ -56,7 +93,10 @@ export function RouteList() {
       return [...filtered].sort((a, b) => new Date(b.CreatedAt).getTime() - new Date(a.CreatedAt).getTime());
     }
     return filtered.sort((a, b) => a.Name.localeCompare(b.Name));
-  }, [pdvs, searchTerm, channelFilter, showInactive, sortBy]);
+  }, [pdvs, searchTerm, channelFilter, activeFilter, sortBy, routeFilter, pdvRouteMap]);
+
+  const pagedPdvs = useMemo(() => filteredPdvs.slice(0, (page + 1) * PAGE_SIZE), [filteredPdvs, page]);
+  const hasMore = pagedPdvs.length < filteredPdvs.length;
 
   const pdvsWithCoords = useMemo(
     () => filteredPdvs.filter((p) => p.Lat != null && p.Lon != null),
@@ -81,6 +121,9 @@ export function RouteList() {
           </button>
           <div className="flex-1 min-w-0">
             <h1 className="text-lg font-bold text-foreground">Buscar PDV</h1>
+            <p className="text-xs text-muted-foreground">
+              {isFieldRep ? `${currentUser.zone} — ` : ""}{filteredPdvs.length} PDVs
+            </p>
           </div>
           {/* View toggle - compact */}
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -103,7 +146,7 @@ export function RouteList() {
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
           <Input
-            placeholder="Buscar por nombre, dirección o ciudad..."
+            placeholder="Buscar por nombre, dirección, ciudad o contacto..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 h-9 text-sm"
@@ -113,22 +156,55 @@ export function RouteList() {
         {/* Channel chips */}
         <div className="flex items-center gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5">
           <button
-            onClick={() => { setChannelFilter("all"); setShowInactive(false); }}
+            onClick={() => { setActiveFilter("active"); setChannelFilter("all"); }}
             className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              channelFilter === "all" && !showInactive ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+              activeFilter === "active" ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
             }`}
           >
             Activos ({pdvs.filter((p) => p.IsActive).length})
           </button>
           <button
-            onClick={() => setShowInactive((v) => !v)}
+            onClick={() => setActiveFilter("inactive")}
             className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-              showInactive ? "bg-rose-500/80 text-white" : "bg-muted text-muted-foreground"
+              activeFilter === "inactive" ? "bg-rose-500/80 text-white" : "bg-muted text-muted-foreground"
             }`}
           >
             Inactivos ({pdvs.filter((p) => !p.IsActive).length})
           </button>
-          <span className="mx-1 text-border">|</span>
+          <button
+            onClick={() => setActiveFilter("all")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              activeFilter === "all" ? "bg-blue-500/80 text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            Todos ({pdvs.length})
+          </button>
+          <span className="mx-0.5 text-border">|</span>
+          <button
+            onClick={() => setRouteFilter("with")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              routeFilter === "with" ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            Con ruta
+          </button>
+          <button
+            onClick={() => setRouteFilter("without")}
+            className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+              routeFilter === "without" ? "bg-amber-500/80 text-white" : "bg-muted text-muted-foreground"
+            }`}
+          >
+            Sin ruta
+          </button>
+          {routeFilter !== "all" && (
+            <button
+              onClick={() => setRouteFilter("all")}
+              className="px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground"
+            >
+              Limpiar
+            </button>
+          )}
+          <span className="mx-0.5 text-border">|</span>
           <button
             onClick={() => setSortBy((v) => v === "name" ? "recent" : "name")}
             className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
@@ -166,34 +242,59 @@ export function RouteList() {
               <p className="text-xs text-muted-foreground mt-1">Probá con otros filtros</p>
             </div>
           ) : (
+            <>
             <div className="divide-y divide-border">
-              {filteredPdvs.map((pdv) => (
-                <button
-                  key={pdv.PdvId}
-                  onClick={() => navigate(`/pos/${pdv.PdvId}`)}
-                  className={`w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors ${!pdv.IsActive ? "opacity-60" : ""}`}
-                >
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>
-                    <Store size={18} className={pdv.IsActive ? "text-[#A48242]" : "text-rose-500"} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
-                      {!pdv.IsActive && (
-                        <Badge className="bg-rose-100 text-rose-700 text-[9px] px-1.5 py-0 shrink-0">Inactivo</Badge>
+              {pagedPdvs.map((pdv) => {
+                const routes = pdvRouteMap[pdv.PdvId] || [];
+                return (
+                  <button
+                    key={pdv.PdvId}
+                    onClick={() => navigate(`/pos/${pdv.PdvId}`)}
+                    className={`w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors ${!pdv.IsActive ? "opacity-60" : ""}`}
+                  >
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>
+                      <Store size={18} className={pdv.IsActive ? "text-[#A48242]" : "text-rose-500"} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
+                        {!pdv.IsActive && (
+                          <Badge className="bg-rose-100 text-rose-700 text-[9px] px-1.5 py-0 shrink-0">Inactivo</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        {pdv.Address || pdv.City || "Sin dirección"}
+                      </p>
+                      {routes.length > 0 && (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <RouteIcon size={10} className="text-[#A48242] shrink-0" />
+                          <p className="text-[10px] text-[#A48242] font-medium truncate">
+                            {routes.join(", ")}
+                          </p>
+                        </div>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {pdv.Address || pdv.City || "Sin dirección"}
-                    </p>
-                  </div>
-                  <Badge variant="outline" className="text-[10px] shrink-0">
-                    {pdv.ChannelName || pdv.Channel || "-"}
-                  </Badge>
-                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-                </button>
-              ))}
+                    <Badge variant="outline" className="text-[10px] shrink-0">
+                      {pdv.ChannelName || pdv.Channel || "-"}
+                    </Badge>
+                    <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+                  </button>
+                );
+              })}
             </div>
+            {hasMore && (
+              <div className="p-4 text-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  className="text-xs"
+                >
+                  Cargar más ({filteredPdvs.length - pagedPdvs.length} restantes)
+                </Button>
+              </div>
+            )}
+            </>
           )}
         </div>
       ) : (

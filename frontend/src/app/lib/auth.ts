@@ -7,6 +7,7 @@ export interface StoredUser {
   email: string;
   zone: string;
   zoneId?: number;
+  managerId?: number;
   role: string;
 }
 
@@ -48,6 +49,7 @@ export function persistSession(login: LoginResponse): void {
     email: login.Email,
     zone: login.ZoneName || (login.ZoneId ? `Zona #${login.ZoneId}` : "-"),
     zoneId: login.ZoneId ?? undefined,
+    managerId: login.ManagerUserId ?? undefined,
     role: login.Role || "vendedor",
   };
   localStorage.setItem(USER_KEY, JSON.stringify(user));

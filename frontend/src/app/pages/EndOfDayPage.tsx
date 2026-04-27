@@ -22,6 +22,7 @@ import { visitsApi, routesApi, visitActionsApi } from "@/lib/api";
 import type { Visit, VisitAction } from "@/lib/api";
 import { useRouteDayPdvsForDate } from "@/lib/api/hooks";
 import { getCurrentUser } from "../lib/auth";
+import { todayAR } from "../lib/dateUtils";
 import { toast } from "sonner";
 
 export function EndOfDayPage() {
@@ -42,7 +43,7 @@ export function EndOfDayPage() {
     const loadVisits = async () => {
       setLoadingDetails(true);
       try {
-        const todayStr = today.toISOString().split("T")[0];
+        const todayStr = todayAR();
         const v = await visitsApi.list({ user_id: Number(currentUser.id) });
         const todayVisits = v.filter((vis) => vis.OpenedAt.startsWith(todayStr));
         setVisits(todayVisits);
@@ -114,7 +115,7 @@ export function EndOfDayPage() {
             <h1 className="text-xl font-bold">Cierre de Jornada</h1>
             <div className="flex items-center gap-2 text-sm text-white/70">
               <Calendar size={14} />
-              {today.toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long" })}
+              {today.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", weekday: "long", day: "numeric", month: "long" })}
             </div>
           </div>
         </div>

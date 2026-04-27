@@ -4,7 +4,9 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
 import { Modal, ConfirmModal } from "../../components/ui/modal";
-import { Plus, Edit, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Plus, Edit, Trash2, ChevronDown, ChevronRight, Info } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../../components/ui/tooltip";
+import { Textarea } from "../../components/ui/textarea";
 import {
   useApiList,
   channelsApi,
@@ -29,7 +31,9 @@ export function ChannelManagement() {
     Name: string;
   } | null>(null);
   const [channelName, setChannelName] = useState("");
+  const [channelDescription, setChannelDescription] = useState("");
   const [subchannelName, setSubchannelName] = useState("");
+  const [subchannelDescription, setSubchannelDescription] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: "channel" | "subchannel"; id: number } | null>(null);
 
@@ -43,12 +47,14 @@ export function ChannelManagement() {
 
   const openCreateChannel = () => {
     setChannelName("");
+    setChannelDescription("");
     setChannelModal("create");
   };
 
-  const openEditChannel = (ch: { ChannelId: number; Name: string }) => {
+  const openEditChannel = (ch: { ChannelId: number; Name: string; Description: string | null }) => {
     setSelectedChannelId(ch.ChannelId);
     setChannelName(ch.Name);
+    setChannelDescription(ch.Description || "");
     setChannelModal("edit");
   };
 
@@ -60,10 +66,10 @@ export function ChannelManagement() {
     setSaving(true);
     try {
       if (channelModal === "create") {
-        await channelsApi.create({ Name: channelName.trim() });
+        await channelsApi.create({ Name: channelName.trim(), Description: channelDescription.trim() || undefined });
         toast.success("Canal creado");
       } else if (selectedChannelId) {
-        await channelsApi.update(selectedChannelId, { Name: channelName.trim() });
+        await channelsApi.update(selectedChannelId, { Name: channelName.trim(), Description: channelDescription.trim() || undefined });
         toast.success("Canal actualizado");
       }
       setChannelModal(null);
@@ -90,13 +96,15 @@ export function ChannelManagement() {
     setSelectedChannelId(channelId);
     setSelectedSubchannel(null);
     setSubchannelName("");
+    setSubchannelDescription("");
     setSubchannelModal("create");
   };
 
-  const openEditSubchannel = (sc: { SubChannelId: number; ChannelId: number; Name: string }) => {
+  const openEditSubchannel = (sc: { SubChannelId: number; ChannelId: number; Name: string; Description?: string | null }) => {
     setSelectedSubchannel(sc);
     setSelectedChannelId(sc.ChannelId);
     setSubchannelName(sc.Name);
+    setSubchannelDescription(sc.Description || "");
     setSubchannelModal("edit");
   };
 
@@ -111,11 +119,13 @@ export function ChannelManagement() {
         await subchannelsApi.create({
           ChannelId: selectedChannelId,
           Name: subchannelName.trim(),
+          Description: subchannelDescription.trim() || undefined,
         });
         toast.success("Subcanal creado");
       } else if (selectedSubchannel) {
         await subchannelsApi.update(selectedSubchannel.SubChannelId, {
           Name: subchannelName.trim(),
+          Description: subchannelDescription.trim() || undefined,
         });
         toast.success("Subcanal actualizado");
       }
@@ -180,7 +190,12 @@ export function ChannelManagement() {
                     ) : (
                       <ChevronRight size={20} className="text-muted-foreground" />
                     )}
-                    <span className="font-semibold text-foreground">{ch.Name}</span>
+                    <div>
+                      <span className="font-semibold text-foreground">{ch.Name}</span>
+                      {ch.Description && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{ch.Description}</p>
+                      )}
+                    </div>
                     {!ch.IsActive && (
                       <Badge variant="secondary">Inactivo</Badge>
                     )}
@@ -227,7 +242,12 @@ export function ChannelManagement() {
                           key={sc.SubChannelId}
                           className="flex items-center justify-between py-2 px-3 bg-card rounded border border-border"
                         >
-                          <span className="text-sm font-medium text-foreground">{sc.Name}</span>
+                          <div>
+                            <span className="text-sm font-medium text-foreground">{sc.Name}</span>
+                            {sc.Description && (
+                              <p className="text-xs text-muted-foreground mt-0.5">{sc.Description}</p>
+                            )}
+                          </div>
                           <div className="flex gap-2">
                             <Button
                               variant="ghost"
@@ -260,11 +280,11 @@ export function ChannelManagement() {
       {/* Modal Canal */}
       <Modal
         isOpen={channelModal !== null}
-        onClose={() => { setChannelModal(null); setChannelName(""); }}
+        onClose={() => { setChannelModal(null); setChannelName(""); setChannelDescription(""); }}
         title={channelModal === "create" ? "Nuevo Canal" : "Editar Canal"}
         footer={
           <>
-            <Button variant="outline" onClick={() => { setChannelModal(null); setChannelName(""); }}>
+            <Button variant="outline" onClick={() => { setChannelModal(null); setChannelName(""); setChannelDescription(""); }}>
               Cancelar
             </Button>
             <Button onClick={handleSaveChannel} disabled={saving}>
@@ -279,7 +299,16 @@ export function ChannelManagement() {
             <Input
               value={channelName}
               onChange={(e) => setChannelName(e.target.value)}
-              placeholder="Ej: Kiosco, Supermercado"
+              placeholder="Ej: Convenience, Grocery"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Descripción</label>
+            <Textarea
+              value={channelDescription}
+              onChange={(e) => setChannelDescription(e.target.value)}
+              placeholder="Descripción visible como ayuda al dar de alta un PDV"
+              rows={3}
             />
           </div>
         </div>
@@ -303,11 +332,11 @@ export function ChannelManagement() {
       {/* Modal Subcanal */}
       <Modal
         isOpen={subchannelModal !== null}
-        onClose={() => setSubchannelModal(null)}
+        onClose={() => { setSubchannelModal(null); setSubchannelDescription(""); }}
         title={subchannelModal === "create" ? "Nuevo Subcanal" : "Editar Subcanal"}
         footer={
           <>
-            <Button variant="outline" onClick={() => setSubchannelModal(null)}>
+            <Button variant="outline" onClick={() => { setSubchannelModal(null); setSubchannelDescription(""); }}>
               Cancelar
             </Button>
             <Button onClick={handleSaveSubchannel} disabled={saving}>
@@ -322,7 +351,16 @@ export function ChannelManagement() {
             <Input
               value={subchannelName}
               onChange={(e) => setSubchannelName(e.target.value)}
-              placeholder="Ej: Tradicional, Cadena"
+              placeholder="Ej: Quiosco, Tabaquería"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Descripción</label>
+            <Textarea
+              value={subchannelDescription}
+              onChange={(e) => setSubchannelDescription(e.target.value)}
+              placeholder="Descripción visible como ayuda al dar de alta un PDV"
+              rows={3}
             />
           </div>
         </div>

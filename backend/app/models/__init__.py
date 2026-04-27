@@ -20,6 +20,12 @@ from .mandatory_activity import MandatoryActivity
 from .pdv_note import PdvNote
 from .holiday import Holiday
 from .user_vacation import UserVacation
+from .product import Product
+from .pdv_product_category import PdvProductCategory
+from .visit_coverage import VisitCoverage
+from .visit_pop import VisitPOPItem
+from .visit_loose import VisitLooseSurvey
+from .app_setting import AppSetting
 
 __all__ = [
     "Zone",
@@ -61,4 +67,10 @@ __all__ = [
     "PdvNote",
     "Holiday",
     "UserVacation",
+    "Product",
+    "PdvProductCategory",
+    "VisitCoverage",
+    "VisitPOPItem",
+    "VisitLooseSurvey",
+    "AppSetting",
 ]

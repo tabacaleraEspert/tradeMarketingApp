@@ -48,6 +48,7 @@ def create_subchannel(data: SubChannelCreate, db: Session = Depends(get_db)):
     sc = SubChannelModel(
         ChannelId=data.ChannelId,
         Name=data.Name,
+        Description=data.Description,
         IsActive=data.IsActive,
     )
     db.add(sc)
@@ -65,6 +66,8 @@ def update_subchannel(subchannel_id: int, data: SubChannelUpdate, db: Session = 
         sc.ChannelId = data.ChannelId
     if data.Name is not None:
         sc.Name = data.Name
+    if data.Description is not None:
+        sc.Description = data.Description
     if data.IsActive is not None:
         sc.IsActive = data.IsActive
     db.commit()

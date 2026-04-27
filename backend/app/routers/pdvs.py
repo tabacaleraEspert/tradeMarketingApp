@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvContactModel, Distributor
 from ..models.pdv import PdvDistributor as PdvDistributorModel
-from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo
+from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo, volume_to_category
 from ..schemas.pdv_contact import PdvContact
 from ..auth import require_role
 
@@ -77,6 +77,8 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
         VisitDay=getattr(pdv, "VisitDay", None),
         DefaultMaterialExternalId=pdv.DefaultMaterialExternalId,
         AssignedUserId=getattr(pdv, "AssignedUserId", None),
+        MonthlyVolume=getattr(pdv, "MonthlyVolume", None),
+        Category=getattr(pdv, "Category", None),
         IsActive=pdv.IsActive,
         InactiveReason=getattr(pdv, "InactiveReason", None),
         ReactivateOn=getattr(pdv, "ReactivateOn", None),
@@ -92,7 +94,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
 @router.get("", response_model=list[Pdv])
 def list_pdvs(
     skip: int = 0,
-    limit: int = Query(default=100, le=500),
+    limit: int = Query(default=500, le=1000),
     zone_id: int | None = None,
     distributor_id: int | None = None,
     db: Session = Depends(get_db),
@@ -146,6 +148,8 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
     if not legacy_dist_id and data.DistributorIds:
         legacy_dist_id = data.DistributorIds[0]
 
+    category = volume_to_category(data.MonthlyVolume)
+
     pdv = PDVModel(
         Code=code,
         Name=data.Name,
@@ -162,6 +166,8 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
         OpeningTime=data.OpeningTime,
         ClosingTime=data.ClosingTime,
         VisitDay=data.VisitDay,
+        MonthlyVolume=data.MonthlyVolume,
+        Category=category,
         DefaultMaterialExternalId=data.DefaultMaterialExternalId,
         IsActive=data.IsActive,
     )
@@ -224,6 +230,10 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
             if ch:
                 pdv.Channel = ch.Name
         setattr(pdv, k, v)
+
+    # Auto-derive Category when MonthlyVolume changes
+    if "MonthlyVolume" in dump:
+        pdv.Category = volume_to_category(pdv.MonthlyVolume)
 
     # Si estamos desactivando: setear InactiveSince y, si no vino, ReactivateOn = +60d
     if transitioning_to_inactive:

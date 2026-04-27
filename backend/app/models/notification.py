@@ -15,4 +15,6 @@ class Notification(Base):
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     CreatedBy = Column(Integer, ForeignKey("User.UserId"), nullable=True)
+    # Si es null, es global. Si tiene valor, solo la ve ese usuario (y admins).
+    TargetUserId = Column(Integer, ForeignKey("User.UserId"), nullable=True)
     ExpiresAt = Column(DateTime(timezone=True), nullable=True)

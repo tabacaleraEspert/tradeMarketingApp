@@ -13,6 +13,7 @@ class NotificationBase(BaseModel):
 
 class NotificationCreate(NotificationBase):
     CreatedBy: int | None = None
+    TargetUserId: int | None = None
 
 
 class NotificationUpdate(BaseModel):
@@ -28,6 +29,7 @@ class Notification(NotificationBase):
     NotificationId: int
     CreatedAt: datetime
     CreatedBy: int | None = None
+    TargetUserId: int | None = None
 
     class Config:
         from_attributes = True

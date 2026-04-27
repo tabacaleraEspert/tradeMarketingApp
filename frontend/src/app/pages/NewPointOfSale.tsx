@@ -8,7 +8,8 @@ import { Label } from "../components/ui/label";
 import { Textarea } from "../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle } from "lucide-react";
+import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle, Info } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, distributorsApi, routesApi, ApiError } from "@/lib/api";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
@@ -36,6 +37,7 @@ export function NewPointOfSale() {
     address: "",
     channelId: "" as number | "",
     subChannelId: "" as number | "",
+    monthlyVolume: "" as number | "",
     distributorId: "",
     observations: "",
     lat: null as number | null,
@@ -244,6 +246,7 @@ export function NewPointOfSale() {
         OpeningTime: validSlots[0]?.from || undefined,
         ClosingTime: validSlots[0]?.to || undefined,
         TimeSlotsJson: validSlots.length > 0 ? JSON.stringify(validSlots) : undefined,
+        MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       });
 
@@ -433,9 +436,23 @@ export function NewPointOfSale() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="channel">
-                Canal <span className="text-red-600">*</span>
-              </Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="channel">
+                  Canal <span className="text-red-600">*</span>
+                </Label>
+                {formData.channelId && channels.find((c) => c.ChannelId === Number(formData.channelId))?.Description && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-muted-foreground hover:text-foreground">
+                        <Info size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[260px]">
+                      {channels.find((c) => c.ChannelId === Number(formData.channelId))?.Description}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
               <Select
                 value={formData.channelId ? String(formData.channelId) : ""}
                 onValueChange={(value) =>
@@ -453,15 +470,34 @@ export function NewPointOfSale() {
                 <SelectContent>
                   {channels.map((ch) => (
                     <SelectItem key={ch.ChannelId} value={String(ch.ChannelId)}>
-                      {ch.Name}
+                      <span>{ch.Name}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {formData.channelId && channels.find((c) => c.ChannelId === Number(formData.channelId))?.Description && (
+                <p className="text-xs text-muted-foreground">
+                  {channels.find((c) => c.ChannelId === Number(formData.channelId))?.Description}
+                </p>
+              )}
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="subChannel">Sub-canal</Label>
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="subChannel">Sub-canal</Label>
+                {formData.subChannelId && subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Description && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" className="text-muted-foreground hover:text-foreground">
+                        <Info size={14} />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[260px]">
+                      {subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Description}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
               <Select
                 value={formData.subChannelId ? String(formData.subChannelId) : ""}
                 onValueChange={(value) =>
@@ -475,11 +511,56 @@ export function NewPointOfSale() {
                 <SelectContent>
                   {subchannels.map((sc) => (
                     <SelectItem key={sc.SubChannelId} value={String(sc.SubChannelId)}>
-                      {sc.Name}
+                      <span>{sc.Name}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {formData.subChannelId && subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Description && (
+                <p className="text-xs text-muted-foreground">
+                  {subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Description}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5">
+                <Label htmlFor="monthlyVolume">Volumen mensual (atados)</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button type="button" className="text-muted-foreground hover:text-foreground">
+                      <Info size={14} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[260px]">
+                    Estimación de atados de cigarrillos vendidos por mes (toda la categoría). Para PDVs nuevos, estimar en la primera visita.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <Input
+                id="monthlyVolume"
+                type="number"
+                min={0}
+                placeholder="Ej: 500"
+                value={formData.monthlyVolume === "" ? "" : formData.monthlyVolume}
+                onChange={(e) =>
+                  setFormData({ ...formData, monthlyVolume: e.target.value ? Number(e.target.value) : "" })
+                }
+              />
+              {formData.monthlyVolume !== "" && (
+                <Badge
+                  variant={
+                    formData.monthlyVolume > 1500 ? "default" :
+                    formData.monthlyVolume > 800 ? "secondary" : "outline"
+                  }
+                >
+                  {formData.monthlyVolume > 1500 ? "Grande" :
+                   formData.monthlyVolume > 800 ? "Mediano" : "Chico"}
+                  {" — "}
+                  {formData.monthlyVolume > 1500 ? "más de 1.500 atados/mes" :
+                   formData.monthlyVolume > 800 ? "800 a 1.500 atados/mes" : "0 a 800 atados/mes"}
+                </Badge>
+              )}
             </div>
           </CardContent>
         </Card>

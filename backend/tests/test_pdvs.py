@@ -338,3 +338,121 @@ class TestDeletePdv:
         token = _login(client, user["Email"])
         resp = client.delete(f"/pdvs/{pdv['PdvId']}", headers=_auth(token))
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Volume categorization
+# ---------------------------------------------------------------------------
+
+class TestVolumeCategory:
+    """Verify MonthlyVolume ↔ Category derivation (Chico/Mediano/Grande)."""
+
+    def test_create_pdv_chico(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=500)
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["MonthlyVolume"] == 500
+        assert pdv["Category"] == "Chico"
+
+    def test_create_pdv_chico_boundary(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=800)
+        assert resp.status_code == 201
+        assert resp.json()["Category"] == "Chico"
+
+    def test_create_pdv_mediano(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=1000)
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["MonthlyVolume"] == 1000
+        assert pdv["Category"] == "Mediano"
+
+    def test_create_pdv_mediano_boundary(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=1500)
+        assert resp.status_code == 201
+        assert resp.json()["Category"] == "Mediano"
+
+    def test_create_pdv_grande(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=2000)
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["MonthlyVolume"] == 2000
+        assert pdv["Category"] == "Grande"
+
+    def test_create_pdv_grande_boundary(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=1501)
+        assert resp.status_code == 201
+        assert resp.json()["Category"] == "Grande"
+
+    def test_create_pdv_zero_volume_is_chico(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=0)
+        assert resp.status_code == 201
+        assert resp.json()["Category"] == "Chico"
+
+    def test_create_pdv_no_volume_no_category(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"])
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["MonthlyVolume"] is None
+        assert pdv["Category"] is None
+
+    def test_update_pdv_volume_recalculates_category(self, client, channel):
+        pdv = _make_pdv(client, channel["ChannelId"], MonthlyVolume=500).json()
+        assert pdv["Category"] == "Chico"
+
+        resp = client.patch(f"/pdvs/{pdv['PdvId']}", json={"MonthlyVolume": 1200})
+        assert resp.status_code == 200
+        assert resp.json()["Category"] == "Mediano"
+
+        resp = client.patch(f"/pdvs/{pdv['PdvId']}", json={"MonthlyVolume": 2000})
+        assert resp.status_code == 200
+        assert resp.json()["Category"] == "Grande"
+
+
+# ---------------------------------------------------------------------------
+# Channel description
+# ---------------------------------------------------------------------------
+
+class TestChannelDescription:
+    """Verify Description field on channels and subchannels."""
+
+    def test_create_channel_with_description(self, client):
+        resp = client.post("/channels", json={
+            "Name": f"Ch_{_uid()}",
+            "Description": "Canal de prueba para testing",
+        })
+        assert resp.status_code == 201
+        ch = resp.json()
+        assert ch["Description"] == "Canal de prueba para testing"
+
+    def test_create_channel_without_description(self, client):
+        resp = client.post("/channels", json={"Name": f"Ch_{_uid()}"})
+        assert resp.status_code == 201
+        assert resp.json()["Description"] is None
+
+    def test_update_channel_description(self, client):
+        ch = _make_channel(client)
+        resp = client.patch(f"/channels/{ch['ChannelId']}", json={
+            "Description": "Descripción actualizada",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["Description"] == "Descripción actualizada"
+
+    def test_create_subchannel_with_description(self, client, channel):
+        resp = client.post("/subchannels", json={
+            "ChannelId": channel["ChannelId"],
+            "Name": f"Sub_{_uid()}",
+            "Description": "Subcanal de prueba",
+        })
+        assert resp.status_code == 201
+        assert resp.json()["Description"] == "Subcanal de prueba"
+
+    def test_update_subchannel_description(self, client, channel):
+        sc = client.post("/subchannels", json={
+            "ChannelId": channel["ChannelId"],
+            "Name": f"Sub_{_uid()}",
+        }).json()
+        resp = client.patch(f"/subchannels/{sc['SubChannelId']}", json={
+            "Description": "Nueva descripción",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["Description"] == "Nueva descripción"

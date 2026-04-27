@@ -14,6 +14,15 @@ def test_create_channel(client):
     resp = client.post("/channels", json={"Name": "Test Channel"})
     assert resp.status_code == 201
     assert resp.json()["Name"] == "Test Channel"
+    assert resp.json()["Description"] is None
+
+
+def test_create_channel_with_description(client):
+    resp = client.post("/channels", json={"Name": "Convenience Test", "Description": "PDVs de consumo rápido"})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["Name"] == "Convenience Test"
+    assert data["Description"] == "PDVs de consumo rápido"
 
 
 def test_create_user_and_login(client):

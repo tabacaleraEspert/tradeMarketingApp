@@ -39,9 +39,43 @@ export function formatJsonValue(json: string): string | null {
         .join(", ");
     }
     if (typeof parsed === "object" && parsed !== null) {
-      // Render object as "key: value" pairs
+      // Check if it's a coverage-type object: { key: { covered, price, stockout } }
+      const entries = Object.entries(parsed);
+      const isCoverage = entries.length > 0 && entries.every(
+        ([, v]) => typeof v === "object" && v !== null && "covered" in (v as Record<string, unknown>)
+      );
+      if (isCoverage) {
+        const working = entries.filter(([, v]) => (v as { covered: boolean }).covered);
+        if (working.length === 0) return "Ninguno trabaja";
+        return working
+          .map(([k, v]) => {
+            const item = v as { covered: boolean; price?: number | null; stockout?: boolean };
+            const name = k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            let text = name;
+            if (item.price != null) text += ` $${item.price}`;
+            if (item.stockout) text += " (quiebre)";
+            return text;
+          })
+          .join(", ");
+      }
+      // Check if it's a checkbox_price object: { key: number | null }
+      const isCheckboxPrice = entries.length > 0 && entries.every(
+        ([, v]) => v === null || typeof v === "number"
+      );
+      if (isCheckboxPrice) {
+        return entries
+          .map(([k, v]) => {
+            const name = k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            return v != null ? `${name} $${v}` : name;
+          })
+          .join(", ");
+      }
+      // Generic object: "key: value" pairs
       return Object.entries(parsed)
-        .map(([k, v]) => `${k}: ${v}`)
+        .map(([k, v]) => {
+          if (typeof v === "object" && v !== null) return `${k}: ${JSON.stringify(v)}`;
+          return `${k}: ${v}`;
+        })
         .join(" · ");
     }
     if (typeof parsed === "number") return formatAnswerNumber(parsed);

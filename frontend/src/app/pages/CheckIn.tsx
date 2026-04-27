@@ -11,6 +11,7 @@ import type { Incident, PdvNote } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
 import { QuickContactsModal } from "../components/QuickContactsModal";
 import { getCurrentUser } from "../lib/auth";
+import { formatTime24, formatDateCompact } from "../lib/dateUtils";
 import { toast } from "sonner";
 
 export function CheckIn() {
@@ -37,10 +38,7 @@ export function CheckIn() {
   const [contactsModalOpen, setContactsModalOpen] = useState(false);
 
   const currentUser = getCurrentUser();
-  const currentTime = new Date().toLocaleTimeString("es-AR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const currentTime = formatTime24(new Date());
 
   useEffect(() => {
     if (!id) return;
@@ -338,7 +336,7 @@ export function CheckIn() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-foreground whitespace-pre-wrap break-words">{n.Content}</p>
                       <p className="text-[10px] text-muted-foreground mt-1">
-                        {n.CreatedByName ?? "Usuario"} · {new Date(n.CreatedAt).toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
+                        {n.CreatedByName ?? "Usuario"} · {formatDateCompact(n.CreatedAt)}
                       </p>
                     </div>
                     <button

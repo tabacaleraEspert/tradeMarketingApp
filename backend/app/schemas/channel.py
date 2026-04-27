@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 class ChannelBase(BaseModel):
     Name: str
+    Description: str | None = None
     IsActive: bool = True
 
 
@@ -13,6 +14,7 @@ class ChannelCreate(ChannelBase):
 
 class ChannelUpdate(BaseModel):
     Name: str | None = None
+    Description: str | None = None
     IsActive: bool | None = None
 
 
@@ -27,6 +29,7 @@ class Channel(ChannelBase):
 class SubChannelBase(BaseModel):
     ChannelId: int
     Name: str
+    Description: str | None = None
     IsActive: bool = True
 
 
@@ -37,6 +40,7 @@ class SubChannelCreate(SubChannelBase):
 class SubChannelUpdate(BaseModel):
     ChannelId: int | None = None
     Name: str | None = None
+    Description: str | None = None
     IsActive: bool | None = None
 
 

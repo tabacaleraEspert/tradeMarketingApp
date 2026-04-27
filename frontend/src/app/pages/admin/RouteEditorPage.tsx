@@ -399,6 +399,92 @@ export function RouteEditorPage() {
     }
   };
 
+  /** Auto-generate route days from frequency config */
+  const handleGenerateDays = async (weeksAhead: number = 8) => {
+    if (!id || !routeDraft?.FrequencyType || !route?.AssignedUserId) return;
+    setSaving(true);
+    try {
+      const ft = routeDraft.FrequencyType;
+      const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
+      const dates: string[] = [];
+      const today = new Date();
+      const startDate = config.startDate ? new Date(config.startDate + "T12:00:00") : today;
+      const endDate = new Date(today);
+      endDate.setDate(endDate.getDate() + weeksAhead * 7);
+
+      // Existing dates to avoid duplicates
+      const existingDates = new Set(routeDays.map((d) => d.WorkDate.split("T")[0]));
+
+      if (ft === "daily") {
+        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
+        while (d <= endDate) {
+          const dow = d.getDay();
+          if (dow >= 1 && dow <= 5) { // Mon-Fri
+            const ds = d.toISOString().split("T")[0];
+            if (!existingDates.has(ds)) dates.push(ds);
+          }
+          d.setDate(d.getDate() + 1);
+        }
+      } else if (ft === "weekly" && config.day != null) {
+        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
+        // Find next occurrence of config.day
+        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+        while (d <= endDate) {
+          const ds = d.toISOString().split("T")[0];
+          if (!existingDates.has(ds)) dates.push(ds);
+          d.setDate(d.getDate() + 7);
+        }
+      } else if (ft === "biweekly" && config.startDate) {
+        const d = new Date(startDate);
+        while (d <= endDate) {
+          if (d >= today) {
+            const ds = d.toISOString().split("T")[0];
+            if (!existingDates.has(ds)) dates.push(ds);
+          }
+          d.setDate(d.getDate() + 14);
+        }
+      } else if (ft === "every_x_days" && config.interval) {
+        const d = new Date(config.startDate ? startDate : today);
+        while (d <= endDate) {
+          if (d >= today) {
+            const ds = d.toISOString().split("T")[0];
+            if (!existingDates.has(ds)) dates.push(ds);
+          }
+          d.setDate(d.getDate() + config.interval);
+        }
+      } else if (ft === "specific_days" && config.days?.length > 0) {
+        const d = new Date(today);
+        while (d <= endDate) {
+          if (config.days.includes(d.getDay())) {
+            const ds = d.toISOString().split("T")[0];
+            if (!existingDates.has(ds)) dates.push(ds);
+          }
+          d.setDate(d.getDate() + 1);
+        }
+      }
+
+      if (dates.length === 0) {
+        setSaving(false);
+        return;
+      }
+
+      // Create each day
+      let created = 0;
+      for (const dt of dates) {
+        try {
+          const day = await routesApi.createDay(id, { WorkDate: dt });
+          setRouteDays((prev) => [...prev, day].sort((a, b) => a.WorkDate.localeCompare(b.WorkDate)));
+          created++;
+        } catch { /* skip duplicates */ }
+      }
+      toast.success(`${created} días generados`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al generar días");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleRemoveDay = async (routeDayId: number) => {
     setSaving(true);
     try {
@@ -516,6 +602,10 @@ export function RouteEditorPage() {
     if (!id || !routeDraft) return;
     setSaving(true);
     try {
+      const frequencyChanged =
+        (routeDraft.FrequencyType ?? "") !== (route?.FrequencyType ?? "") ||
+        (routeDraft.FrequencyConfig ?? "") !== (route?.FrequencyConfig ?? "");
+
       const updated = await routesApi.update(id, {
         Name: routeDraft.Name,
         ZoneId: routeDraft.ZoneId ?? undefined,
@@ -536,6 +626,11 @@ export function RouteEditorPage() {
         AssignedUserId: updated.AssignedUserId ?? null,
       });
       toast.success("Ruta guardada");
+
+      // Auto-generate days when frequency changes, TM is assigned, and there are PDVs
+      if (frequencyChanged && routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0) {
+        await handleGenerateDays(8);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
     } finally {
@@ -543,57 +638,28 @@ export function RouteEditorPage() {
     }
   };
 
-  // --- Create mode: no id ---
-  if (!id && !route) {
-    const currentUser = getCurrentUser();
-    const handleCreateRoute = async (name: string) => {
-      if (!name.trim()) return;
+  // --- Create mode: no id → auto-create and redirect to editor ---
+  useEffect(() => {
+    if (!id && !route && !saving) {
+      const currentUser = getCurrentUser();
+      const today = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+      const defaultName = `Ruta ${today}`;
       setSaving(true);
-      try {
-        const newRoute = await routesApi.create({
-          Name: name.trim(),
-          AssignedUserId: isMyRoute ? Number(currentUser.id) : undefined,
-        });
-        toast.success("Ruta creada");
+      routesApi.create({
+        Name: defaultName,
+        AssignedUserId: isMyRoute ? Number(currentUser.id) : undefined,
+      }).then((newRoute) => {
         const editPath = isMyRoute
           ? `/my-routes/${newRoute.RouteId}/edit`
           : `/admin/routes/${newRoute.RouteId}/edit`;
         navigate(editPath, { replace: true });
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Error al crear");
-      } finally {
-        setSaving(false);
-      }
-    };
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate(backPath)} className="p-2 hover:bg-muted rounded-lg transition-colors">
-            <ArrowLeft size={24} />
-          </button>
-          <h1 className="text-2xl font-bold text-foreground">Nueva Ruta Foco</h1>
-        </div>
-        <Card>
-          <CardContent className="p-6">
-            <p className="text-sm text-muted-foreground mb-4">Ingresá un nombre para la ruta y después vas a poder agregar PDVs, frecuencia y más.</p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const fd = new FormData(e.currentTarget);
-                handleCreateRoute(fd.get("name") as string);
-              }}
-              className="flex gap-3"
-            >
-              <Input name="name" placeholder="Nombre de la ruta" autoFocus className="flex-1" />
-              <Button type="submit" disabled={saving} className="bg-[#A48242] hover:bg-[#8a6d35] text-white">
-                {saving ? "Creando..." : "Crear"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+      }).catch((e) => {
+        toast.error(e instanceof Error ? e.message : "Error al crear ruta");
+        navigate(backPath);
+      }).finally(() => setSaving(false));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, route]);
 
   if (loading || !route) {
     return (
@@ -954,10 +1020,26 @@ export function RouteEditorPage() {
                 </div>
               )}
 
-              {/* Biweekly / Monthly: start date */}
-              {(routeDraft?.FrequencyType === "biweekly" || routeDraft?.FrequencyType === "monthly") && (
+              {/* Every X days: interval */}
+              {routeDraft?.FrequencyType === "every_x_days" && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-muted-foreground">Cada</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={90}
+                    value={frequencyConfigParsed.interval ?? 15}
+                    onChange={(e) => updateFrequencyConfig({ interval: Number(e.target.value) || 15 })}
+                    className="w-20"
+                  />
+                  <span className="text-sm text-muted-foreground">días</span>
+                </div>
+              )}
+
+              {/* Start date — always visible when frequency is set */}
+              {routeDraft?.FrequencyType && (
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Fecha de inicio del ciclo</label>
+                  <label className="block text-xs text-muted-foreground mb-1">Fecha de inicio</label>
                   <Input
                     type="date"
                     value={frequencyStartDate}
@@ -967,52 +1049,23 @@ export function RouteEditorPage() {
                 </div>
               )}
 
-              {/* Every X days */}
-              {routeDraft?.FrequencyType === "every_x_days" && (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">Cada</span>
-                    <Input
-                      type="number"
-                      min={1}
-                      max={90}
-                      value={frequencyConfigParsed.interval ?? 15}
-                      onChange={(e) => updateFrequencyConfig({ interval: Number(e.target.value) || 15 })}
-                      className="w-20"
-                    />
-                    <span className="text-sm text-muted-foreground">días</span>
-                  </div>
-                  <div>
-                    <label className="block text-xs text-muted-foreground mb-1">A partir de</label>
-                    <Input
-                      type="date"
-                      value={frequencyStartDate}
-                      onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
-                      className="max-w-xs"
-                    />
-                  </div>
-                </div>
-              )}
-
               {/* Summary */}
-              {routeDraft?.FrequencyType && (
-                <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">
-                  {routeDraft.FrequencyType === "daily" && "Se ejecuta todos los días hábiles"}
-                  {routeDraft.FrequencyType === "weekly" && (
-                    frequencyConfigParsed.day != null
-                      ? `Todos los ${["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"][frequencyConfigParsed.day]}`
-                      : "Seleccioná el día de la semana"
-                  )}
-                  {routeDraft.FrequencyType === "biweekly" && `Cada 2 semanas${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : " · Elegí fecha de inicio"}`}
-                  {routeDraft.FrequencyType === "monthly" && `Una vez al mes${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : " · Elegí fecha de inicio"}`}
-                  {routeDraft.FrequencyType === "specific_days" && (
-                    frequencyDays.length > 0
-                      ? `Se ejecuta los ${frequencyDays.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d]).join(", ")}`
-                      : "Seleccioná al menos un día"
-                  )}
-                  {routeDraft.FrequencyType === "every_x_days" && `Cada ${frequencyConfigParsed.interval || 15} días${frequencyStartDate ? ` · Desde ${frequencyStartDate}` : ""}`}
-                </p>
-              )}
+              {routeDraft?.FrequencyType && (() => {
+                const desde = frequencyStartDate ? ` · Desde ${frequencyStartDate}` : " · Elegí fecha de inicio";
+                const freq = routeDraft.FrequencyType;
+                let text = "";
+                if (freq === "daily") text = `Todos los días hábiles${desde}`;
+                else if (freq === "weekly") text = frequencyConfigParsed.day != null
+                  ? `Todos los ${["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"][frequencyConfigParsed.day]}${desde}`
+                  : "Seleccioná el día de la semana";
+                else if (freq === "biweekly") text = `Cada 2 semanas${desde}`;
+                else if (freq === "monthly") text = `Una vez al mes${desde}`;
+                else if (freq === "specific_days") text = frequencyDays.length > 0
+                  ? `Los ${frequencyDays.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d]).join(", ")}${desde}`
+                  : "Seleccioná al menos un día";
+                else if (freq === "every_x_days") text = `Cada ${frequencyConfigParsed.interval || 15} días${desde}`;
+                return <p className="text-xs text-muted-foreground bg-muted/50 p-2 rounded">{text}</p>;
+              })()}
             </div>
           </CardContent>
         </Card>
@@ -1353,7 +1406,7 @@ export function RouteEditorPage() {
         </CardContent>
       </Card>
 
-      {/* Días de ruta — solo admin */}
+      {/* Días de ruta — auto-generados desde frecuencia */}
       {!isMyRoute && (<Card>
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
@@ -1361,72 +1414,50 @@ export function RouteEditorPage() {
               <Calendar size={20} />
               Días programados ({routeDays.length})
             </h3>
-            <div className="relative">
+            <div className="flex gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setShowAddDay(!showAddDay)}
-                disabled={routePdvs.length === 0 || !route?.AssignedUserId}
-                title={!route?.AssignedUserId ? "Asigná un Trade Marketer primero" : ""}
+                onClick={() => handleGenerateDays(8)}
+                disabled={saving || !routeDraft?.FrequencyType || !route?.AssignedUserId || routePdvs.length === 0}
+                title={
+                  !route?.AssignedUserId ? "Asigná un Trade Marketer primero"
+                  : !routeDraft?.FrequencyType ? "Configurá la frecuencia primero"
+                  : "Generar próximas 8 semanas"
+                }
+                className="gap-1"
               >
-                <Plus size={18} className="mr-1" />
-                Agregar día
+                <Zap size={14} />
+                Generar días
               </Button>
-              {showAddDay && (
-                <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowAddDay(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-2 w-80 bg-card rounded-lg shadow-xl border border-border p-4 z-50 space-y-3">
-                    <p className="text-sm font-medium text-muted-foreground">
-                      Programar día de ruta
-                    </p>
-                    {route?.AssignedUserName && (
-                      <div className="flex items-center gap-2 p-2 bg-muted rounded-lg">
-                        <User size={14} className="text-muted-foreground" />
-                        <span className="text-sm font-medium">{route.AssignedUserName}</span>
-                      </div>
-                    )}
-                    <div>
-                      <label className="block text-xs text-muted-foreground mb-1">Fecha</label>
-                      <input
-                        type="date"
-                        className="w-full px-3 py-2 border border-border rounded-lg"
-                        value={newDayDate}
-                        onChange={(e) => {
-                          const d = e.target.value;
-                          setNewDayDate(d);
-                          setNewDayHoliday(null);
-                          if (d) {
-                            holidaysApi.check(d).then((r) => {
-                              setNewDayHoliday(r.isHoliday ? r.name ?? "Feriado" : null);
-                            }).catch(() => {});
-                          }
-                        }}
-                      />
-                    </div>
-                    {newDayHoliday && (
-                      <div className="flex items-center gap-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-                        <Calendar size={13} className="text-amber-600 shrink-0" />
-                        <span><strong>Feriado:</strong> {newDayHoliday}. ¿Seguro querés programar este día?</span>
-                      </div>
-                    )}
-                    <p className="text-xs text-muted-foreground">
-                      Se copiarán los {routePdvs.length} PDV de la ruta al día.
-                    </p>
-                    <Button
-                      size="sm"
-                      onClick={handleAddDay}
-                      disabled={saving}
-                    >
-                      Agregar
-                    </Button>
-                  </div>
-                </>
-              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowAddDay(!showAddDay)}
+                disabled={!route?.AssignedUserId || routePdvs.length === 0}
+                title="Agregar un día manualmente"
+              >
+                <Plus size={16} />
+              </Button>
             </div>
           </div>
+
+          {showAddDay && (
+            <div className="mb-4 p-3 bg-muted rounded-lg flex items-end gap-3">
+              <div className="flex-1">
+                <label className="block text-xs text-muted-foreground mb-1">Fecha manual</label>
+                <input
+                  type="date"
+                  className="w-full px-3 py-2 border border-border rounded-lg bg-background text-sm"
+                  value={newDayDate}
+                  onChange={(e) => setNewDayDate(e.target.value)}
+                />
+              </div>
+              <Button size="sm" onClick={handleAddDay} disabled={saving}>
+                Agregar
+              </Button>
+            </div>
+          )}
 
           {!route?.AssignedUserId && (
             <div className="border-2 border-dashed border-amber-300 bg-amber-50 rounded-lg p-4 mb-4 text-center">
@@ -1436,21 +1467,28 @@ export function RouteEditorPage() {
             </div>
           )}
 
-          {routeDays.length === 0 ? (
+          {!routeDraft?.FrequencyType && route?.AssignedUserId && (
+            <div className="border-2 border-dashed border-blue-200 bg-blue-50 rounded-lg p-4 mb-4 text-center">
+              <p className="text-sm text-blue-700 font-medium">
+                Configurá la frecuencia arriba y después usá "Generar días" para programar automáticamente
+              </p>
+            </div>
+          )}
+
+          {routeDays.length === 0 && routeDraft?.FrequencyType ? (
             <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
               <Calendar size={40} className="mx-auto text-muted-foreground mb-2" />
-              <p className="text-muted-foreground font-medium">Sin días asignados</p>
+              <p className="text-muted-foreground font-medium">Sin días generados</p>
               <p className="text-sm text-muted-foreground mt-1">
-                Asigna usuarios y fechas para que realicen la ruta
+                Hacé click en "Generar días" para crear las próximas 8 semanas automáticamente
               </p>
               <Button
-                variant="outline"
-                className="mt-4"
-                onClick={() => setShowAddDay(true)}
-                disabled={routePdvs.length === 0}
+                className="mt-4 bg-[#A48242] hover:bg-[#8B6E38] text-white"
+                onClick={() => handleGenerateDays(8)}
+                disabled={saving || !route?.AssignedUserId || routePdvs.length === 0}
               >
-                <Plus size={18} className="mr-2" />
-                Agregar día
+                <Zap size={16} className="mr-2" />
+                Generar próximas 8 semanas
               </Button>
             </div>
           ) : (

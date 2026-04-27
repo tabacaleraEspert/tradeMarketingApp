@@ -36,7 +36,7 @@ def get_channel(channel_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=Channel, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
 def create_channel(data: ChannelCreate, db: Session = Depends(get_db)):
-    ch = ChannelModel(Name=data.Name, IsActive=data.IsActive)
+    ch = ChannelModel(Name=data.Name, Description=data.Description, IsActive=data.IsActive)
     db.add(ch)
     db.commit()
     db.refresh(ch)
@@ -50,6 +50,8 @@ def update_channel(channel_id: int, data: ChannelUpdate, db: Session = Depends(g
         raise HTTPException(status_code=404, detail="Canal no encontrado")
     if data.Name is not None:
         ch.Name = data.Name
+    if data.Description is not None:
+        ch.Description = data.Description
     if data.IsActive is not None:
         ch.IsActive = data.IsActive
     db.commit()

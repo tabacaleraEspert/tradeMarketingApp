@@ -7,11 +7,12 @@ import {
   ArrowLeft, Calendar, Clock, MessageSquare, FileText, MapPin,
   User, Navigation, ClipboardList, Camera, ChevronRight, X, Download,
 } from "lucide-react";
-import { pdvsApi, visitsApi, usersApi, formsApi, visitPhotosApi } from "@/lib/api";
-import type { Visit, Pdv, VisitAnswer, VisitPhotoRead } from "@/lib/api/types";
+import { pdvsApi, visitsApi, usersApi, formsApi, visitPhotosApi, visitCoverageApi, visitPOPApi, visitActionsApi, marketNewsApi, productsApi } from "@/lib/api";
+import type { Visit, Pdv, VisitAnswer, VisitPhotoRead, VisitCoverageItem, VisitPOPItem, VisitAction, MarketNews, Product } from "@/lib/api/types";
 import { exportToExcel } from "@/lib/exportExcel";
 import { Button } from "../components/ui/button";
 import { renderAnswerValue } from "../lib/answerFormatter";
+import { formatTime24, formatDateLong, todayAR } from "../lib/dateUtils";
 import { toast } from "sonner";
 
 interface VisitCheck {
@@ -49,6 +50,11 @@ export function History() {
     photos: VisitPhotoRead[];
     userName: string | null;
     questions: FormQuestion[];
+    coverage: VisitCoverageItem[];
+    popItems: VisitPOPItem[];
+    actions: VisitAction[];
+    news: MarketNews[];
+    productMap: Record<number, Product>;
   } | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
 
@@ -72,10 +78,15 @@ export function History() {
     setModalDetail(null);
     setModalLoading(true);
     try {
-      const [checks, answers, photos] = await Promise.all([
-        visitsApi.listChecks(visit.VisitId).catch(() => []),
-        visitsApi.listAnswers(visit.VisitId).catch(() => []),
-        visitPhotosApi.list(visit.VisitId).catch(() => [] as VisitPhotoRead[]),
+      const vid = visit.VisitId;
+      const [checks, answers, photos, coverage, popItems, actions, news] = await Promise.all([
+        visitsApi.listChecks(vid).catch(() => []),
+        visitsApi.listAnswers(vid).catch(() => []),
+        visitPhotosApi.list(vid).catch(() => [] as VisitPhotoRead[]),
+        visitCoverageApi.list(vid).catch(() => [] as VisitCoverageItem[]),
+        visitPOPApi.list(vid).catch(() => [] as VisitPOPItem[]),
+        visitActionsApi.list(vid).catch(() => [] as VisitAction[]),
+        marketNewsApi.list(vid).catch(() => [] as MarketNews[]),
       ]);
       let userName: string | null = null;
       try { const u = await usersApi.get(visit.UserId); userName = u.DisplayName; } catch {}
@@ -88,7 +99,14 @@ export function History() {
           questions.push(...qs);
         }
       }
-      setModalDetail({ checks, answers, photos, userName, questions });
+
+      let productMap: Record<number, Product> = {};
+      if (coverage.length > 0) {
+        const prods = await productsApi.list({ active_only: false }).catch(() => []);
+        for (const p of prods) productMap[p.ProductId] = p;
+      }
+
+      setModalDetail({ checks, answers, photos, userName, questions, coverage, popItems, actions, news, productMap });
     } catch {} finally {
       setModalLoading(false);
     }
@@ -149,7 +167,7 @@ export function History() {
           gpsRows.push({
             "Fecha": dt.date,
             "Tipo": c.CheckType === "IN" ? "Entrada" : "Salida",
-            "Hora": c.Ts ? new Date(c.Ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "",
+            "Hora": c.Ts ? new Date(c.Ts).toLocaleTimeString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "",
             "Latitud": c.Lat ? Number(c.Lat).toFixed(6) : "",
             "Longitud": c.Lon ? Number(c.Lon).toFixed(6) : "",
             "Distancia al PDV (m)": c.DistanceToPdvM != null ? Math.round(Number(c.DistanceToPdvM)) : "",
@@ -178,7 +196,7 @@ export function History() {
         }
       }
 
-      exportToExcel(`Historico_${pdv.Name.replace(/\s+/g, "_")}_${new Date().toISOString().split("T")[0]}`, [
+      exportToExcel(`Historico_${pdv.Name.replace(/\s+/g, "_")}_${todayAR()}`, [
         { name: "Visitas", data: visitRows },
         ...(gpsRows.length > 0 ? [{ name: "GPS", data: gpsRows }] : []),
         ...(answerRows.length > 0 ? [{ name: "Relevamiento", data: answerRows }] : []),
@@ -195,9 +213,10 @@ export function History() {
 
   const formatDt = (iso: string) => {
     const d = new Date(iso);
+    const weekday = d.toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", weekday: "short" });
     return {
-      date: d.toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "long", year: "numeric" }),
-      time: d.toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      date: `${weekday} ${formatDateLong(d)}`,
+      time: formatTime24(d),
     };
   };
 
@@ -383,7 +402,7 @@ export function History() {
                               {c.CheckType === "IN" ? "Entrada" : "Salida"}
                             </Badge>
                             <div className="flex-1 min-w-0 text-xs text-muted-foreground">
-                              {c.Ts && <span>{new Date(c.Ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
+                              {c.Ts && <span>{new Date(c.Ts).toLocaleTimeString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>}
                               {c.Lat && <span className="ml-2">{Number(c.Lat).toFixed(5)}, {Number(c.Lon).toFixed(5)}</span>}
                             </div>
                             {c.DistanceToPdvM != null && (
@@ -398,58 +417,172 @@ export function History() {
                     </div>
                   )}
 
-                  {/* Form Answers */}
+                  {/* Formularios */}
                   {modalDetail.answers.length > 0 && (
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
                         <ClipboardList size={13} />
-                        Relevamiento ({modalDetail.answers.length} respuestas)
+                        Formularios ({modalDetail.answers.length})
                       </h4>
-                      <div className="border border-border rounded-lg overflow-hidden">
-                        {modalDetail.answers.map((a, i) => {
-                          const q = modalDetail.questions.find((q) => q.QuestionId === a.QuestionId);
-                          const val = renderAnswerValue(a);
-                          return (
-                            <div key={a.AnswerId} className={`flex items-center justify-between px-3 py-2.5 text-sm ${i % 2 === 0 ? "bg-white" : "bg-muted/30"}`}>
-                              <span className="text-muted-foreground text-xs flex-1 mr-3">{q?.Label || `Pregunta #${a.QuestionId}`}</span>
-                              <span className={`font-semibold text-sm shrink-0 ${
-                                val === "Sí" || val === "OK" || val === "Completo" || val === "Bien" ? "text-green-700" :
-                                val === "No" || val === "Faltante" || val === "Sin stock" ? "text-red-600" :
-                                "text-foreground"
-                              }`}>{val}</span>
+                      {modalDetail.answers.map((a) => {
+                        const q = modalDetail.questions.find((qq) => qq.QuestionId === a.QuestionId);
+                        const rawJson = a.ValueJson || a.ValueText;
+                        let parsed: Record<string, unknown> | null = null;
+                        try { if (rawJson && (rawJson.startsWith("{") || rawJson.startsWith("["))) parsed = JSON.parse(rawJson); } catch {}
+                        const isCoverage = parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+                          Object.values(parsed).some((v) => typeof v === "object" && v !== null && "covered" in (v as Record<string, unknown>));
+
+                        return (
+                          <div key={a.AnswerId} className="border border-border rounded-lg overflow-hidden mb-2">
+                            <div className="px-3 py-1.5 bg-muted/30 border-b border-border">
+                              <span className="text-[11px] font-semibold text-foreground">{q?.Label || `Pregunta #${a.QuestionId}`}</span>
                             </div>
-                          );
-                        })}
-                      </div>
+                            {isCoverage && parsed ? (
+                              <table className="w-full text-xs">
+                                <thead><tr className="border-b border-border text-muted-foreground">
+                                  <th className="text-left py-1 px-3 font-medium">Producto</th>
+                                  <th className="text-right py-1 px-3 font-medium w-16">Precio</th>
+                                  <th className="text-right py-1 px-3 font-medium w-20">Estado</th>
+                                </tr></thead>
+                                <tbody className="divide-y divide-border">
+                                  {Object.entries(parsed as Record<string, { covered: boolean; price?: number | null; stockout?: boolean }>)
+                                    .filter(([, v]) => (v as any).covered)
+                                    .map(([key, v]) => {
+                                      const item = v as { covered: boolean; price?: number | null; stockout?: boolean };
+                                      const name = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                                      return (
+                                        <tr key={key}>
+                                          <td className="py-1.5 px-3 text-foreground">{name}</td>
+                                          <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{item.price != null ? `$${item.price}` : "—"}</td>
+                                          <td className="py-1.5 px-3 text-right">
+                                            <Badge variant={item.stockout ? "destructive" : "secondary"} className="text-[9px] px-1 py-0">{item.stockout ? "Quiebre" : "OK"}</Badge>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                </tbody>
+                              </table>
+                            ) : (
+                              <div className="px-3 py-2"><span className="text-sm text-foreground">{renderAnswerValue(a)}</span></div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
 
-                  {/* Photos */}
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
-                      <Camera size={13} />
-                      Fotos
-                    </h4>
-                    <div className="border-2 border-dashed border-border rounded-lg p-6 text-center text-muted-foreground">
-                      <Camera size={24} className="mx-auto mb-1 opacity-30" />
-                      <p className="text-xs">Sin fotos en esta visita</p>
+                  {/* Cobertura y Precios */}
+                  {modalDetail.coverage.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <ClipboardList size={13} />
+                        Cobertura y Precios
+                      </h4>
+                      <table className="w-full text-xs border border-border rounded-lg overflow-hidden">
+                        <thead><tr className="border-b border-border text-muted-foreground bg-muted/30">
+                          <th className="text-left py-1.5 px-3 font-medium">Producto</th>
+                          <th className="text-right py-1.5 px-3 font-medium w-16">Precio</th>
+                          <th className="text-right py-1.5 px-3 font-medium w-20">Estado</th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-border">
+                          {modalDetail.coverage.filter((c) => c.Works).map((c) => {
+                            const prod = modalDetail.productMap[c.ProductId];
+                            return (
+                              <tr key={c.VisitCoverageId}>
+                                <td className="py-1.5 px-3 text-foreground">
+                                  {prod?.Name || `#${c.ProductId}`}
+                                  {prod?.IsOwn && <span className="ml-1 text-[8px] px-1 py-0 rounded bg-[#A48242]/10 text-[#A48242] font-semibold">ESPERT</span>}
+                                </td>
+                                <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{c.Price != null ? `$${Number(c.Price).toLocaleString()}` : "—"}</td>
+                                <td className="py-1.5 px-3 text-right">
+                                  <Badge variant={c.Availability === "quiebre" ? "destructive" : "secondary"} className="text-[9px] px-1 py-0">{c.Availability === "quiebre" ? "Quiebre" : "Disp."}</Badge>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
                     </div>
-                  </div>
+                  )}
 
-                  {/* Observations */}
-                  {selectedVisit.CloseReason && (
+                  {/* Censo POP */}
+                  {modalDetail.popItems.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <ClipboardList size={13} />
+                        Censo POP
+                      </h4>
+                      <table className="w-full text-xs border border-border rounded-lg overflow-hidden">
+                        <thead><tr className="border-b border-border text-muted-foreground bg-muted/30">
+                          <th className="text-left py-1.5 px-3 font-medium">Material</th>
+                          <th className="text-left py-1.5 px-3 font-medium w-20">Empresa</th>
+                          <th className="text-right py-1.5 px-3 font-medium w-20">Precio</th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-border">
+                          {modalDetail.popItems.filter((p) => p.Present).map((p) => (
+                            <tr key={p.VisitPOPItemId}>
+                              <td className="py-1.5 px-3 text-foreground">
+                                {p.MaterialName}
+                                <Badge variant="outline" className="text-[8px] ml-1 py-0">{p.MaterialType === "primario" ? "1ro" : "2do"}</Badge>
+                              </td>
+                              <td className="py-1.5 px-3 text-muted-foreground">{p.Company || "—"}</td>
+                              <td className="py-1.5 px-3 text-right">
+                                {p.HasPrice !== null && <Badge variant={p.HasPrice ? "secondary" : "outline"} className="text-[9px] px-1 py-0">{p.HasPrice ? "Con precio" : "Sin precio"}</Badge>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Acciones */}
+                  {modalDetail.actions.length > 0 && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <ClipboardList size={13} />
+                        Acciones ({modalDetail.actions.length})
+                      </h4>
+                      <table className="w-full text-xs border border-border rounded-lg overflow-hidden">
+                        <thead><tr className="border-b border-border text-muted-foreground bg-muted/30">
+                          <th className="text-left py-1.5 px-3 font-medium">Acción</th>
+                          <th className="text-left py-1.5 px-3 font-medium w-16">Tipo</th>
+                          <th className="text-right py-1.5 px-3 font-medium w-20">Estado</th>
+                        </tr></thead>
+                        <tbody className="divide-y divide-border">
+                          {modalDetail.actions.map((a) => (
+                            <tr key={a.VisitActionId}>
+                              <td className="py-1.5 px-3 text-foreground">{a.Description || a.ActionType}</td>
+                              <td className="py-1.5 px-3"><Badge variant="outline" className="text-[8px]">{a.ActionType}</Badge></td>
+                              <td className="py-1.5 px-3 text-right">
+                                <Badge variant={a.Status === "DONE" ? "secondary" : "destructive"} className="text-[9px] px-1 py-0">{a.Status === "DONE" ? "Hecho" : "Pendiente"}</Badge>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Novedades */}
+                  {modalDetail.news.length > 0 && (
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
                         <MessageSquare size={13} />
-                        Observaciones
+                        Novedades ({modalDetail.news.length})
                       </h4>
-                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                        <p className="text-sm text-amber-900">{selectedVisit.CloseReason}</p>
+                      <div className="space-y-1.5">
+                        {modalDetail.news.map((n) => (
+                          <div key={n.MarketNewsId} className="p-2 bg-muted/30 rounded-lg">
+                            {n.Tags && <div className="flex gap-1 mb-1">{n.Tags.split(",").map((t) => <Badge key={t} variant="outline" className="text-[8px] py-0">{t.trim()}</Badge>)}</div>}
+                            <p className="text-xs text-foreground">{n.Notes}</p>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
 
-                  {/* Fotos de la visita */}
+                  {/* Fotos */}
                   {modalDetail.photos.length > 0 && (
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
@@ -459,13 +592,9 @@ export function History() {
                       <div className="grid grid-cols-3 gap-2">
                         {modalDetail.photos.map((p) => (
                           <div key={p.FileId} className="relative">
-                            <img
-                              src={p.url}
-                              alt={p.PhotoType}
-                              className="w-full h-20 object-cover rounded-lg border border-border"
-                            />
+                            <img src={p.url} alt={p.PhotoType} className="w-full h-20 object-cover rounded-lg border border-border" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
                             <div className="absolute bottom-0.5 left-0.5">
-                              <Badge variant="secondary" className="text-[10px] px-1 py-0">{p.PhotoType}</Badge>
+                              <Badge variant="secondary" className="text-[8px] px-1 py-0">{p.PhotoType}</Badge>
                             </div>
                           </div>
                         ))}
@@ -473,11 +602,16 @@ export function History() {
                     </div>
                   )}
 
-                  {/* Empty state */}
-                  {modalDetail.checks.length === 0 && modalDetail.answers.length === 0 && modalDetail.photos.length === 0 && !selectedVisit.CloseReason && (
-                    <div className="text-center py-4 text-muted-foreground">
-                      <FileText size={32} className="mx-auto mb-2 opacity-30" />
-                      <p className="text-sm">Sin datos adicionales registrados</p>
+                  {/* Observaciones */}
+                  {selectedVisit.CloseReason && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                        <MessageSquare size={13} />
+                        Nota para próxima visita
+                      </h4>
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                        <p className="text-sm text-amber-900">{selectedVisit.CloseReason}</p>
+                      </div>
                     </div>
                   )}
                 </>

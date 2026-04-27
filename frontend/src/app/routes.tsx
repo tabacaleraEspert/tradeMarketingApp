@@ -31,6 +31,8 @@ import { PlantDashboard } from "./pages/plant/PlantDashboard";
 import { MyRoutesPage } from "./pages/MyRoutesPage";
 import { MyRouteEditorPage } from "./pages/MyRouteEditorPage";
 import { RouteGeneratorPage } from "./pages/RouteGeneratorPage";
+import { CoverageFormPage } from "./pages/CoverageFormPage";
+import { POPCensusPage } from "./pages/POPCensusPage";
 import { VisitActionsPage } from "./pages/VisitActionsPage";
 import { VisitSummaryPage } from "./pages/VisitSummaryPage";
 import { EndOfDayPage } from "./pages/EndOfDayPage";
@@ -65,6 +67,8 @@ export const router = createBrowserRouter([
       { path: "pos/:id", Component: PointOfSaleDetail },
       { path: "pos/:id/checkin", Component: CheckIn },
       { path: "pos/:id/survey", Component: SurveyForm },
+      { path: "pos/:id/coverage", Component: CoverageFormPage },
+      { path: "pos/:id/pop", Component: POPCensusPage },
       { path: "pos/:id/actions", Component: VisitActionsPage },
       { path: "pos/:id/photos", Component: PhotoCapture },
       { path: "pos/:id/summary", Component: VisitSummaryPage },

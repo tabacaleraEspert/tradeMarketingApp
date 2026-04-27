@@ -5,11 +5,12 @@ from ..database import Base
 
 
 class Channel(Base):
-    """Canal de venta (ej: Kiosco, Supermercado). Gestionado por admin."""
+    """Canal de venta (ej: Convenience, Grocery). Gestionado por admin."""
     __tablename__ = "Channel"
 
     ChannelId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     Name = Column(String(80), nullable=False)
+    Description = Column(String(300), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -17,12 +18,13 @@ class Channel(Base):
 
 
 class SubChannel(Base):
-    """Subcanal dependiente de un canal (ej: Tradicional, Cadena). Gestionado por admin."""
+    """Subcanal dependiente de un canal (ej: Quiosco, Tabaquería). Gestionado por admin."""
     __tablename__ = "SubChannel"
 
     SubChannelId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=False)
     Name = Column(String(80), nullable=False)
+    Description = Column(String(300), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

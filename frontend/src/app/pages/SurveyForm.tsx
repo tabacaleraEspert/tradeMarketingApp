@@ -10,7 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { Progress } from "../components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, Save, Send, Camera, CheckCircle2, CircleDashed, Clock, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, Save, Send, Camera, CheckCircle2, CircleDashed, Clock, Image as ImageIcon } from "lucide-react";
+import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import {
   pdvsApi,
   routesApi,
@@ -335,7 +336,7 @@ export function SurveyForm() {
         await flushFormTimes(vid);
         toast.success("Relevamiento completado");
       }
-      navigate(`/pos/${id}/actions`, {
+      navigate(`/pos/${id}/coverage`, {
         state: { routeDayId, visitId: vid },
       });
     } catch { toast.error("Error al guardar"); }
@@ -373,9 +374,10 @@ export function SurveyForm() {
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-foreground">Relevamiento</h1>
+            <h1 className="text-xl font-bold text-foreground">Formularios</h1>
             <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
+          <VisitStepIndicator currentStep={1} />
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
@@ -460,27 +462,13 @@ export function SurveyForm() {
         {/* Action buttons - sticky to bottom */}
         <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4 space-y-2">
           <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white" onClick={handleSubmit}>
-            <Send className="mr-2" size={16} />
-            Finalizar y Continuar
+            <ArrowRight className="mr-2" size={16} />
+            Continuar a Cobertura
           </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" className="flex-1 h-9 text-xs border-muted-foreground/30 text-muted-foreground" onClick={handleSaveDraft}>
-              <Save className="mr-1.5" size={14} />
-              Borrador
-            </Button>
-            <Button
-              variant="outline"
-              className="flex-1 h-9 text-xs"
-              onClick={() =>
-                navigate(`/pos/${id}/photos`, {
-                  state: { routeDayId, visitId: visitId ?? visitIdFromState },
-                })
-              }
-            >
-              <Camera className="mr-1.5" size={14} />
-              Fotos
-            </Button>
-          </div>
+          <Button variant="outline" className="w-full h-9 text-xs border-muted-foreground/30 text-muted-foreground" onClick={handleSaveDraft}>
+            <Save className="mr-1.5" size={14} />
+            Guardar borrador
+          </Button>
         </div>
       </div>
     </div>

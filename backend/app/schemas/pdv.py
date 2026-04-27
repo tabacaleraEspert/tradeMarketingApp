@@ -36,6 +36,17 @@ def _validate_hhmm(v: str | None) -> str | None:
     return f"{h:02d}:{m:02d}"
 
 
+def volume_to_category(volume: int | None) -> str | None:
+    """Derive volume category from monthly cigarette pack count."""
+    if volume is None:
+        return None
+    if volume <= 800:
+        return "Chico"
+    if volume <= 1500:
+        return "Mediano"
+    return "Grande"
+
+
 class PdvBase(BaseModel):
     Code: str | None = Field(None, max_length=50)
     Name: str = Field(..., max_length=160)
@@ -55,6 +66,8 @@ class PdvBase(BaseModel):
     ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None  # 0=Dom .. 6=Sáb
+    MonthlyVolume: int | None = None  # Atados de cigarrillos / mes
+    Category: str | None = None  # Chico / Mediano / Grande (derivado de MonthlyVolume)
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     AssignedUserId: int | None = None
     IsActive: bool = True
@@ -79,6 +92,7 @@ class PdvCreate(BaseModel):
     ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
+    MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     IsActive: bool = True
@@ -132,6 +146,7 @@ class PdvUpdate(BaseModel):
     ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
+    MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     IsActive: bool | None = None

@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { pdvsApi, visitActionsApi, marketNewsApi } from "@/lib/api";
 import type { VisitAction, MarketNews } from "@/lib/api";
+import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
 
@@ -166,7 +167,7 @@ export function VisitActionsPage() {
   };
 
   const handleContinue = () => {
-    navigate(`/pos/${id}/photos`, {
+    navigate(`/pos/${id}/summary`, {
       state: { routeDayId, visitId },
     });
   };
@@ -187,16 +188,17 @@ export function VisitActionsPage() {
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/pos/${id}/survey`, { state: { routeDayId, visitId } })}
+            onClick={() => navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } })}
             className="p-2 hover:bg-muted rounded-lg"
           >
             <ArrowLeft size={24} />
           </button>
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-foreground">Acciones de Ejecución</h1>
+            <h1 className="text-xl font-bold text-foreground">Acciones</h1>
             <p className="text-sm text-muted-foreground">{pdv?.Name}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <VisitStepIndicator currentStep={4} />
+          <div className="flex items-center gap-2 ml-2">
             {actions.filter((a) => a.IsMandatory).length > 0 && (
               <Badge className={
                 actions.filter((a) => a.IsMandatory && a.Status !== "DONE").length === 0
@@ -562,7 +564,7 @@ export function VisitActionsPage() {
       <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleContinue}>
           <Camera className="mr-2" size={16} />
-          Continuar a Fotos
+          Continuar a Resumen
         </Button>
       </div>
     </div>

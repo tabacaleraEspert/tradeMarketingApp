@@ -46,8 +46,7 @@ class Settings(BaseSettings):
     azure_storage_container: str = "visit-photos"
     local_upload_dir: str = "./uploads"
     # URL pública base para servir archivos locales (sólo modo fallback).
-    # En dev: http://localhost:8001
-    public_base_url: str = "http://localhost:8001"
+    public_base_url: str = "http://localhost:8000"
     # TTL en segundos para URLs firmadas de Azure (no aplica al fallback local).
     blob_sas_ttl_seconds: int = 60 * 60 * 6  # 6 horas
 

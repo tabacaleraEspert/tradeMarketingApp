@@ -82,8 +82,10 @@ export function routeDayPdvToPointOfSaleUI(
   rdp: RouteDayPdvWithDetails
 ): PointOfSaleUI {
   const p = rdp.pdv;
-  const status =
-    execStatusToUI[rdp.ExecutionStatus?.toUpperCase()] || "pending";
+  // PDV inactivo (cerrado) cuenta como "completed" para cumplimiento
+  const status = !p.IsActive
+    ? "completed" as const
+    : (execStatusToUI[rdp.ExecutionStatus?.toUpperCase()] || "pending");
   const priority = priorityToUI[rdp.Priority] || "medium";
   const timeFrom = rdp.PlannedWindowFrom;
   const estimatedTime = timeFrom

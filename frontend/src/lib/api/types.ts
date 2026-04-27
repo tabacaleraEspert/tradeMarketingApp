@@ -77,6 +77,8 @@ export interface Pdv {
   VisitDay: number | null;           // 0=Dom .. 6=Sáb
   Contacts: PdvContact[];
   Distributors: PdvDistributorInfo[];
+  MonthlyVolume: number | null;      // Atados de cigarrillos / mes
+  Category: string | null;            // Chico / Mediano / Grande
   DefaultMaterialExternalId: string | null;
   AssignedUserId: number | null;
   IsActive: boolean;
@@ -86,9 +88,92 @@ export interface Pdv {
   UpdatedAt: string;
 }
 
+// --- Product catalog ---
+export interface Product {
+  ProductId: number;
+  Name: string;
+  Category: string;
+  Manufacturer: string | null;
+  IsOwn: boolean;
+  IsActive: boolean;
+  SortOrder: number;
+  CreatedAt: string;
+}
+
+// --- PDV Product Categories (step 9) ---
+export interface PdvProductCategory {
+  PdvProductCategoryId: number;
+  PdvId: number;
+  Category: string;
+  Status: string; // trabaja, no_trabaja, trabajaba, dejo_de_trabajar
+  UpdatedAt: string;
+}
+
+// --- Visit Coverage (step 10) ---
+export interface VisitCoverageItem {
+  VisitCoverageId: number;
+  VisitId: number;
+  ProductId: number;
+  Works: boolean;
+  Price: number | null;
+  Availability: string | null; // disponible / quiebre
+  CreatedAt: string;
+}
+
+export interface CoverageDiff {
+  ProductId: number;
+  ProductName: string;
+  Category: string;
+  Manufacturer: string | null;
+  Works: boolean;
+  Price: number | null;
+  Availability: string | null;
+  PrevWorks: boolean | null;
+  PrevPrice: number | null;
+  PrevAvailability: string | null;
+}
+
+// --- Visit POP (step 11) ---
+export interface VisitPOPItem {
+  VisitPOPItemId: number;
+  VisitId: number;
+  MaterialType: string; // primario / secundario
+  MaterialName: string;
+  Company: string | null;
+  Present: boolean;
+  HasPrice: boolean | null;
+  CreatedAt: string;
+}
+
+// --- Visit Loose Survey (step 12) ---
+export interface VisitLooseSurvey {
+  VisitLooseSurveyId: number;
+  VisitId: number;
+  SellsLoose: boolean;
+  ProductsJson: string | null;
+  ExchangeJson: string | null;
+  CreatedAt: string;
+}
+
+// --- Visit Indicators (step 16) ---
+export interface StepStatus {
+  name: string;
+  label: string;
+  done: boolean;
+  mandatory: boolean;
+}
+
+export interface VisitIndicators {
+  effective: boolean;
+  completeness: number;
+  steps: StepStatus[];
+  missing_for_close: string[];
+}
+
 export interface Channel {
   ChannelId: number;
   Name: string;
+  Description: string | null;
   IsActive: boolean;
   CreatedAt: string;
 }
@@ -97,6 +182,7 @@ export interface SubChannel {
   SubChannelId: number;
   ChannelId: number;
   Name: string;
+  Description: string | null;
   IsActive: boolean;
   CreatedAt: string;
 }
@@ -228,6 +314,7 @@ export interface Notification {
   IsActive: boolean;
   CreatedAt: string;
   CreatedBy: number | null;
+  TargetUserId: number | null;
   ExpiresAt: string | null;
 }
 

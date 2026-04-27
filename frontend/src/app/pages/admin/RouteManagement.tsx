@@ -17,8 +17,10 @@ import {
   Clock,
   Repeat,
   ChevronRight,
+  CalendarDays,
 } from "lucide-react";
 import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES } from "@/lib/api";
+import { RouteCalendar } from "../../components/RouteCalendar";
 import { api } from "@/lib/api/client";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-google-maps/api";
 import { toast } from "sonner";
@@ -137,7 +139,8 @@ export function RouteManagement() {
   const [formEstimatedMinutes, setFormEstimatedMinutes] = useState<number | "">("");
   const [formIsActive, setFormIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<"list" | "map">("list");
+  const [viewMode, setViewMode] = useState<"list" | "map" | "calendar">("list");
+  const [calendarUserId, setCalendarUserId] = useState<number | null>(null);
   const [mapRoutes, setMapRoutes] = useState<MapRoute[]>([]);
   const [unroutedPdvs, setUnroutedPdvs] = useState<MapRoutePdv[]>([]);
   const [mapLoading, setMapLoading] = useState(false);
@@ -264,6 +267,17 @@ export function RouteManagement() {
             >
               <MapIcon size={16} />
               Mapa
+            </button>
+            <button
+              onClick={() => setViewMode("calendar")}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium transition-colors ${
+                viewMode === "calendar"
+                  ? "bg-[#A48242] text-white"
+                  : "bg-card text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <CalendarDays size={16} />
+              Calendario
             </button>
           </div>
           <Button
@@ -589,6 +603,40 @@ export function RouteManagement() {
               </CardContent>
             </Card>
           </div>
+        </div>
+      )}
+
+      {/* Calendar View */}
+      {viewMode === "calendar" && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Seleccioná un TM Rep para ver su calendario de rutas programadas.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {users.filter((u) => u.IsActive).map((u) => (
+              <button
+                key={u.UserId}
+                onClick={() => setCalendarUserId(calendarUserId === u.UserId ? null : u.UserId)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                  calendarUserId === u.UserId
+                    ? "bg-[#A48242] text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {u.DisplayName}
+              </button>
+            ))}
+          </div>
+          {calendarUserId ? (
+            <RouteCalendar userId={calendarUserId} />
+          ) : (
+            <Card>
+              <CardContent className="p-8 text-center text-muted-foreground">
+                <CalendarDays size={40} className="mx-auto mb-2 opacity-30" />
+                <p className="text-sm">Elegí un TM Rep para ver su calendario</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 

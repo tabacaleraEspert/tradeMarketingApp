@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { DateSelector } from "../components/DateSelector";
@@ -24,19 +24,48 @@ export function Home() {
   const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
 
-  const { data: routeDayPdvs, loading: loadingPdvs } = useRouteDayPdvsForDate(selectedDate, userIdForFilter);
+  const { data: routeDayPdvs, loading: loadingPdvs, refetch: refetchPdvs } = useRouteDayPdvsForDate(selectedDate, userIdForFilter);
   const { data: incidents } = useIncidentsWithPdvNames();
-  const { data: notifications } = useActiveNotifications();
+  const { data: notifications } = useActiveNotifications(Number(currentUser.id) || undefined);
   const { data: monthlyStats } = useUserMonthlyStats(Number(currentUser.id) || undefined);
 
-  const pointsOfSale = useMemo(() => routeDayPdvs.map(routeDayPdvToPointOfSaleUI), [routeDayPdvs]);
+  // Refetch when coming back to Home (visibility change or navigation)
+  useEffect(() => {
+    const handleFocus = () => { refetchPdvs(); };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, [refetchPdvs]);
+
+  const allPointsOfSale = useMemo(() => routeDayPdvs.map(routeDayPdvToPointOfSaleUI), [routeDayPdvs]);
   const alerts = useMemo(() => [...incidents.map(incidentToAlertUI), ...notifications.map(notificationToAlertUI)], [incidents, notifications]);
+
+  // Group PDVs by route
+  const routeGroups = useMemo(() => {
+    const groups: Record<string, typeof allPointsOfSale> = {};
+    for (const p of allPointsOfSale) {
+      const key = p.routeName || "Sin ruta";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(p);
+    }
+    return groups;
+  }, [allPointsOfSale]);
+  const routeNames = Object.keys(routeGroups);
+
+  const [selectedRoute, setSelectedRoute] = useState<string | null>(null);
+  // Auto-select first route when data loads
+  useEffect(() => {
+    if (routeNames.length > 0 && !selectedRoute) {
+      setSelectedRoute(routeNames[0]);
+    }
+  }, [routeNames.length]);
+
+  const pointsOfSale = selectedRoute && routeGroups[selectedRoute] ? routeGroups[selectedRoute] : allPointsOfSale;
 
   const todayVisits = pointsOfSale.length;
   const completedVisits = pointsOfSale.filter((p) => p.status === "completed").length;
   const pendingVisits = pointsOfSale.filter((p) => p.status === "pending" || p.status === "not-visited").length;
   const inProgressVisits = pointsOfSale.filter((p) => p.status === "in-progress").length;
-  const todayRouteName = pointsOfSale[0]?.routeName;
+  const todayRouteName = selectedRoute || pointsOfSale[0]?.routeName;
   const progressPercent = todayVisits > 0 ? Math.round((completedVisits / todayVisits) * 100) : 0;
   const openAlerts = alerts.filter((a) => a.status === "open" || a.status === "in-progress").length;
 
@@ -129,7 +158,26 @@ export function Home() {
             </div>
           </div>
         )}
-        {!loadingPdvs && todayVisits === 0 && (
+        {/* Route selector — if multiple routes today */}
+        {!loadingPdvs && routeNames.length > 1 && (
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 mt-2">
+            {routeNames.map((name) => (
+              <button
+                key={name}
+                onClick={() => setSelectedRoute(name)}
+                className={`px-3 py-1 rounded-full text-[11px] font-medium whitespace-nowrap transition-colors ${
+                  selectedRoute === name
+                    ? "bg-[#A48242] text-white"
+                    : "bg-white/10 text-white/60 hover:bg-white/20"
+                }`}
+              >
+                {name} ({routeGroups[name].length})
+              </button>
+            ))}
+          </div>
+        )}
+
+        {!loadingPdvs && todayVisits === 0 && routeNames.length === 0 && (
           <p className="text-sm text-[#979B9B]">Sin visitas planificadas para hoy</p>
         )}
         {loadingPdvs && <p className="text-sm text-[#979B9B]">Cargando...</p>}

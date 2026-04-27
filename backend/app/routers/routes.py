@@ -340,6 +340,22 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
     db.commit()
 
 
+@router.put("/{route_id}/pdvs/reorder", response_model=list[RoutePdv])
+def reorder_route_pdvs(route_id: int, pdv_ids: list[int], db: Session = Depends(get_db)):
+    """Reorder PDVs in a route. Receives the full list of PdvIds in the desired order."""
+    for i, pid in enumerate(pdv_ids):
+        rp = db.query(RoutePdvModel).filter(
+            RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == pid
+        ).first()
+        if rp:
+            rp.SortOrder = i
+    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if route:
+        route.IsOptimized = False
+    db.commit()
+    return db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).order_by(RoutePdvModel.SortOrder).all()
+
+
 # --- RouteForm ---
 @router.get("/{route_id}/forms", response_model=list[RouteFormWithForm])
 def list_route_forms(route_id: int, db: Session = Depends(get_db)):
@@ -530,3 +546,94 @@ def update_route_day_pdv(route_day_id: int, pdv_id: int, data: RouteDayPdvUpdate
     db.commit()
     db.refresh(rdp)
     return rdp
+
+
+# ── Route Overlap Detection ──────────────────────────────
+import json as _json
+from datetime import date as _date, timedelta as _timedelta
+
+
+@router.get("/{route_id}/check-overlap")
+def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
+    """Check if this route's frequency overlaps with other routes for the same user."""
+    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    if not route.AssignedUserId or not route.FrequencyType:
+        return {"overlaps": [], "hasOverlap": False}
+
+    # Get all other active routes for the same user
+    other_routes = (
+        db.query(RouteModel)
+        .filter(
+            RouteModel.AssignedUserId == route.AssignedUserId,
+            RouteModel.RouteId != route_id,
+            RouteModel.IsActive == True,
+            RouteModel.FrequencyType != None,
+        )
+        .all()
+    )
+
+    if not other_routes:
+        return {"overlaps": [], "hasOverlap": False}
+
+    # Generate next 8 weeks of dates for this route
+    def generate_dates(freq: str, config_str: str | None) -> set[str]:
+        config = _json.loads(config_str) if config_str else {}
+        today = _date.today()
+        end = today + _timedelta(weeks=8)
+        start = _date.fromisoformat(config["startDate"]) if config.get("startDate") else today
+        if start < today:
+            start = today
+        dates = set()
+
+        if freq == "daily":
+            d = start
+            while d <= end:
+                if d.weekday() < 5:
+                    dates.add(d.isoformat())
+                d += _timedelta(days=1)
+        elif freq == "weekly":
+            day_js = config.get("day")
+            if day_js is not None:
+                py_wd = (day_js - 1) % 7
+                d = start
+                while d.weekday() != py_wd:
+                    d += _timedelta(days=1)
+                while d <= end:
+                    dates.add(d.isoformat())
+                    d += _timedelta(days=7)
+        elif freq in ("every_15_days", "biweekly"):
+            interval = config.get("interval", 15)
+            d = start
+            while d <= end:
+                dates.add(d.isoformat())
+                d += _timedelta(days=interval)
+        elif freq == "specific_days":
+            day_list = config.get("days", [])
+            d = start
+            while d <= end:
+                js_day = (d.weekday() + 1) % 7
+                if js_day in day_list:
+                    dates.add(d.isoformat())
+                d += _timedelta(days=1)
+        return dates
+
+    my_dates = generate_dates(route.FrequencyType, route.FrequencyConfig)
+    overlaps = []
+
+    for other in other_routes:
+        other_dates = generate_dates(other.FrequencyType, other.FrequencyConfig)
+        common = my_dates & other_dates
+        if common:
+            overlaps.append({
+                "routeId": other.RouteId,
+                "routeName": other.Name,
+                "overlapDates": sorted(list(common))[:5],
+                "overlapCount": len(common),
+            })
+
+    return {
+        "overlaps": overlaps,
+        "hasOverlap": len(overlaps) > 0,
+    }

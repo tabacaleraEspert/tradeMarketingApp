@@ -8,12 +8,15 @@ import { Modal } from "../components/ui/modal";
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, XCircle, ClipboardCheck,
   Camera, Zap, Newspaper, LogOut, ChevronRight, Clock, MapPin,
-  Navigation, FileText,
+  Navigation, FileText, Megaphone, Package,
 } from "lucide-react";
-import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate } from "@/lib/api";
+import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi } from "@/lib/api";
+import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
+import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
 import { getCurrentUser } from "../lib/auth";
+import { formatTime24 } from "../lib/dateUtils";
 import type { Pdv, VisitAction, MarketNews, VisitAnswer } from "@/lib/api";
 import { toast } from "sonner";
 import { renderAnswerValue } from "../lib/answerFormatter";
@@ -56,6 +59,9 @@ export function VisitSummaryPage() {
   const [checks, setChecks] = useState<any[]>([]);
   const [visitPhotos, setVisitPhotos] = useState<VisitPhotoRead[]>([]);
   const [visitData, setVisitData] = useState<any>(null);
+  const [coverageItems, setCoverageItems] = useState<VisitCoverageItem[]>([]);
+  const [popItems, setPopItems] = useState<VisitPOPItem[]>([]);
+  const [productMap, setProductMap] = useState<Record<number, Product>>({});
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -72,7 +78,7 @@ export function VisitSummaryPage() {
       if (!vid) { toast.error("No hay visita activa"); navigate(`/pos/${id}`); return; }
       setVisitId(vid);
 
-      const [ans, acts, nws, validation, chks, visit, photos] = await Promise.all([
+      const [ans, acts, nws, validation, chks, visit, photos, cov, pop] = await Promise.all([
         visitsApi.listAnswers(vid),
         visitActionsApi.list(vid),
         marketNewsApi.list(vid),
@@ -80,6 +86,8 @@ export function VisitSummaryPage() {
         visitsApi.listChecks(vid),
         visitsApi.get(vid),
         visitPhotosApi.list(vid).catch(() => [] as VisitPhotoRead[]),
+        visitCoverageApi.list(vid).catch(() => [] as VisitCoverageItem[]),
+        visitPOPApi.list(vid).catch(() => [] as VisitPOPItem[]),
       ]);
 
       setAnswers(ans);
@@ -88,6 +96,17 @@ export function VisitSummaryPage() {
       setChecks(chks);
       setVisitData(visit);
       setVisitPhotos(photos);
+      setCoverageItems(cov);
+      setPopItems(pop);
+
+      // Load product names for coverage
+      if (cov.length > 0) {
+        productsApi.list({ active_only: false }).then((prods) => {
+          const map: Record<number, Product> = {};
+          for (const p of prods) map[p.ProductId] = p;
+          setProductMap(map);
+        }).catch(() => {});
+      }
 
       // Load questions for answers
       if (ans.length > 0) {
@@ -102,17 +121,36 @@ export function VisitSummaryPage() {
 
       const statusSteps: StepData[] = [];
 
-      // Relevamiento
+      // Relevamiento (Formularios)
       if (ans.length > 0) {
         const missing = validation.missing.filter((m) => m.questionId);
         statusSteps.push({
-          label: "Relevamiento", icon: ClipboardCheck, type: "relevamiento",
+          label: "Formularios", icon: ClipboardCheck, type: "relevamiento",
           status: missing.length === 0 ? "completed" : "partial",
-          detail: missing.length === 0 ? `${ans.length} respuestas` : `${missing.length} pendientes`,
+          detail: missing.length === 0 ? `${ans.length} completados` : `${missing.length} pendientes`,
         });
       } else {
-        statusSteps.push({ label: "Relevamiento", icon: ClipboardCheck, type: "relevamiento", status: "pending", detail: "Sin respuestas" });
+        statusSteps.push({ label: "Formularios", icon: ClipboardCheck, type: "relevamiento", status: "pending", detail: "Sin completar" });
       }
+
+      // Cobertura
+      const covWorking = cov.filter((c: VisitCoverageItem) => c.Works).length;
+      const covBreaks = cov.filter((c: VisitCoverageItem) => c.Works && c.Availability === "quiebre").length;
+      statusSteps.push({
+        label: "Cobertura y Precios", icon: ClipboardCheck, type: "cobertura" as any,
+        status: cov.length > 0 ? "completed" : "pending",
+        detail: cov.length > 0
+          ? `${covWorking} trabajan${covBreaks > 0 ? ` · ${covBreaks} quiebres` : ""}`
+          : "Sin completar",
+      });
+
+      // POP
+      const popPresent = pop.filter((p: VisitPOPItem) => p.Present).length;
+      statusSteps.push({
+        label: "Censo POP", icon: Megaphone as any, type: "pop" as any,
+        status: pop.length > 0 ? "completed" : "pending",
+        detail: pop.length > 0 ? `${popPresent} presentes` : "Sin completar",
+      });
 
       // Acciones
       if (acts.length > 0) {
@@ -294,12 +332,15 @@ export function VisitSummaryPage() {
       </div>
 
       <div className="p-4 space-y-3">
+        {/* Indicators bar */}
+        {visitId && <VisitIndicatorsBar visitId={visitId} />}
+
         {/* Visit info */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           {checkIn?.Ts && (
             <span className="flex items-center gap-1">
               <Clock size={12} />
-              Check-in: {new Date(checkIn.Ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+              Check-in: {formatTime24(checkIn.Ts)}
             </span>
           )}
           {duration != null && (
@@ -389,27 +430,78 @@ export function VisitSummaryPage() {
         title="Relevamiento"
         size="lg"
       >
-        <div className="space-y-1">
+        <div className="space-y-3">
           {answers.length === 0 ? (
             <p className="text-center text-muted-foreground py-6 text-sm">Sin respuestas registradas</p>
           ) : (
-            <div className="border border-border rounded-lg overflow-hidden">
-              {answers.map((a, i) => {
-                const q = questions.find((q) => q.QuestionId === a.QuestionId);
-                const val = renderAnswerValue(a);
-                return (
-                  <div key={a.AnswerId} className={`flex items-center justify-between px-3 py-2.5 text-sm ${i % 2 === 0 ? "bg-white" : "bg-muted/30"}`}>
-                    <span className="text-muted-foreground text-xs flex-1 mr-3">{q?.Label || `Pregunta #${a.QuestionId}`}</span>
-                    <span className={`font-semibold text-sm shrink-0 ${
-                      val === "Sí" || val === "OK" || val === "Completo" || val === "Bien" ? "text-green-700" :
-                      val === "No" || val === "Faltante" || val === "Sin stock" ? "text-red-600" : "text-foreground"
-                    }`}>{val}</span>
+            answers.map((a) => {
+              const q = questions.find((qq) => qq.QuestionId === a.QuestionId);
+              const rawJson = a.ValueJson || a.ValueText;
+              let parsed: Record<string, unknown> | null = null;
+              try { if (rawJson && (rawJson.startsWith("{") || rawJson.startsWith("["))) parsed = JSON.parse(rawJson); } catch {}
+
+              const isCoverage = parsed && typeof parsed === "object" && !Array.isArray(parsed) &&
+                Object.values(parsed).some((v) => typeof v === "object" && v !== null && "covered" in (v as Record<string, unknown>));
+              const isCheckboxPrice = parsed && typeof parsed === "object" && !Array.isArray(parsed) && !isCoverage &&
+                Object.values(parsed).some((v) => v === null || typeof v === "number");
+
+              return (
+                <div key={a.AnswerId} className="border border-border rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-muted/30 border-b border-border">
+                    <span className="text-xs font-semibold text-foreground">{q?.Label || `Pregunta #${a.QuestionId}`}</span>
                   </div>
-                );
-              })}
-            </div>
+                  {isCoverage && parsed ? (
+                    <table className="w-full text-xs">
+                      <thead><tr className="border-b border-border text-muted-foreground">
+                        <th className="text-left py-1 px-3 font-medium">Producto</th>
+                        <th className="text-right py-1 px-3 font-medium w-16">Precio</th>
+                        <th className="text-right py-1 px-3 font-medium w-20">Estado</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-border">
+                        {Object.entries(parsed as Record<string, { covered: boolean; price?: number | null; stockout?: boolean }>)
+                          .filter(([, v]) => (v as any).covered)
+                          .map(([key, v]) => {
+                            const item = v as { covered: boolean; price?: number | null; stockout?: boolean };
+                            const name = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                            return (
+                              <tr key={key}>
+                                <td className="py-1.5 px-3 text-foreground">{name}</td>
+                                <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{item.price != null ? `$${item.price}` : "—"}</td>
+                                <td className="py-1.5 px-3 text-right">
+                                  <Badge variant={item.stockout ? "destructive" : "secondary"} className="text-[9px] px-1 py-0">{item.stockout ? "Quiebre" : "OK"}</Badge>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  ) : isCheckboxPrice && parsed ? (
+                    <table className="w-full text-xs">
+                      <thead><tr className="border-b border-border text-muted-foreground">
+                        <th className="text-left py-1 px-3 font-medium">Producto</th>
+                        <th className="text-right py-1 px-3 font-medium w-20">Precio</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-border">
+                        {Object.entries(parsed as Record<string, number | null>).map(([key, v]) => {
+                          const name = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                          return (
+                            <tr key={key}>
+                              <td className="py-1.5 px-3 text-foreground">{name}</td>
+                              <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{v != null ? `$${v}` : "—"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <div className="px-3 py-2">
+                      <span className="text-sm text-foreground">{renderAnswerValue(a)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })
           )}
-          <p className="text-[10px] text-muted-foreground text-center pt-2">{answers.length} respuestas registradas</p>
         </div>
       </Modal>
 
@@ -420,31 +512,32 @@ export function VisitSummaryPage() {
         title="Acciones de Ejecución"
         size="lg"
       >
-        <div className="space-y-2">
+        <div>
           {actions.length === 0 ? (
             <p className="text-center text-muted-foreground py-6 text-sm">Sin acciones registradas</p>
           ) : (
-            actions.map((a: VisitAction) => (
-              <div key={a.VisitActionId} className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                {a.Status === "DONE" ? (
-                  <CheckCircle2 size={18} className="text-green-600 shrink-0" />
-                ) : (
-                  <Clock size={18} className="text-amber-500 shrink-0" />
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium text-sm text-foreground">{a.ActionType}</p>
-                  {a.Description && <p className="text-xs text-muted-foreground truncate">{a.Description}</p>}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  {a.PhotoRequired && (
-                    <Badge variant={a.PhotoTaken ? "default" : "destructive"} className="text-[10px]">
-                      {a.PhotoTaken ? "Foto OK" : "Sin foto"}
-                    </Badge>
-                  )}
-                  <Badge variant="outline" className="text-[10px]">{a.Status}</Badge>
-                </div>
-              </div>
-            ))
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="text-left py-1.5 font-medium">Acción</th>
+                <th className="text-left py-1.5 font-medium w-20">Tipo</th>
+                <th className="text-right py-1.5 font-medium w-20">Estado</th>
+              </tr></thead>
+              <tbody className="divide-y divide-border">
+                {actions.map((a: VisitAction) => (
+                  <tr key={a.VisitActionId}>
+                    <td className="py-2">
+                      <span className="text-foreground">{a.Description || a.ActionType}</span>
+                    </td>
+                    <td className="py-2"><Badge variant="outline" className="text-[9px]">{a.ActionType}</Badge></td>
+                    <td className="py-2 text-right">
+                      <Badge variant={a.Status === "DONE" ? "secondary" : "destructive"} className="text-[9px] px-1.5 py-0">
+                        {a.Status === "DONE" ? "Hecho" : a.Status === "BACKLOG" ? "Backlog" : "Pendiente"}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </Modal>
@@ -474,10 +567,112 @@ export function VisitSummaryPage() {
                   <Badge variant="secondary" className="text-[9px]">{p.PhotoType}</Badge>
                 </div>
                 <div className="mt-1 text-[10px] text-muted-foreground text-center">
-                  {new Date(p.created_at).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" })}
+                  {formatTime24(p.created_at)}
                 </div>
               </div>
             ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* Cobertura detail */}
+      <Modal
+        isOpen={detailModal === "cobertura"}
+        onClose={() => setDetailModal(null)}
+        title="Cobertura y Precios"
+        size="lg"
+      >
+        {coverageItems.length === 0 ? (
+          <p className="text-center text-muted-foreground py-6 text-sm">Sin datos de cobertura</p>
+        ) : (
+          <div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted-foreground">
+                  <th className="text-left py-1.5 font-medium">Producto</th>
+                  <th className="text-right py-1.5 font-medium w-20">Precio</th>
+                  <th className="text-right py-1.5 font-medium w-24">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {coverageItems.filter((c) => c.Works).map((c) => {
+                  const prod = productMap[c.ProductId];
+                  return (
+                    <tr key={c.VisitCoverageId}>
+                      <td className="py-2">
+                        <span className="font-medium text-foreground">{prod?.Name || `#${c.ProductId}`}</span>
+                        {prod?.IsOwn && <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold">ESPERT</span>}
+                      </td>
+                      <td className="text-right py-2 font-semibold tabular-nums">
+                        {c.Price != null ? `$${Number(c.Price).toLocaleString()}` : "—"}
+                      </td>
+                      <td className="text-right py-2">
+                        <Badge variant={c.Availability === "quiebre" ? "destructive" : "secondary"} className="text-[9px] px-1.5 py-0">
+                          {c.Availability === "quiebre" ? "Quiebre" : "Disponible"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="text-xs text-muted-foreground mt-3 pt-2 border-t border-border">
+              {coverageItems.filter((c) => c.Works).length} trabajan de {coverageItems.length} relevados
+              {coverageItems.filter((c) => c.Availability === "quiebre").length > 0 &&
+                ` · ${coverageItems.filter((c) => c.Availability === "quiebre").length} quiebres`}
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {/* POP detail */}
+      <Modal
+        isOpen={detailModal === "pop"}
+        onClose={() => setDetailModal(null)}
+        title="Censo de Materiales POP"
+      >
+        {popItems.length === 0 ? (
+          <p className="text-center text-muted-foreground py-6 text-sm">Sin datos de POP</p>
+        ) : (
+          <div>
+            <table className="w-full text-sm">
+              <thead><tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="text-left py-1.5 font-medium">Material</th>
+                <th className="text-left py-1.5 font-medium w-20">Empresa</th>
+                <th className="text-right py-1.5 font-medium w-20">Precio</th>
+              </tr></thead>
+              <tbody className="divide-y divide-border">
+                {popItems.filter((p) => p.Present).map((p) => (
+                  <tr key={p.VisitPOPItemId}>
+                    <td className="py-2">
+                      <span className="text-foreground">{p.MaterialName}</span>
+                      <Badge variant="outline" className="text-[8px] ml-1 py-0">{p.MaterialType === "primario" ? "1ro" : "2do"}</Badge>
+                    </td>
+                    <td className="py-2 text-xs text-muted-foreground">{p.Company || "—"}</td>
+                    <td className="py-2 text-right">
+                      {p.HasPrice !== null && (
+                        <Badge variant={p.HasPrice ? "secondary" : "outline"} className="text-[9px] px-1.5 py-0">
+                          {p.HasPrice ? "Con precio" : "Sin precio"}
+                        </Badge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {visitPhotos.filter((ph) => ph.PhotoType.startsWith("pop_")).length > 0 && (
+              <div className="mt-3 pt-3 border-t border-border">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Fotos de evidencia:</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {visitPhotos.filter((ph) => ph.PhotoType.startsWith("pop_")).map((ph) => (
+                    <div key={ph.FileId}>
+                      <img src={ph.url} alt={ph.PhotoType} className="w-full h-20 object-cover rounded-lg border border-border" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+                      <p className="text-[9px] text-muted-foreground text-center mt-0.5">{ph.PhotoType.replace("pop_", "")}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Modal>
