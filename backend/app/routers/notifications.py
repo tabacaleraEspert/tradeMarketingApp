@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from ..auth import require_role, get_current_user
+from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
 from ..models import Notification as NotificationModel
 from ..models.user import User as UserModel
@@ -16,6 +16,7 @@ def list_notifications(
     limit: int = 100,
     active_only: bool = False,
     for_user: int | None = None,
+    current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Lista notificaciones.
@@ -31,6 +32,10 @@ def list_notifications(
             (NotificationModel.ExpiresAt == None) | (NotificationModel.ExpiresAt > now)
         )
     if for_user is not None:
+        # Users can only query their own notifications unless they're managers
+        role = get_user_role(db, current_user.UserId)
+        if for_user != current_user.UserId and role not in ("admin", "territory_manager", "regional_manager"):
+            raise HTTPException(403, "No puede consultar notificaciones de otro usuario")
         q = q.filter(
             (NotificationModel.TargetUserId == None) | (NotificationModel.TargetUserId == for_user)
         )
@@ -45,7 +50,7 @@ def get_notification(notification_id: int, db: Session = Depends(get_db)):
     return n
 
 
-@router.post("", response_model=Notification, status_code=201)
+@router.post("", response_model=Notification, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def create_notification(data: NotificationCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     n = NotificationModel(
         Title=data.Title,
@@ -54,7 +59,7 @@ def create_notification(data: NotificationCreate, current_user: UserModel = Depe
         Priority=data.Priority,
         IsActive=data.IsActive,
         ExpiresAt=data.ExpiresAt,
-        CreatedBy=data.CreatedBy or current_user.UserId,
+        CreatedBy=current_user.UserId,  # Always use current user, ignore client-supplied CreatedBy
         TargetUserId=data.TargetUserId,
     )
     db.add(n)

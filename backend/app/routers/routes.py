@@ -341,17 +341,29 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{route_id}/pdvs/reorder", response_model=list[RoutePdv])
-def reorder_route_pdvs(route_id: int, pdv_ids: list[int], db: Session = Depends(get_db)):
+def reorder_route_pdvs(
+    route_id: int,
+    pdv_ids: list[int],
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Reorder PDVs in a route. Receives the full list of PdvIds in the desired order."""
+    if len(pdv_ids) > 500:
+        raise HTTPException(400, "Demasiados PDVs para reordenar")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if not route:
+        raise HTTPException(404, "Ruta no encontrada")
+    # Ownership: assigned user or manager+
+    role = get_user_role(db, current_user.UserId)
+    if role not in ("admin", "territory_manager", "regional_manager") and route.AssignedUserId != current_user.UserId:
+        raise HTTPException(403, "No tiene permiso para reordenar esta ruta")
     for i, pid in enumerate(pdv_ids):
         rp = db.query(RoutePdvModel).filter(
             RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == pid
         ).first()
         if rp:
             rp.SortOrder = i
-    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
-    if route:
-        route.IsOptimized = False
+    route.IsOptimized = False
     db.commit()
     return db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).order_by(RoutePdvModel.SortOrder).all()
 
@@ -433,11 +445,22 @@ def list_route_days(route_id: int, db: Session = Depends(get_db)):
     return db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()
 
 
+def _check_route_access(route: RouteModel, current_user: UserModel, db: Session):
+    """Verify user owns the route or is a manager."""
+    role = get_user_role(db, current_user.UserId)
+    if role in ("admin", "territory_manager", "regional_manager"):
+        return
+    if route.AssignedUserId == current_user.UserId:
+        return
+    raise HTTPException(403, "No tiene permiso para modificar esta ruta")
+
+
 @router.post("/{route_id}/days", response_model=RouteDay, status_code=201)
-def create_route_day(route_id: int, data: RouteDayCreate, db: Session = Depends(get_db)):
+def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    _check_route_access(r, current_user, db)
     # Use route's assigned user if not specified
     user_id = data.AssignedUserId or getattr(r, "AssignedUserId", None)
     if not user_id:
@@ -466,10 +489,13 @@ def create_route_day(route_id: int, data: RouteDayCreate, db: Session = Depends(
 
 
 @router.delete("/days/{route_day_id}", status_code=204)
-def delete_route_day(route_day_id: int, db: Session = Depends(get_db)):
+def delete_route_day(route_day_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
     if not rd:
         raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+    if route:
+        _check_route_access(route, current_user, db)
     db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId == route_day_id).delete()
     db.delete(rd)
     db.commit()
@@ -499,10 +525,13 @@ def list_route_day_forms(route_day_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/days/{route_day_id}", response_model=RouteDay)
-def update_route_day(route_day_id: int, data: RouteDayUpdate, db: Session = Depends(get_db)):
+def update_route_day(route_day_id: int, data: RouteDayUpdate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
     if not rd:
         raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+    if route:
+        _check_route_access(route, current_user, db)
     if data.Status is not None:
         rd.Status = data.Status
     db.commit()
@@ -517,7 +546,12 @@ def list_route_day_pdvs(route_day_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/days/{route_day_id}/pdvs", response_model=RouteDayPdv, status_code=201)
-def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, db: Session = Depends(get_db)):
+def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
+    if rd:
+        route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+        if route:
+            _check_route_access(route, current_user, db)
     rdp = RouteDayPdvModel(
         RouteDayId=route_day_id,
         PdvId=data.PdvId,
@@ -534,7 +568,7 @@ def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, db: Session = 
 
 
 @router.patch("/days/{route_day_id}/pdvs/{pdv_id}", response_model=RouteDayPdv)
-def update_route_day_pdv(route_day_id: int, pdv_id: int, data: RouteDayPdvUpdate, db: Session = Depends(get_db)):
+def update_route_day_pdv(route_day_id: int, pdv_id: int, data: RouteDayPdvUpdate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rdp = db.query(RouteDayPdvModel).filter(
         RouteDayPdvModel.RouteDayId == route_day_id,
         RouteDayPdvModel.PdvId == pdv_id,
