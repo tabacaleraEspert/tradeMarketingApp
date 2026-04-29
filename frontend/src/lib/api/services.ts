@@ -207,6 +207,23 @@ export const productsApi = {
   list: (params?: { category?: string; active_only?: boolean }) =>
     api.get<Product[]>("/products", params),
   get: (id: number) => api.get<Product>(`/products/${id}`),
+  create: (data: {
+    Name: string;
+    Category: string;
+    Manufacturer?: string | null;
+    IsOwn?: boolean;
+    IsActive?: boolean;
+    SortOrder?: number;
+  }) => api.post<Product>("/products", data),
+  update: (id: number, data: {
+    Name?: string;
+    Category?: string;
+    Manufacturer?: string | null;
+    IsOwn?: boolean;
+    IsActive?: boolean;
+    SortOrder?: number;
+  }) => api.patch<Product>(`/products/${id}`, data),
+  delete: (id: number) => api.delete(`/products/${id}`),
 };
 
 // --- PDV Product Categories ---

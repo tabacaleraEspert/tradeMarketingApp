@@ -22,6 +22,7 @@ import { FormBuilder } from "./pages/admin/FormBuilder";
 import { FormEditorPage } from "./pages/admin/FormEditorPage";
 import { Reports } from "./pages/admin/Reports";
 import { ChannelManagement } from "./pages/admin/ChannelManagement";
+import { ProductManagement } from "./pages/admin/ProductManagement";
 import { NotificationManagement } from "./pages/admin/NotificationManagement";
 import { UserManagement } from "./pages/admin/UserManagement";
 import { TerritoryManagement } from "./pages/admin/TerritoryManagement";
@@ -87,6 +88,7 @@ export const router = createBrowserRouter([
       { index: true, Component: AdminDashboard },
       { path: "pos-management", Component: POSManagement },
       { path: "channels", Component: ChannelManagement },
+      { path: "products", Component: ProductManagement },
       { path: "routes", Component: RouteManagement },
       { path: "routes/:routeId/edit", Component: RouteEditorPage },
       { path: "territory", Component: TerritoryManagement },
@@ -103,5 +105,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: PlantDashboard },
     ],
+  },
+  {
+    path: "*",
+    element: <Navigate to="/login" replace />,
   },
 ]);

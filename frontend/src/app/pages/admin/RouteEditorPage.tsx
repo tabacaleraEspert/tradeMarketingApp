@@ -128,6 +128,7 @@ export function RouteEditorPage() {
   const { routeId } = useParams();
   const navigate = useNavigate();
   const id = routeId ? Number(routeId) : null;
+  const isCreateMode = !id;
   const isMyRoute = window.location.pathname.startsWith("/my-routes");
   const backPath = isMyRoute ? "/my-routes" : "/admin/routes";
 
@@ -140,6 +141,11 @@ export function RouteEditorPage() {
   const [saving, setSaving] = useState(false);
   const [confirmRemoveDayId, setConfirmRemoveDayId] = useState<number | null>(null);
   const [confirmRemoveFormId, setConfirmRemoveFormId] = useState<number | null>(null);
+
+  // --- Create mode: local draft PDV ids (not yet persisted) ---
+  const [draftPdvIds, setDraftPdvIds] = useState<number[]>([]);
+  const [showBackConfirm, setShowBackConfirm] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [showAddDay, setShowAddDay] = useState(false);
   const [newDayUser, setNewDayUser] = useState<number | "">("");
   const [newDayDate, setNewDayDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -208,15 +214,24 @@ export function RouteEditorPage() {
     }
   }, [allPdvs]);
 
-  // IDs of PDVs already in route
-  const routePdvIds = useMemo(() => new Set(routePdvs.map((rp) => rp.PdvId)), [routePdvs]);
+  // IDs of PDVs already in route (include draft in create mode)
+  const routePdvIds = useMemo(() => {
+    const ids = new Set(routePdvs.map((rp) => rp.PdvId));
+    if (isCreateMode) draftPdvIds.forEach((id) => ids.add(id));
+    return ids;
+  }, [routePdvs, draftPdvIds, isCreateMode]);
 
   // Ordered PDV objects in route
   const orderedPdvs = useMemo(() => {
+    if (isCreateMode) {
+      return draftPdvIds
+        .map((id) => pdvCache.get(id))
+        .filter(Boolean) as Pdv[];
+    }
     return routePdvs
       .map((rp) => pdvCache.get(rp.PdvId))
       .filter(Boolean) as Pdv[];
-  }, [routePdvs, pdvCache]);
+  }, [routePdvs, pdvCache, draftPdvIds, isCreateMode]);
 
   // Route distances
   const distances = useMemo(() => segmentDistances(orderedPdvs), [orderedPdvs]);
@@ -302,6 +317,11 @@ export function RouteEditorPage() {
   );
 
   const handleAddPdv = async (pdvId: number) => {
+    if (isCreateMode) {
+      setDraftPdvIds((prev) => [...prev, pdvId]);
+      toast.success("PDV agregado");
+      return;
+    }
     if (!id || saving) return;
     setSaving(true);
     try {
@@ -327,6 +347,11 @@ export function RouteEditorPage() {
   };
 
   const handleRemovePdv = async (pdvId: number) => {
+    if (isCreateMode) {
+      setDraftPdvIds((prev) => prev.filter((id) => id !== pdvId));
+      toast.success("PDV quitado");
+      return;
+    }
     if (!id || saving) return;
     setSaving(true);
     try {
@@ -548,10 +573,21 @@ export function RouteEditorPage() {
         FrequencyConfig: route.FrequencyConfig ?? null,
         AssignedUserId: route.AssignedUserId ?? null,
       });
+    } else if (isCreateMode) {
+      // Initialize empty draft for create mode
+      setRouteDraft({
+        Name: "",
+        ZoneId: null,
+        BejermanZone: null,
+        EstimatedMinutes: null,
+        FrequencyType: null,
+        FrequencyConfig: null,
+        AssignedUserId: isMyRoute ? Number(getCurrentUser().id) : null,
+      });
     } else {
       setRouteDraft(null);
     }
-  }, [route]);
+  }, [route, isCreateMode, isMyRoute]);
 
   // Parse frequency config
   const frequencyConfigParsed = useMemo(() => {
@@ -585,6 +621,17 @@ export function RouteEditorPage() {
     else current.push(day);
     current.sort();
     updateFrequencyConfig({ days: current });
+  };
+
+  // Track if user has touched anything in create mode
+  const createModeDirty = isCreateMode && (draftPdvIds.length > 0 || (routeDraft?.Name ?? "").trim().length > 0);
+
+  const handleBackClick = () => {
+    if (isCreateMode && createModeDirty) {
+      setShowBackConfirm(true);
+    } else {
+      navigate(backPath);
+    }
   };
 
   const routeMetadataDirty =
@@ -638,30 +685,46 @@ export function RouteEditorPage() {
     }
   };
 
-  // --- Create mode: no id → auto-create and redirect to editor ---
-  useEffect(() => {
-    if (!id && !route && !saving) {
-      const currentUser = getCurrentUser();
-      const today = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
-      const defaultName = `Ruta ${today}`;
-      setSaving(true);
-      routesApi.create({
-        Name: defaultName,
-        AssignedUserId: isMyRoute ? Number(currentUser.id) : undefined,
-      }).then((newRoute) => {
-        const editPath = isMyRoute
-          ? `/my-routes/${newRoute.RouteId}/edit`
-          : `/admin/routes/${newRoute.RouteId}/edit`;
-        navigate(editPath, { replace: true });
-      }).catch((e) => {
-        toast.error(e instanceof Error ? e.message : "Error al crear ruta");
-        navigate(backPath);
-      }).finally(() => setSaving(false));
+  // --- Create mode: handle the actual creation on button click ---
+  const handleCreateRoute = async () => {
+    if (!routeDraft?.Name?.trim()) {
+      toast.error("Ponele un nombre a la ruta");
+      return;
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, route]);
+    setCreating(true);
+    try {
+      const currentUser = getCurrentUser();
+      const newRoute = await routesApi.create({
+        Name: routeDraft.Name.trim(),
+        ZoneId: routeDraft.ZoneId ?? undefined,
+        BejermanZone: routeDraft.BejermanZone ?? undefined,
+        AssignedUserId: isMyRoute ? Number(currentUser.id) : (routeDraft.AssignedUserId ?? undefined),
+        FrequencyType: routeDraft.FrequencyType ?? undefined,
+        FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
+      });
+      // Add draft PDVs
+      for (let i = 0; i < draftPdvIds.length; i++) {
+        try {
+          await routesApi.addPdv(newRoute.RouteId, {
+            PdvId: draftPdvIds[i],
+            SortOrder: i,
+            Priority: 3,
+          });
+        } catch { /* skip */ }
+      }
+      toast.success("Ruta creada");
+      const editPath = isMyRoute
+        ? `/my-routes/${newRoute.RouteId}/edit`
+        : `/admin/routes/${newRoute.RouteId}/edit`;
+      navigate(editPath, { replace: true });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al crear ruta");
+    } finally {
+      setCreating(false);
+    }
+  };
 
-  if (loading || !route) {
+  if (loading || (!route && !isCreateMode)) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <p className="text-muted-foreground">Cargando...</p>
@@ -676,16 +739,18 @@ export function RouteEditorPage() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <button
-          onClick={() => navigate(backPath)}
+          onClick={handleBackClick}
           className="p-2 hover:bg-muted rounded-lg transition-colors"
         >
           <ArrowLeft size={24} />
         </button>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-foreground">Editar Ruta Foco</h1>
-          <p className="text-muted-foreground">{routeDraft?.Name ?? route.Name}</p>
+          <h1 className="text-2xl font-bold text-foreground">
+            {isCreateMode ? "Crear Ruta Foco" : "Editar Ruta Foco"}
+          </h1>
+          <p className="text-muted-foreground">{routeDraft?.Name || (route?.Name ?? "Nueva ruta")}</p>
         </div>
-        {route.IsOptimized ? (
+        {!isCreateMode && (route?.IsOptimized ? (
           <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
             <Zap size={12} /> Optimizada
           </Badge>
@@ -693,7 +758,7 @@ export function RouteEditorPage() {
           <Badge variant="outline" className="text-muted-foreground gap-1">
             <Zap size={12} className="opacity-50" /> Sin optimizar
           </Badge>
-        )}
+        ))}
       </div>
 
       {/* Route Info */}
@@ -701,7 +766,7 @@ export function RouteEditorPage() {
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-foreground">Datos de la ruta</h3>
-            {routeDraft && (
+            {!isCreateMode && routeDraft && (
               <Button
                 variant={routeMetadataDirty ? "default" : "outline"}
                 size="sm"
@@ -1552,6 +1617,30 @@ export function RouteEditorPage() {
         confirmText="Quitar"
         type="danger"
       />
+
+      {/* Confirm back in create mode */}
+      <ConfirmModal
+        isOpen={showBackConfirm}
+        onClose={() => setShowBackConfirm(false)}
+        onConfirm={() => navigate(backPath)}
+        title="Salir sin crear"
+        message="¿Seguro que querés salir? Los datos de la ruta que cargaste se van a perder."
+        confirmText="Salir"
+        type="danger"
+      />
+
+      {/* Create button — sticky at bottom */}
+      {isCreateMode && (
+        <div className="sticky bottom-0 bg-background border-t border-border p-4 -mx-6 -mb-6 mt-6">
+          <Button
+            className="w-full bg-[#A48242] hover:bg-[#8B6E38] text-white h-12 text-base font-semibold"
+            onClick={handleCreateRoute}
+            disabled={creating || !routeDraft?.Name?.trim()}
+          >
+            {creating ? "Creando..." : "Crear Ruta Foco"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

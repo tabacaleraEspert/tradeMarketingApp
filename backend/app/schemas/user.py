@@ -80,8 +80,8 @@ class User(UserBase):
     MustChangePassword: bool = False
     RoleName: str | None = None
     AvatarUrl: str | None = None
-    CreatedAt: datetime
-    UpdatedAt: datetime
+    CreatedAt: datetime | None = None
+    UpdatedAt: datetime | None = None
 
     class Config:
         from_attributes = True

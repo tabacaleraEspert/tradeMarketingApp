@@ -363,6 +363,20 @@ def delete_visit(
     role = get_user_role(db, current_user.UserId)
     if role != "admin":
         raise HTTPException(status_code=403, detail="Sólo un admin puede borrar visitas")
+    # Borrar tablas hijas que pueden no tener CASCADE en la DB
+    from ..models.visit import VisitPhoto as VisitPhotoModel
+    from ..models.visit_loose import VisitLooseSurvey as LooseModel
+    from ..models.market_news import MarketNews as MNModel
+    from ..models.incident import Incident as IncidentModel
+    for child in (VisitAnswerModel, VisitCheckModel, VisitActionModel,
+                  CoverageModel, POPModel, VisitFormTimeModel,
+                  VisitPhotoModel, LooseModel):
+        db.query(child).filter(child.VisitId == visit_id).delete()
+    # Nullificar FK opcionales
+    db.query(MNModel).filter(MNModel.VisitId == visit_id).delete()
+    db.query(IncidentModel).filter(IncidentModel.VisitId == visit_id).update({IncidentModel.VisitId: None})
+    from ..models.pdv_note import PdvNote as NoteModel
+    db.query(NoteModel).filter(NoteModel.VisitId == visit_id).update({NoteModel.VisitId: None})
     db.delete(v)
     db.commit()
 

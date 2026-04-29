@@ -14,6 +14,7 @@ import {
   WifiOff,
   Layers,
   ClipboardList,
+  Package,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -67,6 +68,7 @@ export function AdminLayout() {
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
+    { path: "/admin/products", icon: Package, label: "Productos" },
     { path: "/admin/routes", icon: Route, label: "Rutas Foco" },
     { path: "/admin/territory", icon: Users, label: "Territorio" },
     { path: "/admin/forms", icon: ClipboardList, label: "Plantillas de Visita" },

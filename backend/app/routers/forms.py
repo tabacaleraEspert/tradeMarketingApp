@@ -104,14 +104,36 @@ def delete_form(
     form_id: int,
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
+    force: bool = Query(False, description="true = hard delete (pierde respuestas históricas)"),
 ):
     f = db.query(FormModel).filter(FormModel.FormId == form_id).first()
     if not f:
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
-    # Solo el creador o un admin puede borrar
     role = get_user_role(db, current_user.UserId)
     if f.CreatedByUserId and f.CreatedByUserId != current_user.UserId and role != "admin":
         raise HTTPException(status_code=403, detail="Solo el creador o un admin puede eliminar este formulario")
+
+    if not force:
+        # Soft delete: desactivar el form, las respuestas históricas se mantienen
+        f.IsActive = False
+        db.query(RouteFormModel).filter(RouteFormModel.FormId == form_id).delete()
+        db.commit()
+        return
+
+    # Hard delete (force=true): borra todo incluyendo respuestas
+    from ..models.visit_form_time import VisitFormTime as VFTModel
+    from ..models.mandatory_activity import MandatoryActivity as MAModel
+    from ..models.visit import Visit as VisitModel
+    q_ids = [q.QuestionId for q in db.query(FormQuestionModel).filter(FormQuestionModel.FormId == form_id).all()]
+    if q_ids:
+        db.query(VisitAnswerModel).filter(VisitAnswerModel.QuestionId.in_(q_ids)).delete(synchronize_session=False)
+        db.query(FormOptionModel).filter(FormOptionModel.QuestionId.in_(q_ids)).delete(synchronize_session=False)
+    db.query(FormQuestionModel).filter(FormQuestionModel.FormId == form_id).delete()
+    db.query(RouteFormModel).filter(RouteFormModel.FormId == form_id).delete()
+    db.query(VFTModel).filter(VFTModel.FormId == form_id).delete()
+    db.query(MAModel).filter(MAModel.FormId == form_id).update({MAModel.FormId: None})
+    db.query(RouteModel).filter(RouteModel.FormId == form_id).update({RouteModel.FormId: None})
+    db.query(VisitModel).filter(VisitModel.FormId == form_id).update({VisitModel.FormId: None})
     db.delete(f)
     db.commit()
 

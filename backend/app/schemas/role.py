@@ -16,7 +16,7 @@ class RoleUpdate(BaseModel):
 
 class Role(RoleBase):
     RoleId: int
-    CreatedAt: datetime
+    CreatedAt: datetime | None = None
 
     class Config:
         from_attributes = True
