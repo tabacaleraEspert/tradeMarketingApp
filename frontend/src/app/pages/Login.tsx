@@ -53,6 +53,7 @@ export function Login() {
   const isDev = import.meta.env.DEV;
   const DEV_PW = "Espert2026!";
   const demoUsers = [
+    { label: "Rodrigo Salinas",       sub: "Responsable TM — formularios y config", email: "rodrigo.salinas",    password: DEV_PW, icon: "shield", color: "text-red-400" },
     { label: "Equipo País",           sub: "Admin — acceso total",               email: "equipo.pais",          password: DEV_PW, icon: "shield", color: "text-amber-400" },
     { label: "Martín Lezcano",        sub: "Gte Regional — Región BA",           email: "martin.lezcano",       password: DEV_PW, icon: "shield", color: "text-violet-400" },
     { label: "Sebastián Morales",     sub: "TM Rep — GBA (347 PDVs cargados)",   email: "sebastian.morales",    password: DEV_PW, icon: "user",   color: "text-emerald-400" },

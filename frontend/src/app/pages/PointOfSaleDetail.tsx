@@ -37,8 +37,8 @@ import {
   ChevronUp,
   ImageIcon,
 } from "lucide-react";
-import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, ApiError } from "@/lib/api";
-import type { PdvPhotoRead } from "@/lib/api";
+import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
+import type { PdvPhotoRead, Route } from "@/lib/api";
 import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
 import type { PdvNote } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
@@ -73,6 +73,16 @@ export function PointOfSaleDetail() {
   const [deleteNoteId, setDeleteNoteId] = useState<number | null>(null);
   const [showClosedModal, setShowClosedModal] = useState(false);
   const [closedReason, setClosedReason] = useState("");
+  const [globalOpenVisit, setGlobalOpenVisit] = useState<{ VisitId: number; PdvId: number; PdvName?: string } | null>(null);
+  const [showContactModal, setShowContactModal] = useState(false);
+  const [editContacts, setEditContacts] = useState<typeof formData.contacts>([]);
+  const [savingContacts, setSavingContacts] = useState(false);
+  const [showAssignRouteModal, setShowAssignRouteModal] = useState(false);
+  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
+  const [assigningRoute, setAssigningRoute] = useState(false);
+  const [detectedRouteDayId, setDetectedRouteDayId] = useState<number | null>(null);
+  const [pdvHasRoute, setPdvHasRoute] = useState<boolean | null>(null); // null = loading
+  const [routeCheckDone, setRouteCheckDone] = useState(false);
   const [closingAsClosed, setClosingAsClosed] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
@@ -102,6 +112,56 @@ export function PointOfSaleDetail() {
   const { data: distributors } = useDistributors();
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
+  const { data: myRoutes } = useMyRoutes(Number(currentUser.id));
+
+  // Detect if this PDV is in today's route AND if it's in any of MY routes
+  useEffect(() => {
+    if (!id) { setRouteCheckDone(true); setPdvHasRoute(false); return; }
+    const pdvId = Number(id);
+
+    if (routeDayId) {
+      setDetectedRouteDayId(routeDayId);
+      setPdvHasRoute(true);
+      setRouteCheckDone(true);
+      return;
+    }
+
+    (async () => {
+      try {
+        // 1. Check if PDV is in today's route day
+        const rdpList = await fetchRouteDayPdvsForDate(new Date(), Number(currentUser.id)).catch(() => []);
+        const routeDayMatch = rdpList.find((rdp) => rdp.pdv.PdvId === pdvId);
+        setDetectedRouteDayId(routeDayMatch?.routeDayId ?? null);
+
+        if (routeDayMatch) {
+          setPdvHasRoute(true);
+          return;
+        }
+
+        // 2. Check all route assignments and cross-reference with my routes
+        const [assignments, myRoutesList] = await Promise.all([
+          routesApi.listPdvAssignments().catch(() => []),
+          routesApi.list({ assigned_user_id: Number(currentUser.id) }).catch(() => []),
+        ]);
+
+        // Only count routes explicitly assigned to me (not unassigned ones)
+        const myRouteIds = new Set(
+          myRoutesList
+            .filter((r) => r.AssignedUserId === Number(currentUser.id))
+            .map((r) => r.RouteId)
+        );
+        const isInMyRoute = assignments.some((a) => a.pdvId === pdvId && myRouteIds.has(a.routeId));
+        setPdvHasRoute(isInMyRoute);
+      } catch {
+        setPdvHasRoute(false);
+      } finally {
+        setRouteCheckDone(true);
+      }
+    })();
+  }, [id, routeDayId, currentUser.id]);
+
+  // The effective routeDayId: either from navigation or auto-detected
+  const effectiveRouteDayId = routeDayId ?? detectedRouteDayId;
 
   const reloadNotes = () => {
     if (!id) return;
@@ -122,11 +182,32 @@ export function PointOfSaleDetail() {
       visitsApi.list({ pdv_id: pdvId }).catch(() => []),
       pdvNotesApi.list(pdvId).catch(() => [] as PdvNote[]),
       pdvPhotosApi.list(pdvId).catch(() => [] as PdvPhotoRead[]),
-    ]).then(([p, v, n, photos]) => {
+    ]).then(async ([p, v, n, photos]) => {
       setPos(p);
       setVisits(v);
       setPdvNotes(n);
       setPdvPhotos(photos);
+
+      // Check for any open visit by this user (in ANY pdv)
+      try {
+        const userVisits = await visitsApi.list({ user_id: Number(currentUser.id) });
+        const openElsewhere = userVisits.find(
+          (uv) => (uv.Status === "OPEN" || uv.Status === "IN_PROGRESS") && uv.PdvId !== Number(id)
+        );
+        if (openElsewhere) {
+          // Try to get the PDV name
+          try {
+            const otherPdv = await pdvsApi.get(openElsewhere.PdvId);
+            setGlobalOpenVisit({ VisitId: openElsewhere.VisitId, PdvId: openElsewhere.PdvId, PdvName: otherPdv.Name });
+          } catch {
+            setGlobalOpenVisit({ VisitId: openElsewhere.VisitId, PdvId: openElsewhere.PdvId });
+          }
+        } else {
+          setGlobalOpenVisit(null);
+        }
+      } catch {
+        setGlobalOpenVisit(null);
+      }
       if (p) {
         const contactsFromPdv = p.Contacts?.length
           ? p.Contacts.map((c) => ({
@@ -207,7 +288,7 @@ export function PointOfSaleDetail() {
       // Create visit and close immediately
       const visit = await visitsApi.create({
         PdvId: Number(id),
-        RouteDayId: routeDayId ?? undefined,
+        RouteDayId: effectiveRouteDayId ?? undefined,
         Status: "OPEN",
       });
       await visitsApi.update(visit.VisitId, {
@@ -370,6 +451,70 @@ export function PointOfSaleDetail() {
     }
   };
 
+  const handleAssignToRoute = async () => {
+    if (!id || !selectedRouteId) return;
+    setAssigningRoute(true);
+    try {
+      // Get current PDVs in the route to determine sort order
+      const existingPdvs = await routesApi.listPdvs(selectedRouteId);
+      const sortOrder = existingPdvs.length + 1;
+      await routesApi.addPdv(selectedRouteId, { PdvId: Number(id), SortOrder: sortOrder });
+      const routeName = myRoutes.find((r) => r.RouteId === selectedRouteId)?.Name || "ruta";
+      toast.success(`PDV agregado a ${routeName}`);
+      setShowAssignRouteModal(false);
+      // Mark as having route immediately — no need to re-check
+      setPdvHasRoute(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al asignar ruta");
+    } finally {
+      setAssigningRoute(false);
+    }
+  };
+
+  const openContactModal = () => {
+    const contacts = pos?.Contacts?.length
+      ? pos.Contacts.map((c) => ({
+          ContactName: c.ContactName,
+          ContactPhone: c.ContactPhone || "",
+          ContactRole: c.ContactRole || "",
+          DecisionPower: c.DecisionPower || "",
+          Birthday: c.Birthday || "",
+          Notes: c.Notes || "",
+          ProfileNotes: c.ProfileNotes || "",
+        }))
+      : pos?.ContactName
+      ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone || "", ContactRole: "", DecisionPower: "", Birthday: "", Notes: "", ProfileNotes: "" }]
+      : [{ ContactName: "", ContactPhone: "", ContactRole: "", DecisionPower: "", Birthday: "", Notes: "", ProfileNotes: "" }];
+    setEditContacts(contacts);
+    setShowContactModal(true);
+  };
+
+  const handleSaveContacts = async () => {
+    if (!id) return;
+    setSavingContacts(true);
+    try {
+      const contactsToSend = editContacts
+        .filter((c) => c.ContactName.trim())
+        .map((c) => ({
+          ContactName: c.ContactName.trim(),
+          ContactPhone: c.ContactPhone?.trim() || undefined,
+          ContactRole: c.ContactRole?.trim() || undefined,
+          DecisionPower: c.DecisionPower?.trim() || undefined,
+          Birthday: c.Birthday || undefined,
+          Notes: c.Notes?.trim() || undefined,
+          ProfileNotes: c.ProfileNotes?.trim() || undefined,
+        }));
+      await pdvsApi.update(Number(id), { Contacts: contactsToSend });
+      toast.success("Contactos actualizados");
+      setShowContactModal(false);
+      loadData();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar contactos");
+    } finally {
+      setSavingContacts(false);
+    }
+  };
+
   // Toggle activo/inactivo desde el switch — si va a desactivar, pide razón
   const handleToggleActiveWithReason = (newActive: boolean) => {
     if (!newActive) {
@@ -478,9 +623,9 @@ export function PointOfSaleDetail() {
 
   // Check if TODAY's visit for this routeDay is already completed
   const todayStr = todayAR();
-  const isTodayCompleted = routeDayId
+  const isTodayCompleted = effectiveRouteDayId
     ? posVisits.some((v) =>
-        v.RouteDayId === routeDayId &&
+        v.RouteDayId === effectiveRouteDayId &&
         (v.Status === "CLOSED" || v.Status === "COMPLETED")
       )
     : posVisits.some((v) =>
@@ -488,8 +633,8 @@ export function PointOfSaleDetail() {
         (v.Status === "CLOSED" || v.Status === "COMPLETED")
       );
 
-  // Show check-in button when: coming from route day AND not yet visited today AND no open visit
-  const canCheckIn = !isVisitInProgress && !isTodayCompleted;
+  // Show check-in button when: no open visit here, not completed today, AND no open visit in another PDV
+  const canCheckIn = !isVisitInProgress && !isTodayCompleted && !globalOpenVisit;
 
   return (
     <div className="min-h-screen bg-background">
@@ -705,6 +850,95 @@ export function PointOfSaleDetail() {
           </Card>
         )}
 
+        {/* Contactos del PDV — card prominente */}
+        <Card className="border-[#A48242]/30">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <User size={18} className="text-[#A48242]" />
+                <h3 className="font-semibold text-foreground">Personas del local</h3>
+              </div>
+              <Button size="sm" variant="outline" onClick={openContactModal} className="gap-1 h-8 text-xs">
+                <Edit size={12} /> Editar
+              </Button>
+            </div>
+
+            {(() => {
+              const contacts = pos.Contacts?.length
+                ? pos.Contacts
+                : pos.ContactName
+                ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null, Notes: null, ProfileNotes: null }]
+                : [];
+
+              if (contacts.length === 0) {
+                return (
+                  <button
+                    onClick={openContactModal}
+                    className="w-full p-4 border-2 border-dashed border-border rounded-lg text-center hover:border-[#A48242]/50 hover:bg-[#A48242]/5 transition-colors"
+                  >
+                    <Plus size={20} className="mx-auto text-muted-foreground mb-1" />
+                    <p className="text-sm text-muted-foreground">Agregar contacto</p>
+                  </button>
+                );
+              }
+
+              return (
+                <div className="space-y-2">
+                  {contacts.map((c, i) => {
+                    const isExpanded = expandedContactIdx === i;
+                    const phone = c.ContactPhone?.replace(/[^0-9+]/g, "") || "";
+                    return (
+                      <div key={i} className="p-3 bg-muted/60 rounded-lg border border-border/50">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-[#A48242]/15 flex items-center justify-center shrink-0">
+                            <User size={20} className="text-[#A48242]" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-foreground">{c.ContactName}</p>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              {c.ContactRole && <Badge variant="outline" className="text-[10px] py-0">{c.ContactRole}</Badge>}
+                              {c.DecisionPower && <Badge variant={c.DecisionPower === "alto" ? "default" : "secondary"} className="text-[10px] py-0">Decisión: {c.DecisionPower}</Badge>}
+                              {c.Birthday && (
+                                <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                                  <Cake size={10} />
+                                  {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "short" })}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <button onClick={() => setExpandedContactIdx(isExpanded ? null : i)} className="p-1 text-muted-foreground hover:text-foreground">
+                            {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                          </button>
+                        </div>
+
+                        {/* Quick action bar: phone + whatsapp */}
+                        {phone && (
+                          <div className="flex gap-2 mt-2 ml-[52px]">
+                            <a href={`tel:${phone}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-100 hover:bg-green-200 transition-colors text-xs font-medium text-green-800">
+                              <PhoneCall size={14} /> {c.ContactPhone}
+                            </a>
+                            <a href={`https://wa.me/549${phone.replace(/^\+?54?9?/, "")}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors text-xs font-medium text-emerald-800">
+                              <MessageCircle size={14} /> WhatsApp
+                            </a>
+                          </div>
+                        )}
+
+                        {isExpanded && (
+                          <div className="mt-2 pt-2 border-t border-border/50 ml-[52px] space-y-1.5">
+                            {c.Birthday && <div className="flex items-center gap-1.5"><Cake size={13} className="text-muted-foreground" /><span className="text-xs text-foreground">Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "long" })}</span></div>}
+                            {(c as any).Notes && <div className="p-2 bg-amber-50/50 rounded text-xs text-amber-900"><span className="font-semibold">Notas:</span> {(c as any).Notes}</div>}
+                            {(c as any).ProfileNotes && <div className="p-2 bg-blue-50/50 rounded text-xs text-blue-900"><span className="font-semibold">Perfil:</span> {(c as any).ProfileNotes}</div>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </CardContent>
+        </Card>
+
         {/* Main Info Card */}
         <Card>
           <CardContent className="p-4 space-y-3">
@@ -716,59 +950,6 @@ export function PointOfSaleDetail() {
                 disabled={saving}
               />
             </div>
-            {/* === CONTACTOS (paso 4) === */}
-            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null, Notes: null, ProfileNotes: null }] : []).length > 0 && (
-              <div className="pt-1">
-                <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mb-2">Contactos</p>
-              </div>
-            )}
-            {(pos.Contacts?.length ? pos.Contacts : pos.ContactName ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone, ContactRole: null, DecisionPower: null, Birthday: null, Notes: null, ProfileNotes: null }] : []).map((c, i) => {
-              const isExpanded = expandedContactIdx === i;
-              const phone = c.ContactPhone?.replace(/[^0-9+]/g, "") || "";
-              return (
-                <div key={i} className="p-3 bg-muted rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-[#A48242]/10 flex items-center justify-center shrink-0">
-                      <User size={16} className="text-[#A48242]" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-foreground text-sm">{c.ContactName}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        {c.ContactRole && <Badge variant="outline" className="text-[10px] py-0">{c.ContactRole}</Badge>}
-                        {c.DecisionPower && <Badge variant={c.DecisionPower === "alto" ? "default" : "secondary"} className="text-[10px] py-0">Decisión: {c.DecisionPower}</Badge>}
-                        {c.Birthday && (
-                          <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
-                            <Cake size={10} />
-                            {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "short" })}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {phone && (
-                      <div className="flex gap-1 shrink-0">
-                        <a href={`tel:${phone}`} className="p-1.5 rounded-lg bg-green-100 hover:bg-green-200 transition-colors" title="Llamar">
-                          <PhoneCall size={14} className="text-green-700" />
-                        </a>
-                        <a href={`https://wa.me/549${phone.replace(/^\+?54?9?/, "")}`} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 transition-colors" title="WhatsApp">
-                          <MessageCircle size={14} className="text-emerald-700" />
-                        </a>
-                      </div>
-                    )}
-                    <button onClick={() => setExpandedContactIdx(isExpanded ? null : i)} className="p-1 text-muted-foreground hover:text-foreground">
-                      {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                    </button>
-                  </div>
-                  {c.ContactPhone && <p className="text-xs text-muted-foreground mt-1 ml-10">{c.ContactPhone}</p>}
-                  {isExpanded && (
-                    <div className="mt-2 pt-2 border-t border-border/50 ml-10 space-y-1.5">
-                      {c.Birthday && <div className="flex items-center gap-1.5"><Cake size={13} className="text-muted-foreground" /><span className="text-xs text-foreground">Cumpleaños: {new Date(c.Birthday).toLocaleDateString("es-AR", { timeZone: "America/Argentina/Buenos_Aires", day: "numeric", month: "long" })}</span></div>}
-                      {(c as any).Notes && <div className="p-2 bg-amber-50/50 rounded text-xs text-amber-900"><span className="font-semibold">Notas:</span> {(c as any).Notes}</div>}
-                      {(c as any).ProfileNotes && <div className="p-2 bg-blue-50/50 rounded text-xs text-blue-900"><span className="font-semibold">Perfil:</span> {(c as any).ProfileNotes}</div>}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
 
             {/* === DATOS DEL LOCAL (pasos 5-8) === */}
             <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mt-3 mb-1">Datos del local</p>
@@ -1023,15 +1204,40 @@ export function PointOfSaleDetail() {
 
         {/* Action Buttons */}
         <div className="space-y-3 pb-4">
-          {/* Check-in: show when can start a new visit */}
-          {canCheckIn && (
+          {/* Blocked: open visit in another PDV */}
+          {globalOpenVisit && !isVisitInProgress && (
+            <Card className="border-amber-300 bg-amber-50">
+              <CardContent className="p-3">
+                <div className="flex items-start gap-2">
+                  <AlertCircle size={18} className="text-amber-600 mt-0.5 shrink-0" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-amber-900">
+                      Tenés una visita abierta en {globalOpenVisit.PdvName || `PDV #${globalOpenVisit.PdvId}`}
+                    </p>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Cerrá esa visita antes de hacer check-in en otro PDV.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  className="w-full mt-2 h-10 text-sm bg-amber-600 hover:bg-amber-700"
+                  onClick={() => navigate(`/pos/${globalOpenVisit.PdvId}`)}
+                >
+                  Ir a cerrar visita
+                </Button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* CASE 1: Has route → Check-in */}
+          {canCheckIn && pdvHasRoute === true && (
             <div className="space-y-2">
               <Button
                 className="w-full h-14 text-base font-semibold bg-[#A48242] hover:bg-[#8B6E38]"
                 size="lg"
                 onClick={() =>
                   navigate(`/pos/${id}/checkin`, {
-                    state: routeDayId ? { routeDayId } : undefined,
+                    state: effectiveRouteDayId ? { routeDayId: effectiveRouteDayId } : undefined,
                   })
                 }
               >
@@ -1049,6 +1255,23 @@ export function PointOfSaleDetail() {
             </div>
           )}
 
+          {/* CASE 2: No route → Assign route (no check-in) */}
+          {canCheckIn && pdvHasRoute === false && routeCheckDone && (
+            <div className="space-y-2">
+              <Button
+                className="w-full h-14 text-base font-semibold bg-[#A48242] hover:bg-[#8B6E38]"
+                size="lg"
+                onClick={() => { setSelectedRouteId(null); setShowAssignRouteModal(true); }}
+              >
+                <Plus className="mr-2" size={20} />
+                Asignar a Ruta
+              </Button>
+              <p className="text-xs text-muted-foreground text-center">
+                Este PDV no está en ninguna ruta. Asignalo para poder hacer check-in.
+              </p>
+            </div>
+          )}
+
           {/* Visit in progress: show relevamiento + photos + actions */}
           {isVisitInProgress && (
             <>
@@ -1063,7 +1286,7 @@ export function PointOfSaleDetail() {
                       className="w-full h-12 text-sm font-semibold"
                       onClick={() =>
                         navigate(`/pos/${id}/survey`, {
-                          state: { routeDayId, visitId: openVisit?.VisitId },
+                          state: { routeDayId: effectiveRouteDayId, visitId: openVisit?.VisitId },
                         })
                       }
                     >
@@ -1076,7 +1299,7 @@ export function PointOfSaleDetail() {
                         className="h-10 text-xs"
                         onClick={() =>
                           navigate(`/pos/${id}/photos`, {
-                            state: { routeDayId, visitId: openVisit?.VisitId },
+                            state: { routeDayId: effectiveRouteDayId, visitId: openVisit?.VisitId },
                           })
                         }
                       >
@@ -1088,7 +1311,7 @@ export function PointOfSaleDetail() {
                         className="h-10 text-xs"
                         onClick={() =>
                           navigate(`/pos/${id}/actions`, {
-                            state: { routeDayId, visitId: openVisit?.VisitId },
+                            state: { routeDayId: effectiveRouteDayId, visitId: openVisit?.VisitId },
                           })
                         }
                       >
@@ -1673,6 +1896,180 @@ export function PointOfSaleDetail() {
             className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none"
             autoFocus
           />
+        </div>
+      </Modal>
+
+      {/* Contact Edit Modal */}
+      <Modal
+        isOpen={showContactModal}
+        onClose={() => setShowContactModal(false)}
+        title="Personas del local"
+        size="lg"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowContactModal(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleSaveContacts}
+              disabled={savingContacts}
+              className="bg-[#A48242] hover:bg-[#8B6E38]"
+            >
+              {savingContacts ? "Guardando..." : "Guardar contactos"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+          {editContacts.map((c, idx) => (
+            <div key={idx} className="p-4 border border-border rounded-lg space-y-3 relative">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[#A48242] uppercase">Contacto {idx + 1}</span>
+                {editContacts.length > 1 && (
+                  <button
+                    onClick={() => setEditContacts((prev) => prev.filter((_, i) => i !== idx))}
+                    className="p-1 text-red-400 hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs text-muted-foreground mb-1 block">Nombre *</label>
+                  <Input
+                    value={c.ContactName}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, ContactName: e.target.value } : cc))}
+                    placeholder="Nombre completo"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Teléfono</label>
+                  <Input
+                    value={c.ContactPhone || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, ContactPhone: e.target.value } : cc))}
+                    placeholder="11 1234-5678"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Rol</label>
+                  <Input
+                    value={c.ContactRole || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, ContactRole: e.target.value } : cc))}
+                    placeholder="Dueño, Encargado..."
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Poder de decisión</label>
+                  <select
+                    value={c.DecisionPower || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, DecisionPower: e.target.value } : cc))}
+                    className="w-full h-10 px-3 border border-border rounded-md text-sm bg-background"
+                  >
+                    <option value="">—</option>
+                    <option value="alto">Alto</option>
+                    <option value="medio">Medio</option>
+                    <option value="bajo">Bajo</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground mb-1 block">Cumpleaños</label>
+                  <Input
+                    type="date"
+                    value={c.Birthday || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, Birthday: e.target.value } : cc))}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-muted-foreground mb-1 block">Notas</label>
+                  <textarea
+                    value={c.Notes || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, Notes: e.target.value } : cc))}
+                    placeholder="Observaciones sobre esta persona..."
+                    rows={2}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-muted-foreground mb-1 block">Perfil</label>
+                  <textarea
+                    value={c.ProfileNotes || ""}
+                    onChange={(e) => setEditContacts((prev) => prev.map((cc, i) => i === idx ? { ...cc, ProfileNotes: e.target.value } : cc))}
+                    placeholder="Info del perfil comercial..."
+                    rows={2}
+                    className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+          <Button
+            variant="outline"
+            className="w-full border-dashed"
+            onClick={() => setEditContacts((prev) => [...prev, { ContactName: "", ContactPhone: "", ContactRole: "", DecisionPower: "", Birthday: "", Notes: "", ProfileNotes: "" }])}
+          >
+            <Plus size={16} className="mr-2" /> Agregar contacto
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Assign Route Modal */}
+      <Modal
+        isOpen={showAssignRouteModal}
+        onClose={() => setShowAssignRouteModal(false)}
+        title="Asignar a ruta"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowAssignRouteModal(false)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleAssignToRoute}
+              disabled={!selectedRouteId || assigningRoute}
+              className="bg-[#A48242] hover:bg-[#8B6E38]"
+            >
+              {assigningRoute ? "Asignando..." : "Confirmar"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-2">
+          <p className="text-sm text-muted-foreground mb-3">
+            Elegí la ruta a la que querés agregar <strong>{pos?.Name}</strong>:
+          </p>
+          {myRoutes.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">No tenés rutas creadas.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[40vh] overflow-y-auto">
+              {myRoutes.filter((r) => r.IsActive).map((route) => (
+                <button
+                  key={route.RouteId}
+                  onClick={() => setSelectedRouteId(route.RouteId)}
+                  className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-colors ${
+                    selectedRouteId === route.RouteId
+                      ? "border-[#A48242] bg-[#A48242]/10"
+                      : "border-border hover:bg-muted"
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    selectedRouteId === route.RouteId ? "bg-[#A48242] text-white" : "bg-muted text-muted-foreground"
+                  }`}>
+                    <Navigation size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-foreground text-sm">{route.Name}</p>
+                    {route.BejermanZone && (
+                      <p className="text-xs text-muted-foreground">{route.BejermanZone}</p>
+                    )}
+                  </div>
+                  {selectedRouteId === route.RouteId && (
+                    <CheckCircle2 size={18} className="text-[#A48242] shrink-0" />
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </Modal>
     </div>

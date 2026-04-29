@@ -97,20 +97,24 @@ def create_visit(
             detail="Sólo podés crear visitas a tu nombre",
         )
 
-    # 3. No permitir crear una visita nueva si ya hay una OPEN/IN_PROGRESS para el mismo (PDV, User)
-    duplicate = (
+    # 3. No permitir crear una visita nueva si el usuario ya tiene CUALQUIER visita OPEN/IN_PROGRESS
+    open_visit = (
         db.query(VisitModel)
         .filter(
-            VisitModel.PdvId == data.PdvId,
             VisitModel.UserId == data.UserId,
             VisitModel.Status.in_(["OPEN", "IN_PROGRESS"]),
         )
         .first()
     )
-    if duplicate:
+    if open_visit:
+        if open_visit.PdvId == data.PdvId:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Ya tenés una visita abierta en este PDV (visit_id={open_visit.VisitId})",
+            )
         raise HTTPException(
             status_code=409,
-            detail=f"Ya tenés una visita abierta en este PDV (visit_id={duplicate.VisitId})",
+            detail=f"Tenés una visita abierta en otro PDV (visit_id={open_visit.VisitId}, pdv_id={open_visit.PdvId}). Cerrala antes de hacer check-in.",
         )
 
     # 4. Validar Status del request si vino

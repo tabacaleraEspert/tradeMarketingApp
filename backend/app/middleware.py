@@ -57,8 +57,8 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin")
             if origin:
                 from .config import settings
-                allowed = settings.frontend_origin
-                if allowed and origin == allowed:
+                allowed = [o.strip() for o in settings.frontend_origin.split(",") if o.strip()] if settings.frontend_origin else []
+                if not allowed or origin in allowed:
                     cors_headers["Access-Control-Allow-Origin"] = origin
                     cors_headers["Access-Control-Allow-Credentials"] = "true"
 

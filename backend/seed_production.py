@@ -91,10 +91,10 @@ def seed_roles(db: Session) -> dict[str, int]:
 USERS = [
     # Dirección
     ("Equipo País", "equipo.pais", "admin", None, None),
-    ("Responsable TM", "responsable.tm", "admin", None, None),
+    ("Rodrigo Salinas", "rodrigo.salinas", "admin", None, None),
 
     # Gte Regional BA
-    ("Martín Lezcano", "martin.lezcano", "regional_manager", None, "responsable.tm"),
+    ("Martín Lezcano", "martin.lezcano", "regional_manager", None, "rodrigo.salinas"),
 
     # Territory Managers AMBA
     ("Franco García", "franco.garcia", "territory_manager", "BS AS Costa", "martin.lezcano"),
@@ -106,13 +106,13 @@ USERS = [
     ("Nahuel Segare", "nahuel.segare", "territory_manager", "Zona Sur 1", "martin.lezcano"),
 
     # Territory Managers Interior
-    ("Fabrizio Faini", "fabrizio.faini", "territory_manager", "Litoral", "responsable.tm"),
-    ("Emmanuel Andurena", "emmanuel.andurena", "territory_manager", "Cuyo", "responsable.tm"),
-    ("Andrés Spagnolo", "andres.spagnolo", "territory_manager", "NEA", "responsable.tm"),
-    ("Pablo Bruscoli", "pablo.bruscoli", "territory_manager", "Córdoba", "responsable.tm"),
-    ("Martín Martín", "martin.martin", "territory_manager", "Patagonia Costa", "responsable.tm"),
-    ("Juan San Miguel", "juan.sanmiguel", "territory_manager", "Patagonia Andina", "responsable.tm"),
-    ("Duilio Anaya", "duilio.anaya", "territory_manager", "NOA", "responsable.tm"),
+    ("Fabrizio Faini", "fabrizio.faini", "territory_manager", "Litoral", "rodrigo.salinas"),
+    ("Emmanuel Andurena", "emmanuel.andurena", "territory_manager", "Cuyo", "rodrigo.salinas"),
+    ("Andrés Spagnolo", "andres.spagnolo", "territory_manager", "NEA", "rodrigo.salinas"),
+    ("Pablo Bruscoli", "pablo.bruscoli", "territory_manager", "Córdoba", "rodrigo.salinas"),
+    ("Martín Martín", "martin.martin", "territory_manager", "Patagonia Costa", "rodrigo.salinas"),
+    ("Juan San Miguel", "juan.sanmiguel", "territory_manager", "Patagonia Andina", "rodrigo.salinas"),
+    ("Duilio Anaya", "duilio.anaya", "territory_manager", "NOA", "rodrigo.salinas"),
 
     # TM Reps AMBA
     ("Claudio Pagani", "claudio.pagani", "vendedor", "BS AS Costa", "franco.garcia"),

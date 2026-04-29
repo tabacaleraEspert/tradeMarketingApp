@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     database_connection_timeout: int = 60
 
     # --- CORS ---
-    frontend_origin: str = "http://localhost:5173"
+    # Comma-separated origins. Default covers common Vite dev ports.
+    # In production, set FRONTEND_ORIGIN to the real frontend URL.
+    frontend_origin: str = "http://localhost:5173,http://localhost:5174,http://localhost:5175"
 
     # --- Auth / JWT ---
     # IMPORTANT: override JWT_SECRET_KEY via env var en producción

@@ -23,6 +23,7 @@ import type { Visit, VisitAction } from "@/lib/api";
 import { useRouteDayPdvsForDate } from "@/lib/api/hooks";
 import { getCurrentUser } from "../lib/auth";
 import { todayAR } from "../lib/dateUtils";
+import { ConfirmModal } from "../components/ui/modal";
 import { toast } from "sonner";
 
 export function EndOfDayPage() {
@@ -38,6 +39,8 @@ export function EndOfDayPage() {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [allActions, setAllActions] = useState<VisitAction[]>([]);
   const [loadingDetails, setLoadingDetails] = useState(true);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [closingVisits, setClosingVisits] = useState(false);
 
   useEffect(() => {
     const loadVisits = async () => {
@@ -94,6 +97,27 @@ export function EndOfDayPage() {
   const pendingItems = visits
     .filter((v) => v.CloseReason)
     .map((v) => ({ visitId: v.VisitId, pdvId: v.PdvId, reminder: v.CloseReason! }));
+
+  const openVisitsList = visits.filter((v) => v.Status === "OPEN" || v.Status === "IN_PROGRESS");
+
+  const handleCloseAllOpenVisits = async () => {
+    setClosingVisits(true);
+    try {
+      for (const v of openVisitsList) {
+        await visitsApi.update(v.VisitId, { Status: "CLOSED", CloseReason: "Cerrado automáticamente al cierre de jornada" });
+      }
+      toast.success(`${openVisitsList.length} visita(s) cerrada(s)`);
+      // Reload visits
+      const todayStr = todayAR();
+      const v = await visitsApi.list({ user_id: Number(currentUser.id) });
+      setVisits(v.filter((vis) => vis.OpenedAt.startsWith(todayStr)));
+    } catch {
+      toast.error("Error al cerrar visitas");
+    } finally {
+      setClosingVisits(false);
+      setShowCloseConfirm(false);
+    }
+  };
 
   if (loading || loadingDetails) {
     return (
@@ -247,11 +271,35 @@ export function EndOfDayPage() {
       </div>
 
       {/* Bottom bar */}
-      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
-        <Button className="w-full h-12 text-base font-semibold" onClick={() => navigate("/")}>
+      <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] space-y-2">
+        {openVisitsList.length > 0 && (
+          <Button
+            className="w-full h-12 text-base font-semibold bg-amber-600 hover:bg-amber-700"
+            onClick={() => setShowCloseConfirm(true)}
+            disabled={closingVisits}
+          >
+            <AlertTriangle className="mr-2" size={18} />
+            Cerrar {openVisitsList.length} visita(s) abierta(s)
+          </Button>
+        )}
+        <Button
+          className="w-full h-12 text-base font-semibold"
+          variant={openVisitsList.length > 0 ? "outline" : "default"}
+          onClick={() => navigate("/")}
+        >
           Volver al Inicio
         </Button>
       </div>
+
+      <ConfirmModal
+        isOpen={showCloseConfirm}
+        onClose={() => setShowCloseConfirm(false)}
+        onConfirm={handleCloseAllOpenVisits}
+        title="Cerrar visitas abiertas"
+        message={`Hay ${openVisitsList.length} visita(s) sin cerrar. Se cerrarán automáticamente con el motivo "Cierre de jornada". ¿Continuar?`}
+        confirmText={closingVisits ? "Cerrando..." : "Cerrar todas"}
+        type="warning"
+      />
     </div>
   );
 }
