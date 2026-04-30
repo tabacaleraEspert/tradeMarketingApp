@@ -653,7 +653,7 @@ export function MyRouteEditorPage() {
                       className="fixed inset-0 z-40"
                       onClick={() => setShowAddPdv(false)}
                     />
-                    <div className="absolute right-0 top-full mt-2 w-72 max-h-64 overflow-y-auto bg-card rounded-lg shadow-xl border border-border p-2 z-50">
+                    <div className="absolute right-0 top-full mt-2 w-[calc(100vw-2rem)] max-w-sm max-h-64 overflow-y-auto bg-card rounded-lg shadow-xl border border-border p-2 z-50">
                       {availablePdvs.length === 0 ? (
                         <p className="text-sm text-muted-foreground p-2">No hay PDVs disponibles</p>
                       ) : (
@@ -903,32 +903,38 @@ function PdvRow({
   }
 
   return (
-    <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-      <div className="flex flex-col gap-0.5 shrink-0">
-        <button
-          onClick={onMoveUp}
-          disabled={!onMoveUp || disabled}
-          className="p-0.5 rounded hover:bg-background disabled:opacity-20 transition-colors"
-        >
-          <ChevronUp size={14} className="text-muted-foreground" />
-        </button>
-        <button
-          onClick={onMoveDown}
-          disabled={!onMoveDown || disabled}
-          className="p-0.5 rounded hover:bg-background disabled:opacity-20 transition-colors"
-        >
-          <ChevronDown size={14} className="text-muted-foreground" />
+    <div className="p-3 bg-muted rounded-lg">
+      <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-0.5 shrink-0">
+          <button
+            onClick={onMoveUp}
+            disabled={!onMoveUp || disabled}
+            className="p-0.5 rounded hover:bg-background disabled:opacity-20 transition-colors"
+          >
+            <ChevronUp size={14} className="text-muted-foreground" />
+          </button>
+          <button
+            onClick={onMoveDown}
+            disabled={!onMoveDown || disabled}
+            className="p-0.5 rounded hover:bg-background disabled:opacity-20 transition-colors"
+          >
+            <ChevronDown size={14} className="text-muted-foreground" />
+          </button>
+        </div>
+        <span className="w-6 text-xs font-bold text-[#A48242] shrink-0">#{sortOrder}</span>
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-foreground text-sm truncate">{pdv.Name}</p>
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <p className="text-[11px] text-muted-foreground truncate">{pdv.Address || pdv.City || ""}</p>
+            {(pdv.ChannelName || pdv.Channel) && (
+              <Badge variant="outline" className="text-[9px] py-0 shrink-0">{pdv.ChannelName || pdv.Channel}</Badge>
+            )}
+          </div>
+        </div>
+        <button onClick={onRemove} disabled={disabled} className="shrink-0 p-1.5 text-red-400 hover:text-red-600">
+          <Trash2 size={14} />
         </button>
       </div>
-      <span className="w-7 text-xs font-bold text-[#A48242]">#{sortOrder}</span>
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-foreground text-sm truncate">{pdv.Name}</p>
-        <p className="text-xs text-muted-foreground truncate">{pdv.Address || pdv.City || ""}</p>
-      </div>
-      <Badge variant="outline" className="text-[10px] shrink-0">{pdv.ChannelName || pdv.Channel}</Badge>
-      <Button variant="ghost" size="sm" onClick={onRemove} disabled={disabled} className="shrink-0 p-1">
-        <Trash2 size={16} className="text-red-500" />
-      </Button>
     </div>
   );
 }

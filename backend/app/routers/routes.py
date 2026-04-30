@@ -315,6 +315,31 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get
     if route:
         route.IsOptimized = False
 
+    # Auto-add PDV to today's and future RouteDays (so it appears immediately in Home)
+    from datetime import date as date_type
+    today = date_type.today()
+    future_days = (
+        db.query(RouteDayModel)
+        .filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= today,
+        )
+        .all()
+    )
+    for rd in future_days:
+        exists = db.query(RouteDayPdvModel).filter(
+            RouteDayPdvModel.RouteDayId == rd.RouteDayId,
+            RouteDayPdvModel.PdvId == data.PdvId,
+        ).first()
+        if not exists:
+            db.add(RouteDayPdvModel(
+                RouteDayId=rd.RouteDayId,
+                PdvId=data.PdvId,
+                PlannedOrder=data.SortOrder,
+                Priority=data.Priority or 3,
+                ExecutionStatus="PENDING",
+            ))
+
     db.commit()
     db.refresh(rp)
     return rp
