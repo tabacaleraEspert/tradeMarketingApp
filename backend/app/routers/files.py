@@ -188,7 +188,7 @@ async def upload_visit_photo(
         db.rollback()
         import logging
         logging.getLogger("app").error(f"DB commit failed for visit photo {visit_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}: {str(e)[:400]}")
     db.refresh(file_record)
     db.refresh(vp)
 
@@ -371,7 +371,7 @@ async def upload_pdv_photo(
         db.rollback()
         import logging
         logging.getLogger("app").error(f"DB commit failed for PDV photo {pdv_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}: {str(e)[:400]}")
     db.refresh(file_record)
     db.refresh(pp)
 
