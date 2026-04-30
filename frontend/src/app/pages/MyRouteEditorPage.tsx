@@ -88,22 +88,15 @@ export function MyRouteEditorPage() {
     loadRoute();
   }, [loadRoute]);
 
-  // PDVs already assigned to ANY route (not just this one)
+  // PDVs already assigned to ANY route (global, not just mine)
   const [allAssignedPdvIds, setAllAssignedPdvIds] = useState<Set<number>>(new Set());
   useEffect(() => {
-    if (myRoutes.length === 0) return;
-    const fetchAll = async () => {
-      const assigned = new Set<number>();
-      for (const r of myRoutes) {
-        try {
-          const rps = await routesApi.listPdvs(r.RouteId);
-          for (const rp of rps) assigned.add(rp.PdvId);
-        } catch { /* skip */ }
-      }
-      setAllAssignedPdvIds(assigned);
-    };
-    fetchAll();
-  }, [myRoutes]);
+    routesApi.listPdvAssignments()
+      .then((assignments) => {
+        setAllAssignedPdvIds(new Set(assignments.map((a) => a.pdvId)));
+      })
+      .catch(() => {});
+  }, [routePdvs]);
 
   const availablePdvs = pdvs.filter(
     (p) => !allAssignedPdvIds.has(p.PdvId) && !routePdvs.some((rp) => rp.PdvId === p.PdvId)
@@ -219,8 +212,10 @@ export function MyRouteEditorPage() {
       const ft = routeDraft.FrequencyType;
       const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
       const dates: string[] = [];
+      // Normalize to midnight so "today" includes today's date
       const today = new Date();
-      const startDate = config.startDate ? new Date(config.startDate + "T12:00:00") : today;
+      today.setHours(0, 0, 0, 0);
+      const startDate = config.startDate ? new Date(config.startDate + "T00:00:00") : new Date(today);
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + weeksAhead * 7);
       // After deletion, remaining are past/non-planned — skip them
@@ -859,6 +854,20 @@ export function MyRouteEditorPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Sticky save button at bottom */}
+      {canEdit && routeDraft && (
+        <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
+          <Button
+            className="w-full h-12 text-base font-semibold bg-[#A48242] hover:bg-[#8B6E38]"
+            onClick={handleSaveRouteMetadata}
+            disabled={saving || !routeDraft.Name?.trim()}
+          >
+            <Save size={18} className="mr-2" />
+            {saving ? "Guardando..." : "Guardar Ruta"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

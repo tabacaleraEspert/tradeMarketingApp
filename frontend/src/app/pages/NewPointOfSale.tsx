@@ -367,22 +367,6 @@ export function NewPointOfSale() {
               <Label htmlFor="address">
                 Dirección <span className="text-red-600">*</span>
               </Label>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleUseCurrentLocation}
-                disabled={capturingLocation || !isMapsLoaded}
-                className="w-full"
-              >
-                <Crosshair size={16} className="mr-2" />
-                {capturingLocation ? "Obteniendo ubicación..." : "Usar mi ubicación actual"}
-              </Button>
-              {capturedGps && (
-                <p className="text-xs text-muted-foreground">
-                  Ubicación capturada: {capturedGps.lat.toFixed(6)}, {capturedGps.lon.toFixed(6)}
-                </p>
-              )}
               <AddressAutocomplete
                 id="address"
                 value={formData.address}
@@ -404,20 +388,6 @@ export function NewPointOfSale() {
                   <Search size={16} className="mr-2" />
                   {geocoding ? "Buscando..." : "Buscar ubicación en mapa"}
                 </Button>
-              )}
-              {addressOutOfRange && (
-                <div className="flex items-start gap-2 p-2 bg-red-50 border border-red-200 rounded-lg">
-                  <AlertTriangle size={16} className="text-red-600 shrink-0 mt-0.5" />
-                  <p className="text-xs text-red-700">
-                    La dirección está a <strong>{Math.round(addressDistance!)}m</strong> de tu ubicación capturada.
-                    Máximo permitido: {ADDRESS_MAX_DISTANCE_M}m.
-                  </p>
-                </div>
-              )}
-              {addressDistance !== null && !addressOutOfRange && (
-                <p className="text-xs text-green-700">
-                  Dirección a {Math.round(addressDistance)}m de la ubicación capturada ✓
-                </p>
               )}
               {formData.lat != null && formData.lon != null && (
                 <>
@@ -600,50 +570,61 @@ export function NewPointOfSale() {
               ))}
             </div>
 
-            {timeSlots.map((slot, idx) => (
-              <div key={idx} className="flex items-center gap-2">
-                <Input
-                  type="time"
-                  value={slot.from}
-                  onChange={(e) => {
-                    const updated = [...timeSlots];
-                    updated[idx] = { ...slot, from: e.target.value };
-                    setTimeSlots(updated);
-                  }}
-                  className="w-28"
-                />
-                <span className="text-muted-foreground text-sm">a</span>
-                <Input
-                  type="time"
-                  value={slot.to}
-                  onChange={(e) => {
-                    const updated = [...timeSlots];
-                    updated[idx] = { ...slot, to: e.target.value };
-                    setTimeSlots(updated);
-                  }}
-                  className="w-28"
-                />
-                <Input
-                  placeholder="Ej: Mañana"
-                  value={slot.label}
-                  onChange={(e) => {
-                    const updated = [...timeSlots];
-                    updated[idx] = { ...slot, label: e.target.value };
-                    setTimeSlots(updated);
-                  }}
-                  className="flex-1"
-                />
-                {timeSlots.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setTimeSlots(timeSlots.filter((_, i) => i !== idx))}
-                    className="p-1 text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </div>
-            ))}
+            {timeSlots.map((slot, idx) => {
+              const [fromH = "08", fromM = "00"] = slot.from.split(":");
+              const [toH = "20", toM = "00"] = slot.to.split(":");
+              const updateTime = (field: "from" | "to", h: string, m: string) => {
+                const updated = [...timeSlots];
+                updated[idx] = { ...slot, [field]: `${h.padStart(2, "0")}:${m.padStart(2, "0")}` };
+                setTimeSlots(updated);
+              };
+              return (
+                <div key={idx} className="p-3 bg-muted/50 rounded-lg border border-border space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Input
+                      placeholder="Ej: Mañana"
+                      value={slot.label}
+                      onChange={(e) => {
+                        const updated = [...timeSlots];
+                        updated[idx] = { ...slot, label: e.target.value };
+                        setTimeSlots(updated);
+                      }}
+                      className="flex-1 h-8 text-sm"
+                    />
+                    {timeSlots.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => setTimeSlots(timeSlots.filter((_, i) => i !== idx))}
+                        className="p-1.5 ml-2 text-red-400 hover:text-red-600"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 flex-1">
+                      <select value={fromH} onChange={(e) => updateTime("from", e.target.value, fromM)} className="h-10 px-2 border border-border rounded-md text-sm bg-background flex-1 text-center">
+                        {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                      <span className="text-muted-foreground font-bold">:</span>
+                      <select value={fromM} onChange={(e) => updateTime("from", fromH, e.target.value)} className="h-10 px-2 border border-border rounded-md text-sm bg-background flex-1 text-center">
+                        {["00", "15", "30", "45"].map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <span className="text-muted-foreground text-xs font-medium">a</span>
+                    <div className="flex items-center gap-1 flex-1">
+                      <select value={toH} onChange={(e) => updateTime("to", e.target.value, toM)} className="h-10 px-2 border border-border rounded-md text-sm bg-background flex-1 text-center">
+                        {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0")).map((h) => <option key={h} value={h}>{h}</option>)}
+                      </select>
+                      <span className="text-muted-foreground font-bold">:</span>
+                      <select value={toM} onChange={(e) => updateTime("to", toH, e.target.value)} className="h-10 px-2 border border-border rounded-md text-sm bg-background flex-1 text-center">
+                        {["00", "15", "30", "45"].map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
 
             {timeSlots.length === 0 && (
               <p className="text-xs text-muted-foreground">Sin horario definido. Agregá una franja o usá un preset.</p>
@@ -865,14 +846,6 @@ export function NewPointOfSale() {
               <Badge variant="outline">{photos.length} fotos</Badge>
             </div>
 
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              className="hidden"
-              onChange={handlePhotoSelected}
-            />
             <Button type="button" variant="outline" className="w-full" onClick={handleTakePhoto}>
               <Camera size={18} className="mr-2" />
               Tomar Foto del Frente
@@ -919,6 +892,15 @@ export function NewPointOfSale() {
           </Button>
         </div>
       </form>
+
+      {/* File input outside form to prevent iOS issues with capture */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handlePhotoSelected}
+      />
     </div>
   );
 }
