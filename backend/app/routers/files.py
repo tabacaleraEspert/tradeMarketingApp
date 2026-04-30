@@ -148,7 +148,12 @@ async def upload_visit_photo(
 
     # Subir al storage
     subdir = f"visits/{visit_id}"
-    blob_key = storage.upload_bytes(data=data, content_type=content_type, subdir=subdir)
+    try:
+        blob_key = storage.upload_bytes(data=data, content_type=content_type, subdir=subdir)
+    except Exception as e:
+        import logging
+        logging.getLogger("app").error(f"Storage upload failed for visit {visit_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Error al subir archivo al storage: {type(e).__name__}")
     url = storage.get_url(blob_key)
     sha = compute_sha256(data)
 
@@ -175,7 +180,13 @@ async def upload_visit_photo(
         Notes=notes,
     )
     db.add(vp)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import logging
+        logging.getLogger("app").error(f"DB commit failed for visit photo {visit_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}")
     db.refresh(file_record)
     db.refresh(vp)
 
@@ -320,7 +331,12 @@ async def upload_pdv_photo(
         )
 
     subdir = f"pdvs/{pdv_id}"
-    blob_key = storage.upload_bytes(data=data, content_type=content_type, subdir=subdir)
+    try:
+        blob_key = storage.upload_bytes(data=data, content_type=content_type, subdir=subdir)
+    except Exception as e:
+        import logging
+        logging.getLogger("app").error(f"Storage upload failed for PDV {pdv_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"Error al subir archivo al storage: {type(e).__name__}")
     url = storage.get_url(blob_key)
     sha = compute_sha256(data)
 
@@ -345,7 +361,13 @@ async def upload_pdv_photo(
         Notes=notes,
     )
     db.add(pp)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        import logging
+        logging.getLogger("app").error(f"DB commit failed for PDV photo {pdv_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al guardar foto en DB: {type(e).__name__}")
     db.refresh(file_record)
     db.refresh(pp)
 
