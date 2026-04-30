@@ -184,7 +184,15 @@ export function CoverageFormPage() {
           Price: r.Works && r.Price ? Number(r.Price) : undefined,
           Availability: r.Works ? r.Availability : undefined,
         }));
-      await visitCoverageApi.bulkSave(visitId, items);
+      // Save coverage items + category statuses in parallel
+      const categoryItems = Object.entries(categoryStatus).map(([cat, works]) => ({
+        Category: cat,
+        Status: works ? "trabaja" : "no_trabaja",
+      }));
+      await Promise.all([
+        visitCoverageApi.bulkSave(visitId, items),
+        id ? pdvProductCategoriesApi.bulkUpsert(Number(id), categoryItems).catch(() => {}) : Promise.resolve(),
+      ]);
       toast.success("Cobertura guardada");
       navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } });
     } catch (err) {
