@@ -26,6 +26,7 @@ import { ProductManagement } from "./pages/admin/ProductManagement";
 import { NotificationManagement } from "./pages/admin/NotificationManagement";
 import { UserManagement } from "./pages/admin/UserManagement";
 import { TerritoryManagement } from "./pages/admin/TerritoryManagement";
+import { VisitDataExplorer } from "./pages/admin/VisitDataExplorer";
 // MandatoryActivityManagement merged into FormBuilder as "Plantillas de Visita"
 import { PlantLayout } from "./pages/plant/PlantLayout";
 import { PlantDashboard } from "./pages/plant/PlantDashboard";
@@ -99,6 +100,7 @@ export const router = createBrowserRouter([
       { path: "notifications", Component: NotificationManagement },
       { path: "forms/:formId/edit", Component: FormEditorPage },
       { path: "reports", Component: Reports },
+      { path: "visit-data", Component: VisitDataExplorer },
       { path: "users", Component: UserManagement },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],

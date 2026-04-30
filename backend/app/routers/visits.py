@@ -54,6 +54,7 @@ def list_visits(
     pdv_id: int | None = None,
     route_day_id: int | None = None,
     status: str | None = None,
+    enrich: bool = False,
     db: Session = Depends(get_db),
 ):
     q = db.query(VisitModel)
@@ -65,7 +66,31 @@ def list_visits(
         q = q.filter(VisitModel.RouteDayId == route_day_id)
     if status is not None:
         q = q.filter(VisitModel.Status == status)
-    return q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
+    visits = q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
+
+    if not enrich:
+        return visits
+
+    # Enrich with PDV name and user name for admin views
+    pdv_ids = {v.PdvId for v in visits if v.PdvId}
+    user_ids = {v.UserId for v in visits if v.UserId}
+    pdv_map = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
+    user_map = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()} if user_ids else {}
+
+    result = []
+    for v in visits:
+        d = {
+            "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
+            "RouteDayId": v.RouteDayId, "Status": v.Status,
+            "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
+            "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
+            "CloseReason": v.CloseReason,
+            "PdvName": pdv_map[v.PdvId].Name if v.PdvId and v.PdvId in pdv_map else None,
+            "PdvAddress": pdv_map[v.PdvId].Address if v.PdvId and v.PdvId in pdv_map else None,
+            "UserName": user_map[v.UserId].DisplayName if v.UserId and v.UserId in user_map else None,
+        }
+        result.append(d)
+    return result
 
 
 @router.get("/{visit_id}", response_model=Visit)
@@ -74,6 +99,92 @@ def get_visit(visit_id: int, db: Session = Depends(get_db)):
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
     return v
+
+
+@router.get("/{visit_id}/full")
+def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    """Full visit detail: visit + PDV + user + answers + coverage + POP + market news + photos."""
+    from ..models.market_news import MarketNews as MNModel
+    from ..models.visit import VisitPhoto as VPModel
+    from ..models.file import File as FileModel
+    from ..storage import storage
+
+    v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == v.PdvId).first()
+    user = db.query(UserModel).filter(UserModel.UserId == v.UserId).first()
+
+    # Answers with question labels
+    answers_raw = db.query(VisitAnswerModel).filter(VisitAnswerModel.VisitId == visit_id).all()
+    q_ids = [a.QuestionId for a in answers_raw]
+    questions = {q.QuestionId: q for q in db.query(FormQuestionModel).filter(FormQuestionModel.QuestionId.in_(q_ids)).all()} if q_ids else {}
+    answers = []
+    for a in answers_raw:
+        q = questions.get(a.QuestionId)
+        answers.append({
+            "QuestionId": a.QuestionId,
+            "Label": q.Label if q else f"Pregunta #{a.QuestionId}",
+            "QType": q.QType if q else "text",
+            "ValueText": a.ValueText,
+            "ValueNumber": float(a.ValueNumber) if a.ValueNumber is not None else None,
+            "ValueBool": a.ValueBool,
+            "ValueJson": a.ValueJson,
+        })
+
+    # Coverage with product names
+    cov_raw = db.query(CoverageModel).filter(CoverageModel.VisitId == visit_id).all()
+    prod_ids = [c.ProductId for c in cov_raw]
+    products = {p.ProductId: p for p in db.query(ProductModel).filter(ProductModel.ProductId.in_(prod_ids)).all()} if prod_ids else {}
+    coverage = []
+    for c in cov_raw:
+        p = products.get(c.ProductId)
+        coverage.append({
+            "ProductId": c.ProductId,
+            "ProductName": p.Name if p else f"Producto #{c.ProductId}",
+            "Category": p.Category if p else "",
+            "Manufacturer": p.Manufacturer if p else None,
+            "IsOwn": p.IsOwn if p else False,
+            "Works": c.Works,
+            "Price": float(c.Price) if c.Price is not None else None,
+            "Availability": c.Availability,
+        })
+
+    # POP
+    pop = [
+        {"MaterialType": p.MaterialType, "MaterialName": p.MaterialName, "Company": p.Company, "Present": p.Present, "HasPrice": p.HasPrice}
+        for p in db.query(POPModel).filter(POPModel.VisitId == visit_id).all()
+    ]
+
+    # Market news
+    news = [
+        {"MarketNewsId": n.MarketNewsId, "Tags": n.Tags, "Notes": n.Notes, "CreatedAt": n.CreatedAt.isoformat() if n.CreatedAt else None}
+        for n in db.query(MNModel).filter(MNModel.VisitId == visit_id).all()
+    ]
+
+    # Photos
+    photo_rows = db.query(VPModel, FileModel).join(FileModel, FileModel.FileId == VPModel.FileId).filter(VPModel.VisitId == visit_id).all()
+    photos = []
+    for vp, f in photo_rows:
+        url = storage.get_url(f.BlobKey) if f.BlobKey else (f.Url or "")
+        photos.append({"FileId": f.FileId, "PhotoType": vp.PhotoType, "url": url, "Notes": vp.Notes})
+
+    return {
+        "visit": {
+            "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
+            "Status": v.Status, "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
+            "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
+            "CloseReason": v.CloseReason,
+        },
+        "pdv": {"PdvId": pdv.PdvId, "Name": pdv.Name, "Address": pdv.Address, "Channel": getattr(pdv, "ChannelName", None) or getattr(pdv, "Channel", None)} if pdv else None,
+        "user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email} if user else None,
+        "answers": answers,
+        "coverage": coverage,
+        "pop": pop,
+        "marketNews": news,
+        "photos": photos,
+    }
 
 
 @router.post("", response_model=Visit, status_code=201)
