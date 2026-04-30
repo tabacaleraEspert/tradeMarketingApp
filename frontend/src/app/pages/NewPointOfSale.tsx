@@ -263,69 +263,75 @@ export function NewPointOfSale() {
       });
 
       if (newPdv?.PdvId) {
-        // Upload photos
-        const failedPhotos: number[] = [];
-        for (let i = 0; i < photos.length; i++) {
-          try {
-            await pdvPhotosApi.upload(newPdv.PdvId, photos[i].file, {
-              photoType: "fachada",
-              sortOrder: i + 1,
-            });
-          } catch {
-            failedPhotos.push(i + 1);
-          }
-        }
-        if (failedPhotos.length > 0) {
-          toast.warning(`No se pudieron subir ${failedPhotos.length} foto(s)`);
+        // Run all secondary operations in parallel for speed
+        const tasks: Promise<void>[] = [];
+
+        // Photos (all in parallel)
+        const photoResults: boolean[] = [];
+        if (photos.length > 0) {
+          tasks.push(
+            Promise.all(
+              photos.map((p, i) =>
+                pdvPhotosApi.upload(newPdv.PdvId, p.file, { photoType: "fachada", sortOrder: i + 1 })
+                  .then(() => { photoResults.push(true); })
+                  .catch(() => { photoResults.push(false); })
+              )
+            ).then(() => {
+              const failed = photoResults.filter((r) => !r).length;
+              if (failed > 0) toast.warning(`No se pudieron subir ${failed} foto(s)`);
+            })
+          );
         }
 
-        // Save observations as PdvNote
+        // Observations
         const obs = formData.observations.trim();
         if (obs) {
-          try {
-            await pdvNotesApi.create(newPdv.PdvId, { Content: obs, CreatedByUserId: userId });
-          } catch {
-            toast.warning("Observaciones no se pudieron guardar");
-          }
+          tasks.push(
+            pdvNotesApi.create(newPdv.PdvId, { Content: obs, CreatedByUserId: userId })
+              .then(() => {})
+              .catch(() => toast.warning("Observaciones no se pudieron guardar"))
+          );
         }
 
-        // Create new distributors and associate them
-        const allDistributorIds = [...selectedDistributorIds];
-        const failedDistributors: string[] = [];
-        for (const nd of newDistributors) {
-          if (!nd.name.trim()) continue;
-          try {
-            const created = await distributorsApi.create({ Name: nd.name.trim(), Phone: nd.phone.trim() || undefined });
-            allDistributorIds.push(created.DistributorId);
-          } catch {
-            failedDistributors.push(nd.name.trim());
-          }
+        // New distributors (parallel create, then single update)
+        if (newDistributors.some((nd) => nd.name.trim())) {
+          tasks.push((async () => {
+            const allDistributorIds = [...selectedDistributorIds];
+            const results = await Promise.allSettled(
+              newDistributors
+                .filter((nd) => nd.name.trim())
+                .map((nd) => distributorsApi.create({ Name: nd.name.trim(), Phone: nd.phone.trim() || undefined }))
+            );
+            for (const r of results) {
+              if (r.status === "fulfilled") allDistributorIds.push(r.value.DistributorId);
+            }
+            const failed = results.filter((r) => r.status === "rejected").length;
+            if (failed > 0) toast.warning(`No se pudieron crear ${failed} distribuidor(es)`);
+            if (allDistributorIds.length > selectedDistributorIds.length) {
+              await pdvsApi.update(newPdv.PdvId, { DistributorIds: allDistributorIds }).catch(() =>
+                toast.warning("No se pudieron asociar los nuevos distribuidores al PDV")
+              );
+            }
+          })());
         }
-        if (failedDistributors.length > 0) {
-          toast.warning(`No se pudieron crear distribuidores: ${failedDistributors.join(", ")}`);
+
+        // Route assignment
+        if (selectedRouteId) {
+          tasks.push(
+            routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 })
+              .then(() => {
+                const routeName = myRoutes.find((r) => r.RouteId === Number(selectedRouteId))?.Name;
+                toast.success(`Agregado a ${routeName}`);
+              })
+              .catch(() => toast.warning("No se pudo agregar a la ruta"))
+          );
         }
-        // Update PDV with all distributor IDs if we created new ones
-        if (allDistributorIds.length > selectedDistributorIds.length) {
-          try {
-            await pdvsApi.update(newPdv.PdvId, { DistributorIds: allDistributorIds });
-          } catch {
-            toast.warning("No se pudieron asociar los nuevos distribuidores al PDV");
-          }
-        }
+
+        // Wait for all secondary tasks
+        await Promise.all(tasks);
       }
 
-      // Add to route if selected
-      if (selectedRouteId && newPdv?.PdvId) {
-        try {
-          await routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 });
-          const routeName = myRoutes.find((r) => r.RouteId === Number(selectedRouteId))?.Name;
-          toast.success(`PDV creado y agregado a ${routeName}`);
-        } catch {
-          toast.success("PDV creado, pero no se pudo agregar a la ruta");
-        }
-      } else {
-        toast.success("PDV creado correctamente");
-      }
+      toast.success("PDV creado correctamente");
       navigate("/");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el PDV");
