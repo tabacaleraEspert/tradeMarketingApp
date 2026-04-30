@@ -296,17 +296,6 @@ export function VisitActionsPage() {
           </div>
         </div>
         <div>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Empresa</p>
-          <div className="flex flex-wrap gap-1.5">
-            {COMPANIES.map((c) => {
-              const sel = selectedCompanies.includes(c);
-              return (
-                <button key={c} onClick={() => setFd("companies", sel ? selectedCompanies.filter((x) => x !== c) : [...selectedCompanies, c])} className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${sel ? "bg-[#A48242]/15 text-[#A48242] ring-1 ring-[#A48242]/40" : "bg-muted text-muted-foreground"}`}>{c}</button>
-              );
-            })}
-          </div>
-        </div>
-        <div>
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Ubicación en el PDV</p>
           <Input value={fd("ubicacion")} onChange={(e) => setFd("ubicacion", e.target.value)} placeholder="Ej: Mostrador principal, Ventana lateral" />
         </div>
