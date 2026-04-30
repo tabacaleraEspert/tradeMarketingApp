@@ -143,6 +143,7 @@ export function VisitActionsPage() {
     setPhotoCallback(null);
   };
 
+  const [showEmptyBrandsBrands, setShowEmptyBrandsBrands] = useState(false);
   const fd = (key: string) => formData[key] as string ?? "";
   const setFd = (key: string, val: unknown) => setFormData((p) => ({ ...p, [key]: val }));
 
@@ -192,7 +193,6 @@ export function VisitActionsPage() {
     const llenos = Math.floor(totalVacios / divisor);
     const filledProducts = cigaretteProducts.filter((p) => (cantidades[p.Name] || 0) > 0);
     const emptyProducts = cigaretteProducts.filter((p) => !(cantidades[p.Name] || 0));
-    const [showEmpty, setShowEmpty] = useState(false);
 
     return (
       <div className="space-y-4">
@@ -234,10 +234,10 @@ export function VisitActionsPage() {
               ))}
             </div>
           )}
-          <button onClick={() => setShowEmpty(!showEmpty)} className="w-full bg-background rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-            <ChevronDown size={12} className={showEmpty ? "rotate-180" : ""} /> {showEmpty ? "Ocultar" : "Ver"} otras marcas ({emptyProducts.length})
+          <button onClick={() => setShowEmptyBrands(!showEmptyBrands)} className="w-full bg-background rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+            <ChevronDown size={12} className={showEmptyBrands ? "rotate-180" : ""} /> {showEmptyBrands ? "Ocultar" : "Ver"} otras marcas ({emptyProducts.length})
           </button>
-          {showEmpty && (
+          {showEmptyBrands && (
             <div className="mt-1.5 space-y-1 bg-background rounded-xl border border-border divide-y divide-border overflow-hidden">
               {emptyProducts.map((p) => (
                 <div key={p.ProductId} className="px-3 py-2 flex items-center justify-between">
