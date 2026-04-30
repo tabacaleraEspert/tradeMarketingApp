@@ -64,24 +64,51 @@ export function CoverageFormPage() {
       const isFirstVisit = (!reqs || reqs.visitNumber === 1) && !hasCurrentData;
 
       // Set category statuses
-      // First visit: everything starts as "No Trabaja" so the rep opens categories as they go
-      // Subsequent visits: use saved category status, or inherit from previous coverage
+      // Priority: 1) infer from current saved data, 2) saved category status, 3) previous coverage, 4) default
       const catStatus: Record<string, boolean> = {};
       for (const cat of [...new Set(prods.map((p) => p.Category))]) {
+        const catProducts = prods.filter((p) => p.Category === cat);
+
+        // If ANY product in this category has current saved data with Works=true, category is active
+        const anyCurrentWorks = catProducts.some((p) => {
+          const d = diffData.find((x) => x.ProductId === p.ProductId);
+          return d?.HasCurrentData && d.Works;
+        });
+        if (anyCurrentWorks) {
+          catStatus[cat] = true;
+          continue;
+        }
+
+        // If current data exists for this category (even all Works=false), keep it as-is
+        const hasAnyCurrent = catProducts.some((p) => {
+          const d = diffData.find((x) => x.ProductId === p.ProductId);
+          return d?.HasCurrentData;
+        });
+        if (hasAnyCurrent) {
+          // Category was explicitly set to active (products saved) but all Works=false
+          catStatus[cat] = true;
+          continue;
+        }
+
+        // Try saved category status from pdvProductCategories
         const pdvCat = pdvCats.find((c: { Category: string }) => c.Category === cat);
         if (pdvCat) {
           catStatus[cat] = pdvCat.Status === "trabaja";
-        } else if (isFirstVisit) {
-          catStatus[cat] = false; // First visit: default "No Trabaja"
-        } else {
-          // Subsequent visit without saved status: infer from previous coverage
-          const catProducts = prods.filter((p) => p.Category === cat);
+          continue;
+        }
+
+        // Infer from previous visit coverage
+        if (!isFirstVisit && hasPrevData) {
           const anyPrevWorked = catProducts.some((p) => {
             const d = diffData.find((x) => x.ProductId === p.ProductId);
             return d?.PrevWorks === true;
           });
           catStatus[cat] = anyPrevWorked;
+          continue;
         }
+
+        // Default: No Trabaja
+        catStatus[cat] = false;
       }
       setCategoryStatus(catStatus);
       setProducts(prods);
@@ -191,7 +218,9 @@ export function CoverageFormPage() {
       }));
       await Promise.all([
         visitCoverageApi.bulkSave(visitId, items),
-        id ? pdvProductCategoriesApi.bulkUpsert(Number(id), categoryItems).catch(() => {}) : Promise.resolve(),
+        id ? pdvProductCategoriesApi.bulkUpsert(Number(id), categoryItems).catch((e) => {
+          console.error("Failed to save categories:", e);
+        }) : Promise.resolve(),
       ]);
       toast.success("Cobertura guardada");
       navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } });
