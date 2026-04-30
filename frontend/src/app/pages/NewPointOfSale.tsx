@@ -161,7 +161,19 @@ export function NewPointOfSale() {
   };
 
   useEffect(() => {
-    distributorsApi.list().then((list) => setDistributors(list)).catch(() => {});
+    distributorsApi.list().then((list) => {
+      // Dedup by phone: keep the first one for each normalized phone
+      const seen = new Map<string, number>();
+      const deduped = list.filter((d) => {
+        if (!d.Phone) return true; // keep all without phone
+        const norm = d.Phone.replace(/\D/g, "");
+        if (!norm) return true;
+        if (seen.has(norm)) return false;
+        seen.set(norm, d.DistributorId);
+        return true;
+      });
+      setDistributors(deduped);
+    }).catch(() => {});
   }, []);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
@@ -719,8 +731,20 @@ export function NewPointOfSale() {
                     placeholder="Teléfono"
                     value={nd.phone}
                     onChange={(e) => {
+                      const phone = e.target.value;
+                      const norm = phone.replace(/\D/g, "");
+                      // Auto-match: if phone matches an existing distributor, select it and remove this draft
+                      if (norm.length >= 8) {
+                        const match = distributors.find((d) => d.Phone && d.Phone.replace(/\D/g, "").endsWith(norm.slice(-8)));
+                        if (match && !selectedDistributorIds.includes(match.DistributorId)) {
+                          setSelectedDistributorIds((prev) => [...prev, match.DistributorId]);
+                          setNewDistributors((prev) => prev.filter((_, i) => i !== idx));
+                          toast.success(`Distribuidor "${match.Name}" ya existe, seleccionado automáticamente`);
+                          return;
+                        }
+                      }
                       const updated = [...newDistributors];
-                      updated[idx] = { ...nd, phone: e.target.value };
+                      updated[idx] = { ...nd, phone };
                       setNewDistributors(updated);
                     }}
                     className="w-36"
