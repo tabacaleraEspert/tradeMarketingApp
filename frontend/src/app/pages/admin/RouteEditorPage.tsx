@@ -1334,34 +1334,33 @@ export function RouteEditorPage() {
                   {orderedPdvs.map((pdv, index) => (
                     <div
                       key={pdv.PdvId}
-                      className="flex items-center gap-3 p-3 bg-muted rounded-lg hover:bg-secondary transition-colors"
+                      className="p-3 bg-muted rounded-lg hover:bg-secondary transition-colors"
                     >
-                      <GripVertical size={18} className="text-muted-foreground" />
-                      <span className="w-8 text-sm font-bold text-[#A48242]">#{index + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-foreground truncate">{pdv.Name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {pdv.Address || pdv.City || "-"}
-                        </p>
+                      <div className="flex items-center gap-2">
+                        <GripVertical size={16} className="text-muted-foreground shrink-0" />
+                        <span className="w-6 text-xs font-bold text-[#A48242] shrink-0">#{index + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-foreground text-sm truncate">{pdv.Name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <p className="text-[11px] text-muted-foreground truncate">{pdv.Address || pdv.City || "-"}</p>
+                            <Badge variant="outline" className="text-[9px] py-0 shrink-0">{pdv.ChannelName || pdv.Channel}</Badge>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleRemovePdv(pdv.PdvId)}
+                          disabled={saving}
+                          className="shrink-0 p-1.5 text-red-400 hover:text-red-600"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
-                      <Badge variant="outline" className="text-xs shrink-0">
-                        {pdv.ChannelName || pdv.Channel}
-                      </Badge>
                       {index > 0 && distances[index - 1] > 0 && (
-                        <span className="text-xs text-muted-foreground whitespace-nowrap flex items-center gap-1.5">
-                          {distances[index - 1].toFixed(1)} km
-                          <span className="text-blue-500">🚶{formatMinutes(distances[index - 1] / WALK_KMH * 60)}</span>
-                          <span className="text-green-500">🚗{formatMinutes(distances[index - 1] / DRIVE_KMH * 60)}</span>
-                        </span>
+                        <div className="flex items-center gap-2 mt-1.5 ml-8 text-[10px] text-muted-foreground">
+                          <span>{distances[index - 1].toFixed(1)} km</span>
+                          <span className="text-blue-600">🚶 {formatMinutes(distances[index - 1] / WALK_KMH * 60)}</span>
+                          <span className="text-green-600">🚗 {formatMinutes(distances[index - 1] / DRIVE_KMH * 60)}</span>
+                        </div>
                       )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleRemovePdv(pdv.PdvId)}
-                        disabled={saving}
-                      >
-                        <Trash2 size={16} className="text-red-500" />
-                      </Button>
                     </div>
                   ))}
                 </div>
