@@ -74,30 +74,22 @@ export function POPCensusPage() {
       visitPOPApi.list(visitId),
       visitPhotosApi.list(visitId).catch(() => []),
     ]).then(([existing, photos]) => {
-      // Load rows
-      if (existing.length > 0) {
-        setRows(existing.map((e) => ({
-          MaterialType: e.MaterialType,
-          MaterialName: e.MaterialName,
-          Companies: e.Company ? e.Company.split(",").map((c) => c.trim()) : [],
-          Present: e.Present,
-          HasPrice: e.HasPrice,
-        })));
-      } else {
-        const initial: POPRow[] = [];
-        for (const [type, materials] of Object.entries(POP_MATERIALS)) {
-          for (const mat of materials) {
-            initial.push({
-              MaterialType: type,
-              MaterialName: mat.name,
-              Companies: [],
-              Present: false,
-              HasPrice: null,
-            });
-          }
+      // Always show ALL materials, merging with saved data
+      const existingMap = new Map(existing.map((e) => [e.MaterialName, e]));
+      const allRows: POPRow[] = [];
+      for (const [type, materials] of Object.entries(POP_MATERIALS)) {
+        for (const mat of materials) {
+          const saved = existingMap.get(mat.name);
+          allRows.push({
+            MaterialType: type,
+            MaterialName: mat.name,
+            Companies: saved?.Company ? saved.Company.split(",").map((c) => c.trim()) : [],
+            Present: saved?.Present ?? false,
+            HasPrice: saved?.HasPrice ?? null,
+          });
         }
-        setRows(initial);
       }
+      setRows(allRows);
 
       // Load existing photos (grouped by PhotoType)
       const photoMap: Record<string, PhotoEntry[]> = {};

@@ -3,6 +3,7 @@ const STEPS = [
   { num: 2, label: "Cobertura" },
   { num: 3, label: "POP" },
   { num: 4, label: "Acciones" },
+  { num: 5, label: "Novedades" },
 ];
 
 interface Props {

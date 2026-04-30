@@ -36,6 +36,7 @@ import { CoverageFormPage } from "./pages/CoverageFormPage";
 import { POPCensusPage } from "./pages/POPCensusPage";
 import { VisitActionsPage } from "./pages/VisitActionsPage";
 import { VisitSummaryPage } from "./pages/VisitSummaryPage";
+import { MarketNewsStepPage } from "./pages/MarketNewsStepPage";
 import { EndOfDayPage } from "./pages/EndOfDayPage";
 import { getCurrentUser } from "./lib/auth";
 
@@ -71,6 +72,7 @@ export const router = createBrowserRouter([
       { path: "pos/:id/coverage", Component: CoverageFormPage },
       { path: "pos/:id/pop", Component: POPCensusPage },
       { path: "pos/:id/actions", Component: VisitActionsPage },
+      { path: "pos/:id/market-news", Component: MarketNewsStepPage },
       { path: "pos/:id/photos", Component: PhotoCapture },
       { path: "pos/:id/summary", Component: VisitSummaryPage },
       { path: "pos/:id/history", Component: History },

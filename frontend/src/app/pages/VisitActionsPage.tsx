@@ -167,7 +167,7 @@ export function VisitActionsPage() {
   };
 
   const handleContinue = () => {
-    navigate(`/pos/${id}/summary`, {
+    navigate(`/pos/${id}/market-news`, {
       state: { routeDayId, visitId },
     });
   };
@@ -564,7 +564,7 @@ export function VisitActionsPage() {
       <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)]">
         <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38]" onClick={handleContinue}>
           <Camera className="mr-2" size={16} />
-          Continuar a Resumen
+          Continuar a Novedades
         </Button>
       </div>
     </div>
