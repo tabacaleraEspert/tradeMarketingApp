@@ -325,6 +325,15 @@ export function NewPointOfSale() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
+      {/* Photo input — at top level, outside form */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handlePhotoSelected}
+      />
+
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
@@ -669,7 +678,7 @@ export function NewPointOfSale() {
                           : "bg-muted border-border text-muted-foreground hover:bg-muted/80"
                       }`}
                     >
-                      {d.Name}
+                      {d.Name}{d.Phone ? ` (${d.Phone})` : ""}
                     </button>
                   );
                 })}
@@ -758,80 +767,93 @@ export function NewPointOfSale() {
             </div>
 
             {contacts.map((contact, index) => (
-              <div key={index} className="p-3 bg-muted rounded-lg space-y-2 border border-border">
+              <div key={index} className="p-3 bg-muted rounded-lg space-y-3 border border-border">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-muted-foreground">Contacto {index + 1}</span>
+                  <span className="text-xs font-bold text-[#A48242] uppercase">Contacto {index + 1}</span>
                   {contacts.length > 1 && (
-                    <Button
+                    <button
                       type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="text-red-600 hover:text-red-700"
+                      className="p-1 text-red-400 hover:text-red-600"
                       onClick={() => removeContact(index)}
                     >
-                      <Trash2 size={16} />
-                    </Button>
+                      <Trash2 size={14} />
+                    </button>
                   )}
                 </div>
-                <div className="space-y-2">
-                  <div className="flex gap-2">
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Nombre *</label>
                     <Input
                       placeholder="Nombre y apellido"
                       value={contact.contactName}
                       onChange={(e) => updateContact(index, "contactName", e.target.value)}
-                      className="flex-1"
                     />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Teléfono</label>
                     <Input
                       type="tel"
-                      placeholder="Teléfono"
+                      placeholder="11 1234-5678"
                       value={contact.contactPhone}
                       onChange={(e) => updateContact(index, "contactPhone", e.target.value)}
-                      className="flex-1"
                     />
                   </div>
-                  <div className="flex gap-2">
-                    <select
-                      value={contact.contactRole}
-                      onChange={(e) => updateContact(index, "contactRole", e.target.value)}
-                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="">Rol...</option>
-                      <option value="dueño">Dueño</option>
-                      <option value="empleado">Empleado</option>
-                      <option value="encargado">Encargado</option>
-                    </select>
-                    <select
-                      value={contact.decisionPower}
-                      onChange={(e) => updateContact(index, "decisionPower", e.target.value)}
-                      className="flex-1 h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    >
-                      <option value="">Decisión...</option>
-                      <option value="alto">Alto</option>
-                      <option value="medio">Medio</option>
-                      <option value="bajo">Bajo</option>
-                    </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Rol</label>
+                      <select
+                        value={contact.contactRole}
+                        onChange={(e) => updateContact(index, "contactRole", e.target.value)}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">—</option>
+                        <option value="dueño">Dueño</option>
+                        <option value="empleado">Empleado</option>
+                        <option value="encargado">Encargado</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted-foreground mb-1 block">Decisión</label>
+                      <select
+                        value={contact.decisionPower}
+                        onChange={(e) => updateContact(index, "decisionPower", e.target.value)}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">—</option>
+                        <option value="alto">Alto</option>
+                        <option value="medio">Medio</option>
+                        <option value="bajo">Bajo</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Cumpleaños</label>
                     <Input
                       type="date"
-                      placeholder="Cumpleaños"
                       value={contact.birthday}
                       onChange={(e) => updateContact(index, "birthday", e.target.value)}
-                      className="w-36"
                     />
                   </div>
-                  <textarea
-                    placeholder="Observaciones (notas operativas)"
-                    value={contact.notes}
-                    onChange={(e) => updateContact(index, "notes", e.target.value)}
-                    rows={2}
-                    className="w-full text-xs px-3 py-2 border border-border rounded-md resize-none"
-                  />
-                  <textarea
-                    placeholder="Perfil del contacto (preferencias, qué evitar...)"
-                    value={contact.profileNotes}
-                    onChange={(e) => updateContact(index, "profileNotes", e.target.value)}
-                    rows={2}
-                    className="w-full text-xs px-3 py-2 border border-border rounded-md resize-none"
-                  />
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Notas</label>
+                    <textarea
+                      placeholder="Observaciones operativas..."
+                      value={contact.notes}
+                      onChange={(e) => updateContact(index, "notes", e.target.value)}
+                      rows={2}
+                      className="w-full text-sm px-3 py-2 border border-border rounded-md resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground mb-1 block">Perfil</label>
+                    <textarea
+                      placeholder="Preferencias, qué evitar..."
+                      value={contact.profileNotes}
+                      onChange={(e) => updateContact(index, "profileNotes", e.target.value)}
+                      rows={2}
+                      className="w-full text-sm px-3 py-2 border border-border rounded-md resize-none"
+                    />
+                  </div>
                 </div>
               </div>
             ))}
@@ -893,14 +915,6 @@ export function NewPointOfSale() {
         </div>
       </form>
 
-      {/* File input outside form to prevent iOS issues with capture */}
-      <input
-        ref={photoInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handlePhotoSelected}
-      />
     </div>
   );
 }
