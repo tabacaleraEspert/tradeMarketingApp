@@ -96,7 +96,7 @@ export function POPCensusPage() {
       for (const p of photos) {
         if (p.PhotoType?.startsWith("pop_")) {
           if (!photoMap[p.PhotoType]) photoMap[p.PhotoType] = [];
-          photoMap[p.PhotoType].push({ url: p.Url, fileId: p.FileId });
+          photoMap[p.PhotoType].push({ url: p.url, fileId: p.FileId });
         }
       }
       setPopPhotos(photoMap);
