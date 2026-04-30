@@ -81,6 +81,7 @@ export const router = createBrowserRouter([
       { path: "alerts", Component: Alerts },
       { path: "sync", Component: Sync },
       { path: "profile", Component: Profile },
+      { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },
   {
@@ -99,6 +100,7 @@ export const router = createBrowserRouter([
       { path: "forms/:formId/edit", Component: FormEditorPage },
       { path: "reports", Component: Reports },
       { path: "users", Component: UserManagement },
+      { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },
   {
@@ -106,6 +108,7 @@ export const router = createBrowserRouter([
     Component: AdminGuard,
     children: [
       { index: true, Component: PlantDashboard },
+      { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },
   {
