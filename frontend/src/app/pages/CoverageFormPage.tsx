@@ -58,8 +58,10 @@ export function CoverageFormPage() {
       visitCoverageApi.requirements(visitId).catch(() => null),
     ]).then(([prods, diffData, pdvCats, reqs]) => {
       if (reqs) setCoverageReqs(reqs);
-      const isFirstVisit = !reqs || reqs.visitNumber === 1;
+      // Check if THIS visit already has saved coverage data (user filled and came back)
+      const hasCurrentData = diffData.some((d) => d.Works === true);
       const hasPrevData = diffData.some((d) => d.PrevWorks != null);
+      const isFirstVisit = (!reqs || reqs.visitNumber === 1) && !hasCurrentData;
 
       // Set category statuses
       // First visit: everything starts as "No Trabaja" so the rep opens categories as they go
@@ -86,26 +88,33 @@ export function CoverageFormPage() {
       setDiffs(diffData);
 
       // Build rows from diff data
-      // First visit: all Works=false (rep fills from scratch)
-      // Subsequent: pre-load from previous visit values
+      // Always use current saved data if available, then fall back to previous or empty
       const initial: Record<number, CoverageRow> = {};
       for (const p of prods) {
         const d = diffData.find((x) => x.ProductId === p.ProductId);
-        if (isFirstVisit || !hasPrevData) {
-          // First visit: everything starts empty
+        if (d && (d.Works === true || d.Price != null)) {
+          // Current visit has saved data for this product — use it
+          initial[p.ProductId] = {
+            ProductId: p.ProductId,
+            Works: d.Works,
+            Price: d.Price != null ? String(d.Price) : "",
+            Availability: d.Availability || "disponible",
+          };
+        } else if (!isFirstVisit && hasPrevData && d) {
+          // Subsequent visit: pre-load from previous
+          initial[p.ProductId] = {
+            ProductId: p.ProductId,
+            Works: d.PrevWorks ?? false,
+            Price: d.PrevPrice != null ? String(d.PrevPrice) : "",
+            Availability: d.PrevAvailability || "disponible",
+          };
+        } else {
+          // First visit or no data at all: start empty
           initial[p.ProductId] = {
             ProductId: p.ProductId,
             Works: false,
             Price: "",
             Availability: "disponible",
-          };
-        } else {
-          // Subsequent visit: pre-load with current data, fall back to previous
-          initial[p.ProductId] = {
-            ProductId: p.ProductId,
-            Works: d ? d.Works : (d?.PrevWorks ?? false),
-            Price: d?.Price != null ? String(d.Price) : (d?.PrevPrice != null ? String(d.PrevPrice) : ""),
-            Availability: d?.Availability || d?.PrevAvailability || "disponible",
           };
         }
       }

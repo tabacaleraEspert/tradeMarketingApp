@@ -26,8 +26,17 @@ interface StepData {
   icon: React.ElementType;
   status: "completed" | "partial" | "pending";
   detail: string;
-  type: "relevamiento" | "acciones" | "fotos" | "novedades";
+  type: "relevamiento" | "cobertura" | "pop" | "acciones" | "fotos" | "novedades";
 }
+
+const STEP_ROUTES: Record<StepData["type"], string> = {
+  relevamiento: "survey",
+  cobertura: "coverage",
+  pop: "pop",
+  acciones: "actions",
+  fotos: "photos",
+  novedades: "market-news",
+};
 
 interface FormQuestion {
   QuestionId: number;
@@ -356,20 +365,31 @@ export function VisitSummaryPage() {
           <CardContent className="p-0 divide-y divide-border">
             {steps.map((step, idx) => {
               const Icon = step.icon;
+              const isIncomplete = step.status === "partial" || step.status === "pending";
               return (
-                <button
-                  key={idx}
-                  onClick={() => setDetailModal(step.type)}
-                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/30 active:bg-muted/50 transition-colors"
-                >
-                  {statusIcon(step.status)}
-                  <Icon size={16} className="text-muted-foreground shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-foreground">{step.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{step.detail}</p>
-                  </div>
-                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-                </button>
+                <div key={idx} className="flex items-center gap-3 p-3.5 hover:bg-muted/30 transition-colors">
+                  <button
+                    onClick={() => setDetailModal(step.type)}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  >
+                    {statusIcon(step.status)}
+                    <Icon size={16} className="text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm text-foreground">{step.label}</p>
+                      <p className="text-[11px] text-muted-foreground">{step.detail}</p>
+                    </div>
+                  </button>
+                  {isIncomplete ? (
+                    <button
+                      onClick={() => navigate(`/pos/${id}/${STEP_ROUTES[step.type]}`, { state: { routeDayId, visitId } })}
+                      className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-100 text-amber-800 hover:bg-amber-200 transition-colors shrink-0"
+                    >
+                      Completar
+                    </button>
+                  ) : (
+                    <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+                  )}
+                </div>
               );
             })}
           </CardContent>
