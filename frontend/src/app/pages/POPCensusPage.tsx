@@ -7,11 +7,10 @@ import { Switch } from "../components/ui/switch";
 import {
   ArrowLeft,
   ArrowRight,
-  Megaphone,
   LayoutGrid,
   Camera,
-  CheckCircle2,
   X,
+  ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
@@ -36,12 +35,22 @@ const POP_MATERIALS = {
   ],
 };
 
+/** Build a photoType key for a material+company combo */
+function popPhotoKey(materialName: string, company: string) {
+  return `pop_${materialName}_${company}`;
+}
+
 interface POPRow {
   MaterialType: string;
   MaterialName: string;
-  Companies: string[]; // multiple companies
+  Companies: string[];
   Present: boolean;
   HasPrice: boolean | null;
+}
+
+interface PhotoEntry {
+  url: string;
+  fileId?: number; // if uploaded to server
 }
 
 export function POPCensusPage() {
@@ -53,15 +62,19 @@ export function POPCensusPage() {
   const [rows, setRows] = useState<POPRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Photo evidence per material (keyed by MaterialName)
-  const [popPhotos, setPopPhotos] = useState<Record<string, string>>({});
-  const [activePhotoMaterial, setActivePhotoMaterial] = useState<string | null>(null);
+  // Photos keyed by "pop_{material}_{company}" — supports multiple per key
+  const [popPhotos, setPopPhotos] = useState<Record<string, PhotoEntry[]>>({});
+  const [activePhotoKey, setActivePhotoKey] = useState<string | null>(null);
   const popPhotoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!visitId) { setLoading(false); return; }
 
-    visitPOPApi.list(visitId).then((existing) => {
+    Promise.all([
+      visitPOPApi.list(visitId),
+      visitPhotosApi.list(visitId).catch(() => []),
+    ]).then(([existing, photos]) => {
+      // Load rows
       if (existing.length > 0) {
         setRows(existing.map((e) => ({
           MaterialType: e.MaterialType,
@@ -85,6 +98,17 @@ export function POPCensusPage() {
         }
         setRows(initial);
       }
+
+      // Load existing photos (grouped by PhotoType)
+      const photoMap: Record<string, PhotoEntry[]> = {};
+      for (const p of photos) {
+        if (p.PhotoType?.startsWith("pop_")) {
+          if (!photoMap[p.PhotoType]) photoMap[p.PhotoType] = [];
+          photoMap[p.PhotoType].push({ url: p.Url, fileId: p.FileId });
+        }
+      }
+      setPopPhotos(photoMap);
+
       setLoading(false);
     }).catch(() => {
       setLoading(false);
@@ -119,6 +143,49 @@ export function POPCensusPage() {
     }
   };
 
+  const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !activePhotoKey) return;
+    const localUrl = URL.createObjectURL(file);
+    const key = activePhotoKey;
+    // Add to local state immediately
+    setPopPhotos((prev) => ({
+      ...prev,
+      [key]: [...(prev[key] || []), { url: localUrl }],
+    }));
+    // Upload to server
+    if (visitId) {
+      try {
+        const result = await visitPhotosApi.upload(visitId, file, { photoType: key });
+        // Update with server fileId
+        setPopPhotos((prev) => ({
+          ...prev,
+          [key]: (prev[key] || []).map((p) =>
+            p.url === localUrl ? { ...p, fileId: result.FileId } : p
+          ),
+        }));
+      } catch { /* local preview stays */ }
+    }
+    setActivePhotoKey(null);
+  };
+
+  const handleDeletePhoto = async (key: string, photoIdx: number) => {
+    const photo = popPhotos[key]?.[photoIdx];
+    if (!photo) return;
+    // Remove from local state
+    setPopPhotos((prev) => ({
+      ...prev,
+      [key]: (prev[key] || []).filter((_, i) => i !== photoIdx),
+    }));
+    // Delete from server
+    if (visitId && photo.fileId) {
+      try {
+        await visitPhotosApi.delete(visitId, photo.fileId);
+      } catch { /* already removed locally */ }
+    }
+  };
+
   const presentCount = rows.filter((r) => r.Present).length;
   const primaryPresent = rows.filter((r) => r.Present && r.MaterialType === "primario").length;
   const secondaryPresent = rows.filter((r) => r.Present && r.MaterialType === "secundario").length;
@@ -131,30 +198,127 @@ export function POPCensusPage() {
     );
   }
 
-  const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !activePhotoMaterial) return;
-    // Show local preview immediately
-    const localUrl = URL.createObjectURL(file);
-    setPopPhotos((p) => ({ ...p, [activePhotoMaterial]: localUrl }));
-    // Upload to server if visitId is available
-    if (visitId) {
-      try {
-        await visitPhotosApi.upload(visitId, file, { photoType: `pop_${activePhotoMaterial}` });
-      } catch { /* local preview stays */ }
-    }
-    setActivePhotoMaterial(null);
+  const renderMaterialCard = (row: POPRow, borderColor: string) => {
+    const idx = rows.indexOf(row);
+    return (
+      <Card key={row.MaterialName} className={`overflow-hidden ${row.Present ? `border-l-4 ${borderColor}` : ""}`}>
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-foreground">{row.MaterialName}</span>
+            <Switch
+              checked={row.Present}
+              onCheckedChange={(v) => updateRow(idx, "Present", v)}
+            />
+          </div>
+
+          {row.Present && (
+            <div className="mt-2.5 pt-2.5 border-t border-border space-y-2">
+              {/* Company selection — each selected company gets a photo section */}
+              <div className="flex gap-1.5 flex-wrap">
+                {POP_COMPANIES.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => {
+                      const has = row.Companies.includes(c);
+                      const next = has ? row.Companies.filter((x) => x !== c) : [...row.Companies, c];
+                      updateRow(idx, "Companies", next as unknown as string);
+                    }}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
+                      row.Companies.includes(c)
+                        ? "bg-[#A48242]/15 text-[#A48242] ring-1 ring-[#A48242]/40"
+                        : "bg-muted text-muted-foreground"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+
+              {/* Photo per company */}
+              {row.Companies.length > 0 && (
+                <div className="space-y-2">
+                  {row.Companies.map((company) => {
+                    const key = popPhotoKey(row.MaterialName, company);
+                    const photos = popPhotos[key] || [];
+                    return (
+                      <div key={company} className="p-2 bg-muted/50 rounded-lg">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-[11px] font-semibold text-foreground">{company}</span>
+                          <button
+                            onClick={() => { setActivePhotoKey(key); popPhotoInputRef.current?.click(); }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-border text-[10px] text-muted-foreground hover:bg-background transition-colors"
+                          >
+                            <Camera size={12} />
+                            Foto
+                          </button>
+                        </div>
+                        {photos.length > 0 && (
+                          <div className="flex gap-1.5 flex-wrap">
+                            {photos.map((photo, pIdx) => (
+                              <div key={pIdx} className="relative">
+                                <img
+                                  src={photo.url}
+                                  alt={`${row.MaterialName} ${company}`}
+                                  className="w-14 h-14 rounded-md object-cover border border-border"
+                                />
+                                <button
+                                  onClick={() => handleDeletePhoto(key, pIdx)}
+                                  className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"
+                                >
+                                  <X size={10} className="text-white" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {photos.length === 0 && (
+                          <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <ImageIcon size={10} /> Sin foto
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* HasPrice */}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={() => updateRow(idx, "HasPrice", true)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                    row.HasPrice === true
+                      ? "bg-green-100 text-green-800 ring-1 ring-green-300"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  Con precio
+                </button>
+                <button
+                  onClick={() => updateRow(idx, "HasPrice", false)}
+                  className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
+                    row.HasPrice === false
+                      ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  Sin precio
+                </button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
   };
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Hidden photo input */}
+      {/* Hidden photo input — outside form */}
       <input
         ref={popPhotoInputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={handlePopPhoto}
       />
@@ -186,94 +350,10 @@ export function POPCensusPage() {
             <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Material Primario</h2>
             <Badge variant="secondary" className="text-[10px]">{primaryPresent}/{POP_MATERIALS.primario.length}</Badge>
           </div>
-
           <div className="space-y-2">
-            {rows.filter((r) => r.MaterialType === "primario").map((row, _idx) => {
-              const idx = rows.indexOf(row);
-              return (
-                <Card key={row.MaterialName} className={`overflow-hidden ${row.Present ? "border-l-4 border-l-green-400" : ""}`}>
-                  <CardContent className="p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-foreground">{row.MaterialName}</span>
-                      <Switch
-                        checked={row.Present}
-                        onCheckedChange={(v) => updateRow(idx, "Present", v)}
-                      />
-                    </div>
-
-                    {row.Present && (
-                      <div className="mt-2.5 pt-2.5 border-t border-border space-y-2">
-                        {/* Company */}
-                        <div className="flex gap-1.5 flex-wrap">
-                          {POP_COMPANIES.map((c) => (
-                            <button
-                              key={c}
-                              onClick={() => {
-                                const has = row.Companies.includes(c);
-                                const next = has ? row.Companies.filter((x) => x !== c) : [...row.Companies, c];
-                                updateRow(idx, "Companies", next as unknown as string);
-                              }}
-                              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                                row.Companies.includes(c)
-                                  ? "bg-[#A48242]/15 text-[#A48242] ring-1 ring-[#A48242]/40"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {c}
-                            </button>
-                          ))}
-                        </div>
-                        {/* HasPrice */}
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={() => updateRow(idx, "HasPrice", true)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                              row.HasPrice === true
-                                ? "bg-green-100 text-green-800 ring-1 ring-green-300"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            Con precio
-                          </button>
-                          <button
-                            onClick={() => updateRow(idx, "HasPrice", false)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                              row.HasPrice === false
-                                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300"
-                                : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            Sin precio
-                          </button>
-                        </div>
-                        {/* Photo evidence */}
-                        <div className="flex items-center gap-2">
-                          {popPhotos[row.MaterialName] ? (
-                            <div className="relative">
-                              <img src={popPhotos[row.MaterialName]} alt={row.MaterialName} className="w-16 h-16 rounded-lg object-cover border border-border" />
-                              <button
-                                onClick={() => setPopPhotos((p) => { const n = { ...p }; delete n[row.MaterialName]; return n; })}
-                                className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"
-                              >
-                                <X size={10} className="text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setActivePhotoMaterial(row.MaterialName); popPhotoInputRef.current?.click(); }}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-muted transition-colors"
-                            >
-                              <Camera size={14} />
-                              Foto evidencia
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {rows.filter((r) => r.MaterialType === "primario").map((row) =>
+              renderMaterialCard(row, "border-l-green-400")
+            )}
           </div>
         </div>
 
@@ -284,88 +364,10 @@ export function POPCensusPage() {
             <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">Material Secundario</h2>
             <Badge variant="secondary" className="text-[10px]">{secondaryPresent}/{POP_MATERIALS.secundario.length}</Badge>
           </div>
-
           <div className="space-y-2">
-            {rows.filter((r) => r.MaterialType === "secundario").map((row) => {
-              const idx = rows.indexOf(row);
-              return (
-                <Card key={row.MaterialName} className={`overflow-hidden ${row.Present ? "border-l-4 border-l-[#C9A962]" : ""}`}>
-                  <CardContent className="p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium text-foreground">{row.MaterialName}</span>
-                      <Switch
-                        checked={row.Present}
-                        onCheckedChange={(v) => updateRow(idx, "Present", v)}
-                      />
-                    </div>
-
-                    {row.Present && (
-                      <div className="mt-2.5 pt-2.5 border-t border-border space-y-2">
-                        <div className="flex gap-1.5 flex-wrap">
-                          {POP_COMPANIES.map((c) => (
-                            <button
-                              key={c}
-                              onClick={() => {
-                                const has = row.Companies.includes(c);
-                                const next = has ? row.Companies.filter((x) => x !== c) : [...row.Companies, c];
-                                updateRow(idx, "Companies", next as unknown as string);
-                              }}
-                              className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
-                                row.Companies.includes(c)
-                                  ? "bg-[#A48242]/15 text-[#A48242] ring-1 ring-[#A48242]/40"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              {c}
-                            </button>
-                          ))}
-                        </div>
-                        <div className="flex gap-1.5">
-                          <button
-                            onClick={() => updateRow(idx, "HasPrice", true)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                              row.HasPrice === true ? "bg-green-100 text-green-800 ring-1 ring-green-300" : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            Con precio
-                          </button>
-                          <button
-                            onClick={() => updateRow(idx, "HasPrice", false)}
-                            className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                              row.HasPrice === false ? "bg-amber-100 text-amber-800 ring-1 ring-amber-300" : "bg-muted text-muted-foreground"
-                            }`}
-                          >
-                            Sin precio
-                          </button>
-                        </div>
-                        {/* Photo evidence */}
-                        <div className="flex items-center gap-2">
-                          {popPhotos[row.MaterialName] ? (
-                            <div className="relative">
-                              <img src={popPhotos[row.MaterialName]} alt={row.MaterialName} className="w-16 h-16 rounded-lg object-cover border border-border" />
-                              <button
-                                onClick={() => setPopPhotos((p) => { const n = { ...p }; delete n[row.MaterialName]; return n; })}
-                                className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"
-                              >
-                                <X size={10} className="text-white" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => { setActivePhotoMaterial(row.MaterialName); popPhotoInputRef.current?.click(); }}
-                              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-muted transition-colors"
-                            >
-                              <Camera size={14} />
-                              Foto evidencia
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {rows.filter((r) => r.MaterialType === "secundario").map((row) =>
+              renderMaterialCard(row, "border-l-[#C9A962]")
+            )}
           </div>
         </div>
       </div>
