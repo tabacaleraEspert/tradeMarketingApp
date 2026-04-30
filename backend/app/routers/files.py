@@ -178,6 +178,7 @@ async def upload_visit_photo(
         VisitId=visit_id,
         FileId=file_record.FileId,
         PhotoType=photo_type or "general",
+        Url=url,
         SortOrder=sort_order or 1,
         Notes=notes,
     )
@@ -361,6 +362,7 @@ async def upload_pdv_photo(
         PdvId=pdv_id,
         FileId=file_record.FileId,
         PhotoType=photo_type or "fachada",
+        Url=url,
         SortOrder=sort_order or 1,
         Notes=notes,
     )

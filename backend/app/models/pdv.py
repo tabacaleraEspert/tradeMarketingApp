@@ -62,7 +62,8 @@ class PdvPhoto(Base):
 
     PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), primary_key=True)
     FileId = Column(Integer, ForeignKey("File.FileId", ondelete="CASCADE"), primary_key=True)
-    PhotoType = Column(String(30), default="fachada", nullable=False)
+    PhotoType = Column(String(100), default="fachada", nullable=False)
+    Url = Column(String(600), nullable=False, default="")
     SortOrder = Column(Integer, default=1, nullable=False)
     Notes = Column(String(300), nullable=True)
 
