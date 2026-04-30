@@ -160,6 +160,7 @@ async def upload_visit_photo(
     # Crear registro File
     file_record = FileModel(
         BlobKey=blob_key,
+        OriginalName=file.filename or "photo.jpg",
         Url=url,
         ContentType=content_type,
         SizeBytes=len(data),
@@ -342,6 +343,7 @@ async def upload_pdv_photo(
 
     file_record = FileModel(
         BlobKey=blob_key,
+        OriginalName=file.filename or "photo.jpg",
         Url=url,
         ContentType=content_type,
         SizeBytes=len(data),

@@ -65,7 +65,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
-                    "detail": f"Error interno del servidor: {type(exc).__name__}: {exc}",
+                    "detail": f"Error interno: {type(exc).__name__}",
                     "request_id": rid,
                 },
                 headers=cors_headers,

@@ -8,6 +8,7 @@ class File(Base):
 
     FileId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     BlobKey = Column(String(300), unique=True, nullable=False)
+    OriginalName = Column(String(300), nullable=False, default="photo.jpg")
     Url = Column(String(600), nullable=True)
     ContentType = Column(String(80), nullable=True)
     SizeBytes = Column(BigInteger, nullable=True)
