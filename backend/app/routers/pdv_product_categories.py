@@ -19,8 +19,8 @@ _ADMIN_ROLES = {"admin", "territory_manager", "regional_manager"}
 
 
 def _validate(category: str, status: str):
-    if category not in VALID_CATEGORIES:
-        raise HTTPException(400, f"Categoría inválida. Válidas: {VALID_CATEGORIES}")
+    if not category or not category.strip():
+        raise HTTPException(400, "Categoría no puede estar vacía")
     if status not in VALID_STATUSES:
         raise HTTPException(400, f"Estado inválido. Válidos: {VALID_STATUSES}")
 
