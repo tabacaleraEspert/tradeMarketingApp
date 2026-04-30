@@ -1,3 +1,4 @@
+"""File model — binary asset metadata (photos, documents)."""
 from sqlalchemy import Column, Integer, String, DateTime, BigInteger, Numeric
 from sqlalchemy.sql import func
 from ..database import Base
