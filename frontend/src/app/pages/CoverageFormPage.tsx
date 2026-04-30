@@ -16,6 +16,7 @@ import {
   Search,
   Check,
   X as XIcon,
+  Info,
 } from "lucide-react";
 import { toast } from "sonner";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
@@ -57,26 +58,56 @@ export function CoverageFormPage() {
       visitCoverageApi.requirements(visitId).catch(() => null),
     ]).then(([prods, diffData, pdvCats, reqs]) => {
       if (reqs) setCoverageReqs(reqs);
+      const isFirstVisit = !reqs || reqs.visitNumber === 1;
+      const hasPrevData = diffData.some((d) => d.PrevWorks != null);
+
       // Set category statuses
+      // First visit: everything starts as "No Trabaja" so the rep opens categories as they go
+      // Subsequent visits: use saved category status, or inherit from previous coverage
       const catStatus: Record<string, boolean> = {};
       for (const cat of [...new Set(prods.map((p) => p.Category))]) {
         const pdvCat = pdvCats.find((c: { Category: string }) => c.Category === cat);
-        catStatus[cat] = pdvCat ? pdvCat.Status === "trabaja" : true; // default: trabaja
+        if (pdvCat) {
+          catStatus[cat] = pdvCat.Status === "trabaja";
+        } else if (isFirstVisit) {
+          catStatus[cat] = false; // First visit: default "No Trabaja"
+        } else {
+          // Subsequent visit without saved status: infer from previous coverage
+          const catProducts = prods.filter((p) => p.Category === cat);
+          const anyPrevWorked = catProducts.some((p) => {
+            const d = diffData.find((x) => x.ProductId === p.ProductId);
+            return d?.PrevWorks === true;
+          });
+          catStatus[cat] = anyPrevWorked;
+        }
       }
       setCategoryStatus(catStatus);
       setProducts(prods);
       setDiffs(diffData);
 
-      // Build rows from diff data (pre-loaded with current or previous values)
+      // Build rows from diff data
+      // First visit: all Works=false (rep fills from scratch)
+      // Subsequent: pre-load from previous visit values
       const initial: Record<number, CoverageRow> = {};
       for (const p of prods) {
         const d = diffData.find((x) => x.ProductId === p.ProductId);
-        initial[p.ProductId] = {
-          ProductId: p.ProductId,
-          Works: d ? d.Works : (d?.PrevWorks ?? false),
-          Price: d?.Price != null ? String(d.Price) : (d?.PrevPrice != null ? String(d.PrevPrice) : ""),
-          Availability: d?.Availability || d?.PrevAvailability || "disponible",
-        };
+        if (isFirstVisit || !hasPrevData) {
+          // First visit: everything starts empty
+          initial[p.ProductId] = {
+            ProductId: p.ProductId,
+            Works: false,
+            Price: "",
+            Availability: "disponible",
+          };
+        } else {
+          // Subsequent visit: pre-load with current data, fall back to previous
+          initial[p.ProductId] = {
+            ProductId: p.ProductId,
+            Works: d ? d.Works : (d?.PrevWorks ?? false),
+            Price: d?.Price != null ? String(d.Price) : (d?.PrevPrice != null ? String(d.PrevPrice) : ""),
+            Availability: d?.Availability || d?.PrevAvailability || "disponible",
+          };
+        }
       }
       setRows(initial);
       setLoading(false);
@@ -199,6 +230,16 @@ export function CoverageFormPage() {
           </div>
         )}
 
+        {/* Inherited data banner */}
+        {coverageReqs && coverageReqs.visitNumber > 1 && diffs.some((d) => d.PrevWorks != null) && (
+          <div className="rounded-lg p-3 text-xs bg-amber-50/60 border border-amber-200/60 flex items-start gap-2">
+            <Info size={14} className="text-amber-600 mt-0.5 shrink-0" />
+            <p className="text-amber-800">
+              Los datos marcados con <span className="inline-block px-1 py-0.5 rounded bg-amber-100 text-amber-700 font-medium text-[10px]">Visita ant.</span> vienen de la visita anterior. Revisalos y actualizá lo que haya cambiado.
+            </p>
+          </div>
+        )}
+
         {/* Search + Filter */}
         <div className="flex gap-2">
           <div className="relative flex-1">
@@ -287,13 +328,15 @@ export function CoverageFormPage() {
                 const priceChanged = diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
                 const newProduct = diff && diff.PrevWorks === null;
                 const lostProduct = diff && diff.PrevWorks === true && !row.Works;
+                // Inherited: data comes from previous visit (not yet confirmed in this visit)
+                const isInherited = diff && diff.PrevWorks != null && !diff.Works && row.Works;
 
                 return (
                   <Card
                     key={product.ProductId}
                     className={`overflow-hidden transition-all ${
                       product.IsOwn ? "border-l-4 border-l-[#A48242]" : ""
-                    } ${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""}`}
+                    } ${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""} ${isInherited ? "bg-amber-50/40 border-amber-200/60" : ""}`}
                   >
                     <CardContent className="p-3">
                       <div className="flex items-center justify-between gap-2">
@@ -303,6 +346,11 @@ export function CoverageFormPage() {
                             {product.IsOwn && (
                               <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold flex-shrink-0">
                                 ESPERT
+                              </span>
+                            )}
+                            {isInherited && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium flex-shrink-0">
+                                Visita ant.
                               </span>
                             )}
                           </div>
