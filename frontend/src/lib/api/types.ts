@@ -128,6 +128,7 @@ export interface CoverageDiff {
   Works: boolean;
   Price: number | null;
   Availability: string | null;
+  HasCurrentData: boolean;
   PrevWorks: boolean | null;
   PrevPrice: number | null;
   PrevAvailability: string | null;

@@ -34,6 +34,7 @@ class CoverageDiff(BaseModel):
     Works: bool = False
     Price: Decimal | None = None
     Availability: str | None = None
+    HasCurrentData: bool = False  # True if this visit has saved coverage for this product
     PrevWorks: bool | None = None
     PrevPrice: Decimal | None = None
     PrevAvailability: str | None = None

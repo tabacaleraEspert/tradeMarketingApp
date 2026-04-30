@@ -77,6 +77,10 @@ ALLOWED_CONTENT_TYPES = {
     "image/webp",
     "image/heic",
     "image/heif",
+    "image/gif",
+    "image/bmp",
+    "image/tiff",
+    "application/octet-stream",  # iOS sometimes sends this for camera photos
 }
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB por foto
 
@@ -127,7 +131,7 @@ async def upload_visit_photo(
         )
 
     content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_CONTENT_TYPES:
+    if content_type not in ALLOWED_CONTENT_TYPES and not content_type.startswith("image/"):
         raise HTTPException(
             status_code=400,
             detail=f"Tipo de archivo no permitido: {content_type}. Sólo imágenes (jpg, png, webp, heic).",
@@ -300,7 +304,7 @@ async def upload_pdv_photo(
         raise HTTPException(status_code=404, detail="PDV no encontrado")
 
     content_type = (file.content_type or "").lower()
-    if content_type not in ALLOWED_CONTENT_TYPES:
+    if content_type not in ALLOWED_CONTENT_TYPES and not content_type.startswith("image/"):
         raise HTTPException(
             status_code=400,
             detail=f"Tipo de archivo no permitido: {content_type}. Sólo imágenes (jpg, png, webp, heic).",

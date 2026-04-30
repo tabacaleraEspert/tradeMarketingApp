@@ -18,14 +18,13 @@ import {
   Repeat,
   Tag,
   MoreHorizontal,
-  Newspaper,
   X,
   AlertTriangle,
   Clock,
   Star,
 } from "lucide-react";
-import { pdvsApi, visitActionsApi, marketNewsApi } from "@/lib/api";
-import type { VisitAction, MarketNews } from "@/lib/api";
+import { pdvsApi, visitActionsApi } from "@/lib/api";
+import type { VisitAction } from "@/lib/api";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
@@ -43,8 +42,6 @@ const ACTION_TYPES = [
     fields: ["category"] },
 ];
 
-const MARKET_NEWS_TAGS = ["precio", "producto", "competencia", "canal", "otros"];
-
 export function VisitActionsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -55,7 +52,6 @@ export function VisitActionsPage() {
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
   const [actions, setActions] = useState<VisitAction[]>([]);
-  const [marketNewsList, setMarketNewsList] = useState<MarketNews[]>([]);
   const [loading, setLoading] = useState(true);
 
   // New action form
@@ -63,11 +59,6 @@ export function VisitActionsPage() {
   const [newActionType, setNewActionType] = useState("");
   const [newActionDesc, setNewActionDesc] = useState("");
   const [newActionDetails, setNewActionDetails] = useState<Record<string, string>>({});
-
-  // Market news form
-  const [showNewNews, setShowNewNews] = useState(false);
-  const [newsNotes, setNewsNotes] = useState("");
-  const [newsTags, setNewsTags] = useState<string[]>([]);
 
   const currentUser = getCurrentUser();
 
@@ -86,12 +77,8 @@ export function VisitActionsPage() {
       }
       if (vid) {
         setVisitId(vid);
-        const [acts, news] = await Promise.all([
-          visitActionsApi.list(vid),
-          marketNewsApi.list(vid),
-        ]);
+        const acts = await visitActionsApi.list(vid);
         setActions(acts);
-        setMarketNewsList(news);
       }
     } catch {
       toast.error("Error al cargar datos");
@@ -141,29 +128,6 @@ export function VisitActionsPage() {
       setActions((prev) => prev.map((a) => (a.VisitActionId === actionId ? updated : a)));
       toast.success("Foto marcada como tomada");
     } catch { toast.error("Error al actualizar"); }
-  };
-
-  const handleAddNews = async () => {
-    if (!visitId || !newsNotes.trim()) return;
-    try {
-      const news = await marketNewsApi.create(visitId, {
-        Tags: newsTags.join(","),
-        Notes: newsNotes,
-        CreatedBy: Number(currentUser.id),
-      });
-      setMarketNewsList((prev) => [...prev, news]);
-      setShowNewNews(false);
-      setNewsNotes("");
-      setNewsTags([]);
-      toast.success("Novedad registrada");
-    } catch { toast.error("Error al registrar novedad"); }
-  };
-
-  const handleDeleteNews = async (newsId: number) => {
-    try {
-      await marketNewsApi.delete(newsId);
-      setMarketNewsList((prev) => prev.filter((n) => n.MarketNewsId !== newsId));
-    } catch { toast.error("Error al eliminar"); }
   };
 
   const handleContinue = () => {
@@ -477,87 +441,6 @@ export function VisitActionsPage() {
           );
         })}
 
-        {/* ── MARKET NEWS (Step 12) ── */}
-        <div className="border-t border-border pt-4 mt-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-foreground">Novedades de Mercado</h2>
-            <Button size="sm" variant="outline" onClick={() => setShowNewNews(true)}>
-              <Newspaper size={16} className="mr-1" /> Agregar
-            </Button>
-          </div>
-
-          {showNewNews && (
-            <Card className="border-emerald-200 bg-emerald-50/50 mb-3">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <Label className="font-semibold">Nueva Novedad</Label>
-                  <button onClick={() => setShowNewNews(false)} className="text-muted-foreground hover:text-muted-foreground">
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {MARKET_NEWS_TAGS.map((tag) => (
-                    <button
-                      key={tag}
-                      onClick={() =>
-                        setNewsTags((prev) =>
-                          prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-                        )
-                      }
-                      className={`px-3 py-1 rounded-full text-sm border transition-colors ${
-                        newsTags.includes(tag)
-                          ? "bg-emerald-600 text-white border-emerald-600"
-                          : "bg-card text-muted-foreground border-border hover:border-emerald-400"
-                      }`}
-                    >
-                      {tag}
-                    </button>
-                  ))}
-                </div>
-                <Textarea
-                  placeholder="Descripción de la novedad..."
-                  value={newsNotes}
-                  onChange={(e) => setNewsNotes(e.target.value)}
-                  className="min-h-[80px]"
-                />
-                <Button className="w-full" onClick={handleAddNews} disabled={!newsNotes.trim()}>
-                  Registrar Novedad
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {marketNewsList.length === 0 && !showNewNews && (
-            <Card className="border-dashed border-2">
-              <CardContent className="p-4 text-center">
-                <Newspaper size={32} className="mx-auto text-muted-foreground mb-2" />
-                <p className="text-muted-foreground text-sm">Sin novedades registradas</p>
-              </CardContent>
-            </Card>
-          )}
-
-          {marketNewsList.map((news) => (
-            <Card key={news.MarketNewsId} className="mb-2">
-              <CardContent className="p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex-1">
-                    {news.Tags && (
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {news.Tags.split(",").filter(Boolean).map((tag) => (
-                          <Badge key={tag} variant="secondary" className="text-xs">{tag}</Badge>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-sm text-foreground">{news.Notes}</p>
-                  </div>
-                  <button onClick={() => handleDeleteNews(news.MarketNewsId)} className="text-muted-foreground hover:text-red-500 shrink-0">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
       </div>
 
       {/* Bottom bar */}

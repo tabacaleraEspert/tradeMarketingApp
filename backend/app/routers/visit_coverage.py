@@ -125,6 +125,7 @@ def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_curr
             Works=cur.Works if cur else False,
             Price=cur.Price if cur else None,
             Availability=cur.Availability if cur else None,
+            HasCurrentData=cur is not None,
             PrevWorks=prev.Works if prev else None,
             PrevPrice=prev.Price if prev else None,
             PrevAvailability=prev.Availability if prev else None,

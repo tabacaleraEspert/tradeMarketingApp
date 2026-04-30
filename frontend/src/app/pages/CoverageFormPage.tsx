@@ -59,7 +59,7 @@ export function CoverageFormPage() {
     ]).then(([prods, diffData, pdvCats, reqs]) => {
       if (reqs) setCoverageReqs(reqs);
       // Check if THIS visit already has saved coverage data (user filled and came back)
-      const hasCurrentData = diffData.some((d) => d.Works === true);
+      const hasCurrentData = diffData.some((d) => d.HasCurrentData);
       const hasPrevData = diffData.some((d) => d.PrevWorks != null);
       const isFirstVisit = (!reqs || reqs.visitNumber === 1) && !hasCurrentData;
 
@@ -92,7 +92,7 @@ export function CoverageFormPage() {
       const initial: Record<number, CoverageRow> = {};
       for (const p of prods) {
         const d = diffData.find((x) => x.ProductId === p.ProductId);
-        if (d && (d.Works === true || d.Price != null)) {
+        if (d?.HasCurrentData) {
           // Current visit has saved data for this product — use it
           initial[p.ProductId] = {
             ProductId: p.ProductId,
@@ -167,8 +167,17 @@ export function CoverageFormPage() {
     if (!visitId) return;
     setSaving(true);
     try {
+      // Save ALL products that have any data (Works=true, or previously worked, or category is active)
       const items = Object.values(rows)
-        .filter((r) => r.Works || getDiff(r.ProductId)?.PrevWorks)
+        .filter((r) => {
+          if (r.Works) return true;
+          const d = getDiff(r.ProductId);
+          if (d?.PrevWorks) return true;
+          // Include if category is active (so we persist Works=false explicitly)
+          const prod = products.find((p) => p.ProductId === r.ProductId);
+          if (prod && categoryStatus[prod.Category]) return true;
+          return false;
+        })
         .map((r) => ({
           ProductId: r.ProductId,
           Works: r.Works,
