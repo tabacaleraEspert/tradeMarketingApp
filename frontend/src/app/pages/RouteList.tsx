@@ -9,7 +9,7 @@ import {
 import { usePdvs, routesApi, useMyRoutes } from "@/lib/api";
 import type { RoutePdv } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
-import { useJsApiLoader, GoogleMap, MarkerF } from "@react-google-maps/api";
+import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -65,6 +65,7 @@ export function RouteList() {
     [pdvs]
   );
 
+  const [selectedMapPdvId, setSelectedMapPdvId] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState<"active" | "inactive" | "all">("active");
   const [sortBy, setSortBy] = useState<"name" | "recent">("name");
 
@@ -317,22 +318,69 @@ export function RouteList() {
                 ],
               }}
             >
-              {pdvsWithCoords.map((pdv) => (
-                <MarkerF
-                  key={pdv.PdvId}
-                  position={{ lat: Number(pdv.Lat), lng: Number(pdv.Lon) }}
-                  onClick={() => navigate(`/pos/${pdv.PdvId}`)}
-                  icon={{
-                    path: google.maps.SymbolPath.CIRCLE,
-                    fillColor: "#A48242",
-                    fillOpacity: 1,
-                    strokeColor: "#fff",
-                    strokeWeight: 2,
-                    scale: 10,
-                  }}
-                  title={`${pdv.Name} — ${pdv.Address || ""}`}
-                />
-              ))}
+              {pdvsWithCoords.map((pdv) => {
+                const routes = pdvRouteMap[pdv.PdvId] || [];
+                const isSelected = selectedMapPdvId === pdv.PdvId;
+                return (
+                  <MarkerF
+                    key={pdv.PdvId}
+                    position={{ lat: Number(pdv.Lat), lng: Number(pdv.Lon) }}
+                    onClick={() => setSelectedMapPdvId(isSelected ? null : pdv.PdvId)}
+                    icon={{
+                      path: google.maps.SymbolPath.CIRCLE,
+                      fillColor: isSelected ? "#000" : "#A48242",
+                      fillOpacity: 1,
+                      strokeColor: "#fff",
+                      strokeWeight: 2,
+                      scale: isSelected ? 12 : 10,
+                    }}
+                  >
+                    {isSelected && (
+                      <InfoWindowF
+                        position={{ lat: Number(pdv.Lat), lng: Number(pdv.Lon) }}
+                        onCloseClick={() => setSelectedMapPdvId(null)}
+                      >
+                        <div style={{ minWidth: 180, maxWidth: 240, padding: 4 }}>
+                          <p style={{ fontWeight: 700, fontSize: 14, margin: 0 }}>{pdv.Name}</p>
+                          <p style={{ fontSize: 12, color: "#666", margin: "4px 0" }}>
+                            {pdv.Address || pdv.City || "Sin dirección"}
+                          </p>
+                          <p style={{ fontSize: 11, color: "#888", margin: "2px 0" }}>
+                            {pdv.ChannelName || pdv.Channel || ""}
+                          </p>
+                          {routes.length > 0 && (
+                            <p style={{ fontSize: 11, color: "#A48242", fontWeight: 600, margin: "4px 0 0" }}>
+                              {routes.join(", ")}
+                            </p>
+                          )}
+                          {pdv.ContactName && (
+                            <p style={{ fontSize: 11, color: "#666", margin: "2px 0" }}>
+                              {pdv.ContactName}{pdv.ContactPhone ? ` · ${pdv.ContactPhone}` : ""}
+                            </p>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); navigate(`/pos/${pdv.PdvId}`); }}
+                            style={{
+                              marginTop: 8,
+                              width: "100%",
+                              padding: "6px 0",
+                              backgroundColor: "#A48242",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 6,
+                              fontWeight: 600,
+                              fontSize: 13,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Ir al PDV
+                          </button>
+                        </div>
+                      </InfoWindowF>
+                    )}
+                  </MarkerF>
+                );
+              })}
             </GoogleMap>
           )}
         </div>
