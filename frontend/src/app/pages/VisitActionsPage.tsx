@@ -143,7 +143,7 @@ export function VisitActionsPage() {
     setPhotoCallback(null);
   };
 
-  const [showEmptyBrandsBrands, setShowEmptyBrandsBrands] = useState(false);
+  const [showEmptyBrands, setShowEmptyBrands] = useState(false);
   const fd = (key: string) => formData[key] as string ?? "";
   const setFd = (key: string, val: unknown) => setFormData((p) => ({ ...p, [key]: val }));
 
