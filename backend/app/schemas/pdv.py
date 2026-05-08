@@ -73,6 +73,7 @@ class PdvBase(BaseModel):
     IsActive: bool = True
     InactiveReason: str | None = Field(None, max_length=500)
     ReactivateOn: date | None = None
+    SupplierTypes: list[str] | None = None
 
 
 class PdvCreate(BaseModel):
@@ -95,6 +96,7 @@ class PdvCreate(BaseModel):
     MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
+    SupplierTypes: list[str] | None = None
     IsActive: bool = True
 
     @field_validator("Lat")

@@ -64,6 +64,8 @@ export function PointOfSaleDetail() {
   const [nextRouteDayId, setNextRouteDayId] = useState<number | null>(null);
   const currentUser = getCurrentUser();
   const cameFromCompletedVisit = (location.state as { completedPdvId?: number; fromNextButton?: boolean } | null)?.fromNextButton;
+  const shouldOpenClosedModal = (location.state as { openClosedModal?: boolean } | null)?.openClosedModal;
+  useEffect(() => { if (shouldOpenClosedModal) setShowClosedModal(true); }, [shouldOpenClosedModal]);
   const [loading, setLoading] = useState(true);
   const [pdvPhotos, setPdvPhotos] = useState<PdvPhotoRead[]>([]);
   const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
@@ -288,6 +290,7 @@ export function PointOfSaleDetail() {
       // Create visit and close immediately
       const visit = await visitsApi.create({
         PdvId: Number(id),
+        UserId: Number(getCurrentUser().id),
         RouteDayId: effectiveRouteDayId ?? undefined,
         Status: "OPEN",
       });
@@ -307,7 +310,8 @@ export function PointOfSaleDetail() {
         navigate("/end-of-day");
       }
     } catch (e: any) {
-      toast.error(e?.message ?? e?.detail ?? "Error al registrar PDV cerrado");
+      const msg = typeof e?.message === "string" ? e.message : typeof e?.detail === "string" ? e.detail : "Error al registrar PDV cerrado";
+      toast.error(msg);
     } finally {
       setClosingAsClosed(false);
     }
@@ -719,10 +723,21 @@ export function PointOfSaleDetail() {
                   <p className="text-xs text-muted-foreground">Siguiente PDV pendiente</p>
                   <p className="font-semibold text-foreground truncate">{nextPdvName}</p>
                 </div>
-                <Button onClick={goToNextPdv} size="sm" className="flex-shrink-0 gap-1">
-                  Ir ahí
-                  <ArrowRight size={14} />
-                </Button>
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  <Button onClick={goToNextPdv} size="sm" className="gap-1">
+                    Ir ahí
+                    <ArrowRight size={14} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs border-red-200 text-red-600 hover:bg-red-50 gap-1"
+                    onClick={() => navigate(`/pos/${nextPdvId}`, { state: { routeDayId: nextRouteDayId, fromNextButton: true, openClosedModal: true } })}
+                  >
+                    <X size={12} />
+                    Cerrado
+                  </Button>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -858,7 +873,7 @@ export function PointOfSaleDetail() {
                 <User size={18} className="text-[#A48242]" />
                 <h3 className="font-semibold text-foreground">Personas del local</h3>
               </div>
-              <Button size="sm" variant="outline" onClick={openContactModal} className="gap-1 h-8 text-xs">
+              <Button size="sm" onClick={openContactModal} className="gap-1 h-8 text-xs bg-[#A48242] hover:bg-[#8B6E38] text-white">
                 <Edit size={12} /> Editar
               </Button>
             </div>
@@ -1088,14 +1103,16 @@ export function PointOfSaleDetail() {
                 <input
                   ref={photoInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/*" capture="environment"
                   className="hidden"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
                     e.target.value = "";
                     if (!file || !id) return;
                     try {
-                      const photo = await pdvPhotosApi.upload(Number(id), file, { photoType: "fachada" });
+                      const { compressImage } = await import("@/lib/imageCompression");
+                      const compressed = await compressImage(file);
+                      const photo = await pdvPhotosApi.upload(Number(id), compressed, { photoType: "fachada" });
                       setPdvPhotos((prev) => [...prev, photo]);
                       toast.success("Foto subida");
                     } catch {

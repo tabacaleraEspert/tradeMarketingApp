@@ -25,6 +25,7 @@ class SubChannel(Base):
     ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=False)
     Name = Column(String(80), nullable=False)
     Description = Column(String(300), nullable=True)
+    SubCategory2 = Column(String(80), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 

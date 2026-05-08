@@ -34,6 +34,7 @@ export function ChannelManagement() {
   const [channelDescription, setChannelDescription] = useState("");
   const [subchannelName, setSubchannelName] = useState("");
   const [subchannelDescription, setSubchannelDescription] = useState("");
+  const [subchannelSubCategory2, setSubchannelSubCategory2] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: "channel" | "subchannel"; id: number } | null>(null);
 
@@ -97,14 +98,16 @@ export function ChannelManagement() {
     setSelectedSubchannel(null);
     setSubchannelName("");
     setSubchannelDescription("");
+    setSubchannelSubCategory2("");
     setSubchannelModal("create");
   };
 
-  const openEditSubchannel = (sc: { SubChannelId: number; ChannelId: number; Name: string; Description?: string | null }) => {
+  const openEditSubchannel = (sc: { SubChannelId: number; ChannelId: number; Name: string; Description?: string | null; SubCategory2?: string | null }) => {
     setSelectedSubchannel(sc);
     setSelectedChannelId(sc.ChannelId);
     setSubchannelName(sc.Name);
     setSubchannelDescription(sc.Description || "");
+    setSubchannelSubCategory2(sc.SubCategory2 || "");
     setSubchannelModal("edit");
   };
 
@@ -120,12 +123,14 @@ export function ChannelManagement() {
           ChannelId: selectedChannelId,
           Name: subchannelName.trim(),
           Description: subchannelDescription.trim() || undefined,
+          SubCategory2: subchannelSubCategory2.trim() || undefined,
         });
         toast.success("Subcanal creado");
       } else if (selectedSubchannel) {
         await subchannelsApi.update(selectedSubchannel.SubChannelId, {
           Name: subchannelName.trim(),
           Description: subchannelDescription.trim() || undefined,
+          SubCategory2: subchannelSubCategory2.trim() || undefined,
         });
         toast.success("Subcanal actualizado");
       }
@@ -361,6 +366,14 @@ export function ChannelManagement() {
               onChange={(e) => setSubchannelDescription(e.target.value)}
               placeholder="Descripción visible como ayuda al dar de alta un PDV"
               rows={3}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-muted-foreground mb-1">Subcategoría 2 (opcional)</label>
+            <Input
+              value={subchannelSubCategory2}
+              onChange={(e) => setSubchannelSubCategory2(e.target.value)}
+              placeholder="Ej: Maxiquiosco, Autoservicio"
             />
           </div>
         </div>

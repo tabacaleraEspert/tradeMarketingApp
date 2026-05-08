@@ -31,6 +31,69 @@ def _get_distributors(db: Session, pdv_id: int) -> list[DistributorInfo]:
     return [DistributorInfo(DistributorId=r.DistributorId, Name=r.Name) for r in rows]
 
 
+def _pdvs_to_response_batch(pdvs: list[PDVModel], db: Session) -> list[dict]:
+    """Batch version: preloads channels, subchannels, contacts, distributors in 4 queries instead of N*4."""
+    if not pdvs:
+        return []
+
+    pdv_ids = [p.PdvId for p in pdvs]
+    ch_ids = {p.ChannelId for p in pdvs if p.ChannelId}
+    sc_ids = {p.SubChannelId for p in pdvs if p.SubChannelId}
+
+    ch_map = {c.ChannelId: c.Name for c in db.query(Channel).filter(Channel.ChannelId.in_(ch_ids)).all()} if ch_ids else {}
+    sc_map = {s.SubChannelId: s.Name for s in db.query(SubChannel).filter(SubChannel.SubChannelId.in_(sc_ids)).all()} if sc_ids else {}
+
+    all_contacts = db.query(PdvContactModel).filter(PdvContactModel.PdvId.in_(pdv_ids)).order_by(PdvContactModel.PdvContactId).all()
+    contacts_map: dict[int, list] = {}
+    for c in all_contacts:
+        contacts_map.setdefault(c.PdvId, []).append(c)
+
+    all_pd = (
+        db.query(PdvDistributorModel, Distributor)
+        .join(Distributor, Distributor.DistributorId == PdvDistributorModel.DistributorId)
+        .filter(PdvDistributorModel.PdvId.in_(pdv_ids))
+        .order_by(Distributor.Name)
+        .all()
+    )
+    dist_map: dict[int, list] = {}
+    for pd, d in all_pd:
+        dist_map.setdefault(pd.PdvId, []).append(DistributorInfo(DistributorId=d.DistributorId, Name=d.Name))
+
+    result = []
+    for pdv in pdvs:
+        channel_name = ch_map.get(pdv.ChannelId) if pdv.ChannelId else None
+        if channel_name is None and pdv.Channel:
+            channel_name = pdv.Channel
+        subchannel_name = sc_map.get(pdv.SubChannelId) if pdv.SubChannelId else None
+
+        result.append(Pdv(
+            PdvId=pdv.PdvId, Code=pdv.Code, Name=pdv.Name,
+            BusinessName=getattr(pdv, "BusinessName", None),
+            Channel=pdv.Channel, ChannelId=pdv.ChannelId, SubChannelId=pdv.SubChannelId,
+            Address=pdv.Address, City=pdv.City, ZoneId=pdv.ZoneId,
+            DistributorId=pdv.DistributorId, Lat=pdv.Lat, Lon=pdv.Lon,
+            ContactName=pdv.ContactName, ContactPhone=pdv.ContactPhone,
+            OpeningTime=getattr(pdv, "OpeningTime", None),
+            ClosingTime=getattr(pdv, "ClosingTime", None),
+            TimeSlotsJson=getattr(pdv, "TimeSlotsJson", None),
+            VisitDay=getattr(pdv, "VisitDay", None),
+            DefaultMaterialExternalId=pdv.DefaultMaterialExternalId,
+            AssignedUserId=getattr(pdv, "AssignedUserId", None),
+            MonthlyVolume=getattr(pdv, "MonthlyVolume", None),
+            Category=getattr(pdv, "Category", None),
+            IsActive=pdv.IsActive,
+            InactiveReason=getattr(pdv, "InactiveReason", None),
+            ReactivateOn=getattr(pdv, "ReactivateOn", None),
+            SupplierTypes=getattr(pdv, "SupplierTypes", "").split(",") if getattr(pdv, "SupplierTypes", None) else None,
+            CreatedAt=getattr(pdv, "CreatedAt", None),
+            UpdatedAt=getattr(pdv, "UpdatedAt", None),
+            ChannelName=channel_name, SubChannelName=subchannel_name,
+            Contacts=[PdvContact.model_validate(c) for c in contacts_map.get(pdv.PdvId, [])],
+            Distributors=dist_map.get(pdv.PdvId, []),
+        ).model_dump())
+    return result
+
+
 def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
     """Construye la respuesta Pdv con ChannelName, SubChannelName, Contacts y Distributors."""
     channel_name = None
@@ -113,7 +176,7 @@ def list_pdvs(
             PDVModel.PdvId.in_(pdv_ids_with_dist) | (PDVModel.DistributorId == distributor_id)
         )
     pdvs = q.order_by(PDVModel.PdvId).offset(skip).limit(limit).all()
-    return [_pdv_to_response(p, db) for p in pdvs]
+    return _pdvs_to_response_batch(pdvs, db)
 
 
 @router.get("/{pdv_id}", response_model=Pdv)
@@ -169,6 +232,7 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
         MonthlyVolume=data.MonthlyVolume,
         Category=category,
         DefaultMaterialExternalId=data.DefaultMaterialExternalId,
+        SupplierTypes=",".join(data.SupplierTypes) if data.SupplierTypes else None,
         IsActive=data.IsActive,
     )
     db.add(pdv)

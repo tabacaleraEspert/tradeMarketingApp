@@ -12,7 +12,7 @@ class PDV(Base):
     BusinessName = Column(String(200), nullable=True)  # Razón social legal (opcional)
     Channel = Column(String(40), nullable=True)  # Legacy, usar ChannelId
     ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True, index=True)
-    SubChannelId = Column(Integer, ForeignKey("SubChannel.SubChannelId"), nullable=True)
+    SubChannelId = Column(Integer, ForeignKey("SubChannel.SubChannelId"), nullable=True, index=True)
     Address = Column(String(200), nullable=True)
     City = Column(String(80), nullable=True)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True, index=True)
@@ -43,6 +43,7 @@ class PDV(Base):
     InactiveReason = Column(String(500), nullable=True)
     InactiveSince = Column(DateTime(timezone=True), nullable=True)
     ReactivateOn = Column(Date, nullable=True)
+    SupplierTypes = Column(String(500), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     UpdatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

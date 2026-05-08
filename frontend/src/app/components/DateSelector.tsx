@@ -31,20 +31,10 @@ export function DateSelector({ isOpen, onClose, selectedDate, onDateSelect }: Da
     const userId = Number(currentUser.id) || undefined;
     if (!userId) return;
 
-    api.get<any[]>("/routes").then((routes) => {
-      // Get all route days
-      const promises = routes.map((r: any) =>
-        api.get<any[]>(`/routes/${r.RouteId}/days`).catch(() => [])
-      );
-      Promise.all(promises).then((allDays) => {
-        const daySet = new Set<string>();
-        allDays.flat().forEach((rd: any) => {
-          if (rd.AssignedUserId === userId || !userId) {
-            daySet.add(rd.WorkDate); // "2026-04-09"
-          }
-        });
-        setRouteDays(daySet);
-      });
+    api.get<any[]>(`/routes/all-days`, { user_id: userId }).then((days) => {
+      const daySet = new Set<string>();
+      days.forEach((rd: any) => daySet.add(rd.WorkDate));
+      setRouteDays(daySet);
     }).catch(() => {});
   }, [isOpen, viewMonth, viewYear, currentUser.id]);
 

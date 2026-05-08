@@ -22,7 +22,8 @@ from app import models  # noqa: F401,E402
 config = context.config
 
 # Inyectamos la URL de la DB desde settings (no desde alembic.ini)
-config.set_main_option("sqlalchemy.url", settings.resolved_database_url)
+# Escapear % para configparser (% es especial en .ini interpolation)
+config.set_main_option("sqlalchemy.url", settings.resolved_database_url.replace("%", "%%"))
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

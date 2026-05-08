@@ -8,7 +8,7 @@ class PdvContact(Base):
     __tablename__ = "PdvContact"
 
     PdvContactId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=False)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=False, index=True)
     ContactName = Column(String(120), nullable=False)
     ContactPhone = Column(String(40), nullable=True)
     ContactRole = Column(String(40), nullable=True)       # dueño, empleado, encargado

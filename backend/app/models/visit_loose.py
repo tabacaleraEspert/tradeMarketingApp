@@ -13,7 +13,7 @@ class VisitLooseSurvey(Base):
     __tablename__ = "VisitLooseSurvey"
 
     VisitLooseSurveyId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, unique=True)
+    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, unique=True, index=True)
     SellsLoose = Column(Boolean, nullable=False, default=False)
     # [{"name": "Milenio Red", "price": 150.0}, ...] (máx 3 productos)
     ProductsJson = Column(String, nullable=True)

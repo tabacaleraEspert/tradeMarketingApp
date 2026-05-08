@@ -9,12 +9,12 @@ class Route(Base):
 
     RouteId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     Name = Column(String(120), nullable=False)
-    ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
+    ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True, index=True)
     FormId = Column(Integer, ForeignKey("Form.FormId"), nullable=True)  # legacy, usar RouteForm
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     # Trade Rep crea; Admin puede editar
-    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True)
+    CreatedByUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True, index=True)
     # Zona Bejerman (Litoral, GBA Sur, GBA Norte, Patagonia)
     BejermanZone = Column(String(80), nullable=True)
     # Frecuencia: every_15_days, weekly, specific_days
@@ -53,7 +53,7 @@ class RouteDay(Base):
     __tablename__ = "RouteDay"
 
     RouteDayId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), nullable=False)
+    RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), nullable=False, index=True)
     WorkDate = Column(Date, nullable=False, index=True)
     AssignedUserId = Column(Integer, ForeignKey("User.UserId"), nullable=False, index=True)
     Status = Column(String(20), default="PLANNED", nullable=False)

@@ -55,9 +55,11 @@
           if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 500); }
         }, 800);
       });
-      // Register service worker
+      // Unregister old service worker (was duplicating requests)
       if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch(() => {});
+        navigator.serviceWorker.getRegistrations().then(regs => {
+          regs.forEach(r => r.unregister());
+        });
       }
     </script>
   </body>

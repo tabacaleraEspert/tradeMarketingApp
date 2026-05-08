@@ -48,9 +48,9 @@ export function Modal({ isOpen, onClose, title, children, footer, size = "md" }:
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-6">{children}</div>
 
-          {/* Footer */}
+          {/* Footer — sticky al fondo */}
           {footer && (
-            <div className="flex items-center justify-end gap-3 p-6 border-t border-border">
+            <div className="flex items-center justify-end gap-3 p-4 border-t border-border shrink-0 sticky bottom-0 bg-card">
               {footer}
             </div>
           )}

@@ -456,3 +456,264 @@ class TestChannelDescription:
         })
         assert resp.status_code == 200
         assert resp.json()["Description"] == "Nueva descripción"
+
+
+# ---------------------------------------------------------------------------
+# E2E: Alta → Modificación → Eliminación (flujo integral)
+# ---------------------------------------------------------------------------
+
+class TestPdvFullLifecycle:
+    """Test integral: crea un PDV completo, lo modifica, y lo elimina."""
+
+    def test_create_update_delete_flow(self, client, channel, zone):
+        """Flujo completo: alta con todos los campos → update parcial → delete."""
+        name = f"Integral_{_uid()}"
+        # --- ALTA ---
+        resp = _make_pdv(
+            client, channel["ChannelId"],
+            name=name,
+            ZoneId=zone["ZoneId"],
+            Address="Av. Sáenz 1302",
+            City="Buenos Aires",
+            Lat=-34.6505,
+            Lon=-58.3948,
+            OpeningTime="08:00",
+            ClosingTime="18:00",
+            VisitDay=1,
+            MonthlyVolume=1200,
+            BusinessName="Kiosco Don Juan SRL",
+            Contacts=[
+                {"ContactName": "Juan Pérez", "ContactPhone": "11-1111-1111", "ContactRole": "dueño"},
+                {"ContactName": "María López", "ContactPhone": "11-2222-2222", "ContactRole": "empleado"},
+            ],
+        )
+        assert resp.status_code == 201
+        pdv = resp.json()
+        pdv_id = pdv["PdvId"]
+        assert pdv["Name"] == name
+        assert pdv["Address"] == "Av. Sáenz 1302"
+        assert pdv["ZoneId"] == zone["ZoneId"]
+        assert pdv["Category"] == "Mediano"
+        assert pdv["OpeningTime"] == "08:00"
+        assert pdv["ClosingTime"] == "18:00"
+        assert pdv["VisitDay"] == 1
+        assert pdv["BusinessName"] == "Kiosco Don Juan SRL"
+        assert len(pdv["Contacts"]) == 2
+        assert pdv["IsActive"] is True
+
+        # --- MODIFICACIÓN (cambio nombre, dirección, volumen, contactos) ---
+        new_name = f"Modificado_{_uid()}"
+        resp = client.patch(f"/pdvs/{pdv_id}", json={
+            "Name": new_name,
+            "Address": "Av. Sáenz 987",
+            "MonthlyVolume": 2000,
+            "OpeningTime": "09:00",
+            "ClosingTime": "20:00",
+            "Contacts": [
+                {"ContactName": "Pedro García", "ContactRole": "encargado"},
+            ],
+        })
+        assert resp.status_code == 200
+        pdv = resp.json()
+        assert pdv["Name"] == new_name
+        assert pdv["Address"] == "Av. Sáenz 987"
+        assert pdv["MonthlyVolume"] == 2000
+        assert pdv["Category"] == "Grande"
+        assert pdv["OpeningTime"] == "09:00"
+        assert pdv["ClosingTime"] == "20:00"
+        assert len(pdv["Contacts"]) == 1
+        assert pdv["Contacts"][0]["ContactName"] == "Pedro García"
+        # Campos no tocados se mantienen
+        assert pdv["ZoneId"] == zone["ZoneId"]
+        assert pdv["BusinessName"] == "Kiosco Don Juan SRL"
+
+        # --- VERIFICAR con GET ---
+        resp = client.get(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 200
+        assert resp.json()["Name"] == new_name
+
+        # --- ELIMINACIÓN ---
+        resp = client.delete(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 204
+
+        # --- VERIFICAR que no existe ---
+        resp = client.get(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 404
+
+    def test_create_deactivate_reactivate_delete(self, client, channel):
+        """Alta → desactivar → reactivar → eliminar."""
+        resp = _make_pdv(client, channel["ChannelId"])
+        assert resp.status_code == 201
+        pdv_id = resp.json()["PdvId"]
+
+        # Desactivar
+        resp = client.patch(f"/pdvs/{pdv_id}", json={
+            "IsActive": False,
+            "InactiveReason": "Cerrado temporalmente",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["IsActive"] is False
+        assert data["InactiveReason"] == "Cerrado temporalmente"
+        assert data["ReactivateOn"] is not None
+
+        # Reactivar
+        resp = client.patch(f"/pdvs/{pdv_id}", json={"IsActive": True})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["IsActive"] is True
+        assert data["InactiveReason"] is None
+        assert data["ReactivateOn"] is None
+
+        # Eliminar
+        resp = client.delete(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 204
+
+    def test_create_with_subchannel_update_channel_delete(self, client):
+        """Alta con canal+subcanal → cambio de canal → eliminar."""
+        ch1 = _make_channel(client, f"Canal1_{_uid()}")
+        ch2 = _make_channel(client, f"Canal2_{_uid()}")
+        sc = client.post("/subchannels", json={
+            "ChannelId": ch1["ChannelId"],
+            "Name": f"Sub_{_uid()}",
+        })
+        assert sc.status_code == 201
+        sc_id = sc.json()["SubChannelId"]
+
+        # Alta con canal y subcanal
+        resp = _make_pdv(
+            client, ch1["ChannelId"],
+            SubChannelId=sc_id,
+        )
+        assert resp.status_code == 201
+        pdv = resp.json()
+        pdv_id = pdv["PdvId"]
+        assert pdv["ChannelName"] == ch1["Name"]
+        assert pdv["SubChannelName"] == sc.json()["Name"]
+
+        # Cambiar canal
+        resp = client.patch(f"/pdvs/{pdv_id}", json={"ChannelId": ch2["ChannelId"]})
+        assert resp.status_code == 200
+        assert resp.json()["ChannelName"] == ch2["Name"]
+
+        # Eliminar
+        resp = client.delete(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 204
+
+    def test_multiple_updates_preserve_unmodified_fields(self, client, channel, zone):
+        """Varios updates parciales no borran campos no enviados."""
+        resp = _make_pdv(
+            client, channel["ChannelId"],
+            ZoneId=zone["ZoneId"],
+            Address="Original 100",
+            City="CABA",
+            MonthlyVolume=500,
+            OpeningTime="08:00",
+        )
+        assert resp.status_code == 201
+        pdv_id = resp.json()["PdvId"]
+
+        # Update 1: solo nombre
+        client.patch(f"/pdvs/{pdv_id}", json={"Name": f"Renamed_{_uid()}"})
+        # Update 2: solo volumen
+        client.patch(f"/pdvs/{pdv_id}", json={"MonthlyVolume": 900})
+        # Update 3: solo ciudad
+        resp = client.patch(f"/pdvs/{pdv_id}", json={"City": "Pompeya"})
+        assert resp.status_code == 200
+        pdv = resp.json()
+
+        # Todo lo no tocado se mantiene
+        assert pdv["Address"] == "Original 100"
+        assert pdv["ZoneId"] == zone["ZoneId"]
+        assert pdv["OpeningTime"] == "08:00"
+        assert pdv["MonthlyVolume"] == 900
+        assert pdv["Category"] == "Mediano"
+        assert pdv["City"] == "Pompeya"
+
+
+# ---------------------------------------------------------------------------
+# E2E: Distributors en flujo completo
+# ---------------------------------------------------------------------------
+
+class TestPdvDistributorLifecycle:
+    """Test integral de distribuidores asociados al PDV."""
+
+    @pytest.fixture()
+    def distributors(self, client):
+        dists = []
+        for i in range(3):
+            resp = client.post("/distributors", json={"Name": f"Dist_{_uid()}"})
+            assert resp.status_code == 201, resp.text
+            dists.append(resp.json())
+        return dists
+
+    def test_create_with_distributors_update_delete(self, client, channel, distributors):
+        """Alta con distribuidores → cambiar distribuidores → eliminar PDV."""
+        dist_ids = [d["DistributorId"] for d in distributors[:2]]
+
+        # Alta con 2 distribuidores
+        resp = _make_pdv(
+            client, channel["ChannelId"],
+            DistributorIds=dist_ids,
+        )
+        assert resp.status_code == 201
+        pdv = resp.json()
+        pdv_id = pdv["PdvId"]
+        assert len(pdv["Distributors"]) == 2
+
+        # Cambiar a 1 solo distribuidor (el tercero)
+        resp = client.patch(f"/pdvs/{pdv_id}", json={
+            "DistributorIds": [distributors[2]["DistributorId"]],
+        })
+        assert resp.status_code == 200
+        assert len(resp.json()["Distributors"]) == 1
+        assert resp.json()["Distributors"][0]["DistributorId"] == distributors[2]["DistributorId"]
+
+        # Quitar todos los distribuidores
+        resp = client.patch(f"/pdvs/{pdv_id}", json={"DistributorIds": []})
+        assert resp.status_code == 200
+        assert resp.json()["Distributors"] == []
+
+        # Eliminar PDV
+        resp = client.delete(f"/pdvs/{pdv_id}")
+        assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Validation edge cases
+# ---------------------------------------------------------------------------
+
+class TestPdvValidation:
+    """Validaciones de campos en alta y modificación."""
+
+    def test_create_empty_name_rejected(self, client, channel):
+        resp = client.post("/pdvs", json={"Name": "  ", "ChannelId": channel["ChannelId"]})
+        assert resp.status_code == 422
+
+    def test_create_without_name_rejected(self, client, channel):
+        resp = client.post("/pdvs", json={"ChannelId": channel["ChannelId"]})
+        assert resp.status_code == 422
+
+    def test_create_without_channel_rejected(self, client):
+        resp = client.post("/pdvs", json={"Name": f"NoChannel_{_uid()}"})
+        assert resp.status_code == 422
+
+    def test_invalid_visit_day_rejected(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], VisitDay=7)
+        assert resp.status_code == 422
+
+    def test_negative_volume_rejected(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], MonthlyVolume=-1)
+        assert resp.status_code == 422
+
+    def test_invalid_opening_time_rejected(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], OpeningTime="25:00")
+        assert resp.status_code == 422
+
+    def test_lat_out_of_range_rejected(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], Lat=91.0, Lon=0)
+        assert resp.status_code == 422
+
+    def test_lon_out_of_range_rejected(self, client, channel):
+        resp = _make_pdv(client, channel["ChannelId"], Lat=0, Lon=181.0)
+        assert resp.status_code == 422

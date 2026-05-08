@@ -16,6 +16,7 @@ import {
   ClipboardList,
   Package,
   Eye,
+  Shield,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -77,6 +78,7 @@ export function AdminLayout() {
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
     { path: "/admin/visit-data", icon: Eye, label: "Censos y Respuestas" },
     { path: "/admin/users", icon: Users, label: "Usuarios" },
+    { path: "/admin/audit", icon: Shield, label: "Auditoría" },
   ];
 
   const isActivePath = (path: string) => {

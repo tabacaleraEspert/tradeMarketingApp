@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { api } from "./client";
 import {
   routesApi,
   pdvsApi,
@@ -30,34 +31,20 @@ export async function fetchRouteDayPdvsForDate(
   userId?: number
 ): Promise<RouteDayPdvWithDetails[]> {
   const dateStr = date.toISOString().split("T")[0];
-  const routes = await routesApi.list();
-  const result: RouteDayPdvWithDetails[] = [];
-  const seenPdvIds = new Set<number>();
+  const params: Record<string, string | number> = { date: dateStr };
+  if (userId != null) params.user_id = userId;
 
-  for (const route of routes) {
-    const days = await routesApi.listDays(route.RouteId);
-    const matchingDays = days.filter(
-      (d) =>
-        d.WorkDate.startsWith(dateStr) &&
-        (userId == null || d.AssignedUserId === userId)
-    );
-
-    for (const day of matchingDays) {
-      const dayPdvs = await routesApi.listDayPdvs(day.RouteDayId);
-      for (const rdp of dayPdvs) {
-        if (seenPdvIds.has(rdp.PdvId)) continue;
-        seenPdvIds.add(rdp.PdvId);
-        try {
-          const pdv = await pdvsApi.get(rdp.PdvId);
-          result.push({ ...rdp, pdv, routeName: route.Name, routeId: route.RouteId });
-        } catch {
-          // PDV eliminado, omitir
-        }
-      }
-    }
-  }
-
-  return result.sort((a, b) => a.PlannedOrder - b.PlannedOrder);
+  const items = await api.get<any[]>("/routes/day-detail", params);
+  return items.map((item: any) => ({
+    RouteDayId: item.RouteDayId,
+    PdvId: item.PdvId,
+    PlannedOrder: item.PlannedOrder,
+    ExecutionStatus: item.ExecutionStatus,
+    Priority: item.Priority,
+    pdv: item.pdv,
+    routeName: item.routeName,
+    routeId: item.routeId,
+  }));
 }
 
 /** Hook para PDVs de ruta por fecha. userId: filtra por ruta asignada al Trade Rep */

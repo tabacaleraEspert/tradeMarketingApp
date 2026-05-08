@@ -13,6 +13,7 @@ import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
   useRouteDayPdvsForDate, useIncidentsWithPdvNames, useActiveNotifications,
   useUserMonthlyStats, routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
+  visitsApi, pdvsApi,
 } from "@/lib/api";
 
 export function Home() {
@@ -22,6 +23,24 @@ export function Home() {
   const [isDateSelectorOpen, setIsDateSelectorOpen] = useState(false);
 
   const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
+
+  // Detect any open/in-progress visit globally (not just today's route)
+  const [globalOpenVisit, setGlobalOpenVisit] = useState<{ VisitId: number; PdvId: number; PdvName: string } | null>(null);
+  useEffect(() => {
+    const userId = Number(currentUser.id);
+    if (!userId) return;
+    visitsApi.list({ userId, status: "OPEN" }).then(async (visits) => {
+      const inProgress = visits[0] || null;
+      if (!inProgress) {
+        const ip = await visitsApi.list({ userId, status: "IN_PROGRESS" });
+        if (ip[0]) {
+          try { const pdv = await pdvsApi.get(ip[0].PdvId); setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: pdv.Name }); } catch { setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: `PDV #${ip[0].PdvId}` }); }
+        } else { setGlobalOpenVisit(null); }
+        return;
+      }
+      try { const pdv = await pdvsApi.get(inProgress.PdvId); setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: pdv.Name }); } catch { setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: `PDV #${inProgress.PdvId}` }); }
+    }).catch(() => {});
+  }, [currentUser.id]);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
 
   const { data: routeDayPdvs, loading: loadingPdvs, refetch: refetchPdvs } = useRouteDayPdvsForDate(selectedDate, userIdForFilter);
@@ -182,6 +201,31 @@ export function Home() {
         )}
         {loadingPdvs && <p className="text-sm text-[#979B9B]">Cargando...</p>}
       </div>
+
+      {/* Banner visita abierta global */}
+      {globalOpenVisit && (
+        <div className="mx-4 -mt-3 mb-2 relative z-10">
+          <Card className="border-amber-400 bg-amber-50 shadow-md">
+            <CardContent className="p-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-amber-500 rounded-full p-2 shrink-0">
+                  <AlertCircle size={18} className="text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-amber-900">Visita en curso</p>
+                  <p className="text-sm font-semibold text-amber-800 truncate">{globalOpenVisit.PdvName}</p>
+                </div>
+                <button
+                  onClick={() => navigate(`/pos/${globalOpenVisit.PdvId}`)}
+                  className="shrink-0 bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1"
+                >
+                  Ir <ArrowRight size={12} />
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Content */}
       <div className="px-4 -mt-3 space-y-3">

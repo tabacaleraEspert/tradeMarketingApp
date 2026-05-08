@@ -115,7 +115,7 @@ export function Profile() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*" capture="environment"
             className="hidden"
             onChange={handleAvatarSelected}
           />

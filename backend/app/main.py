@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .database import engine, Base, get_db
 from .models import User as UserModel, UserRole, Role, Zone
-from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities, pdv_notes, files, holidays, user_vacations, route_generator, products, pdv_product_categories, visit_coverage, visit_pop, visit_loose, visit_indicators, app_settings
+from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities, pdv_notes, files, holidays, user_vacations, route_generator, products, pdv_product_categories, visit_coverage, visit_pop, visit_loose, visit_indicators, app_settings, audit
 from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
@@ -99,6 +99,7 @@ app.include_router(visit_pop.router, dependencies=_auth_dep)
 app.include_router(visit_loose.router, dependencies=_auth_dep)
 app.include_router(visit_indicators.router, dependencies=_auth_dep)
 app.include_router(app_settings.router, dependencies=_auth_dep)
+app.include_router(audit.router, dependencies=_auth_dep)
 
 # Servir archivos locales cuando estamos en modo fallback (dev sin Azure).
 # En producción con Azure Blob, este mount es inocuo (directory puede no existir).

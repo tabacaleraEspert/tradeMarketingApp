@@ -12,7 +12,7 @@ class VisitCoverage(Base):
 
     VisitCoverageId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, index=True)
-    ProductId = Column(Integer, ForeignKey("Product.ProductId"), nullable=False)
+    ProductId = Column(Integer, ForeignKey("Product.ProductId"), nullable=False, index=True)
     # "Lo trabaja" — Sí / No
     Works = Column(Boolean, nullable=False, default=False)
     # Precio al consumidor en pesos (solo si Works=True)

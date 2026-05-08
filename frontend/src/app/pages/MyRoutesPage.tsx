@@ -26,6 +26,7 @@ import { RouteCalendar } from "../components/RouteCalendar";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { useMyRoutes, routesApi, pdvsApi } from "@/lib/api";
+import { api } from "@/lib/api/client";
 import type { Pdv, RoutePdv } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
@@ -105,49 +106,32 @@ export function MyRoutesPage() {
     preventGoogleFontsLoading: true,
   });
 
-  // Cargar PDVs de cada ruta
+  // Cargar PDVs de cada ruta (single request)
   useEffect(() => {
-    if (myRoutes.length === 0) {
+    if (!currentUser?.id) {
       setEnrichedRoutes([]);
       return;
     }
     setEnriching(true);
-    (async () => {
-      const enriched: RouteWithPdvs[] = [];
-      for (let i = 0; i < myRoutes.length; i++) {
-        const r = myRoutes[i];
-        try {
-          const rps = await routesApi.listPdvs(r.RouteId);
-          const sorted = [...rps].sort((a, b) => a.SortOrder - b.SortOrder);
-          const pdvs: Pdv[] = [];
-          for (const rp of sorted) {
-            try {
-              const p = await pdvsApi.get(rp.PdvId);
-              pdvs.push(p);
-            } catch {
-              // PDV deleted
-            }
-          }
-          enriched.push({
-            routeId: r.RouteId,
-            name: r.Name,
-            pdvCount: r.PdvCount,
-            bejermanZone: r.BejermanZone,
-            frequencyType: r.FrequencyType,
-            estimatedMinutes: r.EstimatedMinutes,
-            isOptimized: r.IsOptimized,
-            pdvs,
-            routePdvs: sorted,
-            color: ROUTE_COLORS[i % ROUTE_COLORS.length],
-          });
-        } catch {
-          // route load failed
-        }
-      }
-      setEnrichedRoutes(enriched);
-      setEnriching(false);
-    })();
-  }, [myRoutes]);
+    api.get<any[]>("/routes/my-routes-detail", { user_id: Number(currentUser.id) })
+      .then((data) => {
+        const enriched: RouteWithPdvs[] = data.map((r: any, i: number) => ({
+          routeId: r.RouteId,
+          name: r.Name,
+          pdvCount: r.PdvCount,
+          bejermanZone: r.BejermanZone,
+          frequencyType: r.FrequencyType,
+          estimatedMinutes: r.EstimatedMinutes,
+          isOptimized: r.IsOptimized,
+          pdvs: r.pdvs.map((p: any) => ({ ...p } as Pdv)),
+          routePdvs: r.pdvs.map((p: any) => ({ PdvId: p.PdvId, SortOrder: p.SortOrder, Priority: p.Priority, RouteId: r.RouteId } as RoutePdv)),
+          color: ROUTE_COLORS[i % ROUTE_COLORS.length],
+        }));
+        setEnrichedRoutes(enriched);
+      })
+      .catch(() => setEnrichedRoutes([]))
+      .finally(() => setEnriching(false));
+  }, [currentUser?.id]);
 
   // Lista plana de PDVs con info de ruta (para filtros del mapa)
   const allPdvsFlat = useMemo<PdvWithRouteInfo[]>(() => {

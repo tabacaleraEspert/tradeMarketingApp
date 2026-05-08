@@ -30,6 +30,7 @@ class SubChannelBase(BaseModel):
     ChannelId: int
     Name: str
     Description: str | None = None
+    SubCategory2: str | None = None
     IsActive: bool = True
 
 
@@ -41,6 +42,7 @@ class SubChannelUpdate(BaseModel):
     ChannelId: int | None = None
     Name: str | None = None
     Description: str | None = None
+    SubCategory2: str | None = None
     IsActive: bool | None = None
 
 

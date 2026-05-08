@@ -208,7 +208,7 @@ def list_visit_photos(
 
     # Ownership check: only the visit owner, territory_manager+, or admin can list photos
     role = get_user_role(db, current_user.UserId)
-    if visit.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional"):
+    if visit.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional_manager"):
         raise HTTPException(
             status_code=403,
             detail="Sólo el dueño de la visita o un supervisor pueden ver las fotos",

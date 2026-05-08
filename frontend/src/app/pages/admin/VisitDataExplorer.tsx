@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { visitsApi, formsApi } from "@/lib/api";
 import { API_BASE_URL } from "@/lib/api/config";
+import { getAccessToken } from "@/lib/api/auth-storage";
 import { toast } from "sonner";
 import { exportToExcel } from "@/lib/exportExcel";
 
@@ -42,7 +43,7 @@ async function fetchVisitsFull(params: Record<string, string | number>): Promise
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
   qs.set("enrich", "true");
-  const token = localStorage.getItem("access_token");
+  const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}/visits?${qs}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -51,7 +52,7 @@ async function fetchVisitsFull(params: Record<string, string | number>): Promise
 }
 
 async function fetchVisitDetail(visitId: number): Promise<VisitFull> {
-  const token = localStorage.getItem("access_token");
+  const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}/visits/${visitId}/full`, {
     headers: { Authorization: `Bearer ${token}` },
   });

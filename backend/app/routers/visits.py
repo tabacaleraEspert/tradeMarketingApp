@@ -218,14 +218,16 @@ def create_visit(
         .first()
     )
     if open_visit:
+        open_pdv = db.query(PDVModel).filter(PDVModel.PdvId == open_visit.PdvId).first()
+        open_pdv_name = open_pdv.Name if open_pdv else f"PDV #{open_visit.PdvId}"
         if open_visit.PdvId == data.PdvId:
             raise HTTPException(
                 status_code=409,
-                detail=f"Ya tenés una visita abierta en este PDV (visit_id={open_visit.VisitId})",
+                detail=f"Ya tenés una visita abierta en {open_pdv_name} (visit_id={open_visit.VisitId})",
             )
         raise HTTPException(
             status_code=409,
-            detail=f"Tenés una visita abierta en otro PDV (visit_id={open_visit.VisitId}, pdv_id={open_visit.PdvId}). Cerrala antes de hacer check-in.",
+            detail=f"Tenés una visita abierta en {open_pdv_name}. Cerrala antes de hacer check-in.",
         )
 
     # 4. Validar Status del request si vino
@@ -506,7 +508,7 @@ def list_visit_answers(
 
     # Ownership check: only the visit owner or supervisor+ can see answers
     role = get_user_role(db, current_user.UserId)
-    if v.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional"):
+    if v.UserId != current_user.UserId and role not in ("admin", "territory_manager", "regional_manager"):
         raise HTTPException(
             status_code=403,
             detail="Sólo el dueño de la visita o un supervisor pueden ver las respuestas",

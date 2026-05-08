@@ -8,13 +8,13 @@ class VisitAction(Base):
     __tablename__ = "VisitAction"
 
     VisitActionId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    VisitId = Column(Integer, ForeignKey("Visit.VisitId"), nullable=False)
+    VisitId = Column(Integer, ForeignKey("Visit.VisitId"), nullable=False, index=True)
     ActionType = Column(String(30), nullable=False)  # cobertura, pop, canje_sueltos, promo, otra
     Description = Column(String(500), nullable=True)
     DetailsJson = Column(String, nullable=True)       # datos estructurados por tipo
     PhotoRequired = Column(Boolean, default=True, nullable=False)
     PhotoTaken = Column(Boolean, default=False, nullable=False)
     IsMandatory = Column(Boolean, default=False, nullable=False)
-    MandatoryActivityId = Column(Integer, ForeignKey("MandatoryActivity.MandatoryActivityId"), nullable=True)
+    MandatoryActivityId = Column(Integer, ForeignKey("MandatoryActivity.MandatoryActivityId"), nullable=True, index=True)
     Status = Column(String(20), default="PENDING", nullable=False)  # PENDING, DONE, BACKLOG
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

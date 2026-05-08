@@ -25,22 +25,22 @@ class VisitCheck(Base):
     __tablename__ = "VisitCheck"
 
     VisitCheckId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False)
+    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, index=True)
     CheckType = Column(String(10), nullable=False)
     Ts = Column(DateTime(timezone=True), nullable=False)
     Lat = Column(Numeric(9, 6), nullable=True)
     Lon = Column(Numeric(9, 6), nullable=True)
     AccuracyMeters = Column(Numeric(8, 2), nullable=True)
     DistanceToPdvM = Column(Numeric(8, 2), nullable=True)
-    DeviceId = Column(Integer, ForeignKey("Device.DeviceId"), nullable=True)
+    DeviceId = Column(Integer, ForeignKey("Device.DeviceId"), nullable=True, index=True)
 
 
 class VisitAnswer(Base):
     __tablename__ = "VisitAnswer"
 
     AnswerId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False)
-    QuestionId = Column(Integer, ForeignKey("FormQuestion.QuestionId", ondelete="CASCADE"), nullable=False)
+    VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, index=True)
+    QuestionId = Column(Integer, ForeignKey("FormQuestion.QuestionId", ondelete="CASCADE"), nullable=False, index=True)
     ValueText = Column(String(4000), nullable=True)
     ValueNumber = Column(Numeric(18, 4), nullable=True)
     ValueBool = Column(Boolean, nullable=True)
