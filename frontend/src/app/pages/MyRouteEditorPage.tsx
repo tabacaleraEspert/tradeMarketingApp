@@ -215,7 +215,8 @@ export function MyRouteEditorPage() {
       // Normalize to midnight so "today" includes today's date
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const startDate = config.startDate ? new Date(config.startDate + "T00:00:00") : new Date(today);
+      const startDate = config.startDate ? new Date(config.startDate + "T12:00:00") : new Date(today);
+      startDate.setHours(0, 0, 0, 0);
       const endDate = new Date(today);
       endDate.setDate(endDate.getDate() + weeksAhead * 7);
       // After deletion, remaining are past/non-planned — skip them
@@ -238,15 +239,30 @@ export function MyRouteEditorPage() {
           if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + 7);
         }
-      } else if (ft === "biweekly" || ft === "every_15_days") {
-        const interval = ft === "biweekly" ? 14 : 15;
-        // Step from startDate to find first cycle date >= today
-        const d = new Date(startDate);
-        while (d < today) d.setDate(d.getDate() + interval);
+      } else if (ft === "biweekly" && config.day != null) {
+        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
+        // Find next occurrence of config.day
+        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+        // Align to the correct biweekly cycle from startDate
+        if (config.startDate) {
+          const anchor = new Date(config.startDate + "T12:00:00");
+          while (anchor.getDay() !== config.day) anchor.setDate(anchor.getDate() + 1);
+          const diffDays = Math.round((d.getTime() - anchor.getTime()) / 86400000);
+          const weeksOff = diffDays % 14;
+          if (weeksOff !== 0) d.setDate(d.getDate() + (14 - weeksOff));
+        }
         while (d <= endDate) {
           const ds = d.toISOString().split("T")[0];
           if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + interval);
+          d.setDate(d.getDate() + 14);
+        }
+      } else if (ft === "every_15_days") {
+        const d = new Date(startDate);
+        while (d < today) d.setDate(d.getDate() + 15);
+        while (d <= endDate) {
+          const ds = d.toISOString().split("T")[0];
+          if (!existingDates.has(ds)) dates.push(ds);
+          d.setDate(d.getDate() + 15);
         }
       } else if (ft === "monthly") {
         const d = new Date(startDate);
@@ -519,7 +535,7 @@ export function MyRouteEditorPage() {
                           let config: string | null = null;
                           if (ft === "specific_days") config = JSON.stringify({ days: prev.days || [], startDate });
                           else if (ft === "every_x_days") config = JSON.stringify({ interval: prev.interval || 15, startDate });
-                          else if (ft === "weekly") config = JSON.stringify({ day: prev.day, startDate });
+                          else if (ft === "weekly" || ft === "biweekly") config = JSON.stringify({ day: prev.day, startDate });
                           else if (ft) config = JSON.stringify({ startDate });
                           return { ...d, FrequencyType: ft, FrequencyConfig: config };
                         });
@@ -535,12 +551,14 @@ export function MyRouteEditorPage() {
                   ))}
                 </div>
 
-                {/* Weekly: pick day */}
-                {routeDraft?.FrequencyType === "weekly" && (() => {
+                {/* Weekly / Biweekly: pick day */}
+                {(routeDraft?.FrequencyType === "weekly" || routeDraft?.FrequencyType === "biweekly") && (() => {
                   const cfg = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
                   return (
                     <div className="space-y-2">
-                      <p className="text-xs text-muted-foreground">Día de la semana:</p>
+                      <p className="text-xs text-muted-foreground">
+                        {routeDraft?.FrequencyType === "biweekly" ? "Día de la semana (cada 2 semanas):" : "Día de la semana:"}
+                      </p>
                       <div className="flex gap-1.5">
                         {["D", "L", "M", "X", "J", "V", "S"].map((label, idx) => (
                           <button

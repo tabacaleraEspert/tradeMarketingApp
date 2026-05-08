@@ -32,6 +32,12 @@ export type QueuedKind =
   | "visit_update"
   | "visit_answers"
   | "visit_action_update"
+  | "visit_coverage"
+  | "visit_pop"
+  | "visit_action_create"
+  | "visit_news_create"
+  | "visit_news_update"
+  | "pdv_categories"
   | "photo_upload"
   | "pdv_create"
   | "pdv_note_create";

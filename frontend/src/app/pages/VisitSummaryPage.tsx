@@ -11,10 +11,12 @@ import {
   Navigation, FileText, Megaphone, Package,
 } from "lucide-react";
 import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi } from "@/lib/api";
+import { fetchWithCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
 import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
+import { useVisitStep, clearVisitContext } from "@/lib/useVisitAutoSave";
 import { getCurrentUser } from "../lib/auth";
 import { formatTime24 } from "../lib/dateUtils";
 import type { Pdv, VisitAction, MarketNews, VisitAnswer } from "@/lib/api";
@@ -48,8 +50,10 @@ export function VisitSummaryPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeDayId = (location.state as { routeDayId?: number } | null)?.routeDayId;
-  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
+  const locState = location.state as { routeDayId?: number; visitId?: number } | null;
+  const recovered = useVisitStep(Number(id) || undefined, "summary", locState);
+  const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
+  const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
   const [pdv, setPdv] = useState<Pdv | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
@@ -76,24 +80,26 @@ export function VisitSummaryPage() {
     if (!id) return;
     setLoading(true);
     try {
-      const p = await pdvsApi.get(Number(id));
+      const p = await fetchWithCache(`pdv_${id}`, () => pdvsApi.get(Number(id)));
       setPdv(p);
 
       let vid = visitIdFromState;
       if (!vid) {
-        const openVisits = await visitsApi.list({ pdv_id: Number(id), status: "OPEN" });
-        if (openVisits.length > 0) vid = openVisits[0].VisitId;
+        try {
+          const openVisits = await visitsApi.list({ pdv_id: Number(id), status: "OPEN" });
+          if (openVisits.length > 0) vid = openVisits[0].VisitId;
+        } catch { /* offline: rely on state/recovery */ }
       }
       if (!vid) { toast.error("No hay visita activa"); navigate(`/pos/${id}`); return; }
       setVisitId(vid);
 
       const [ans, acts, nws, validation, chks, visit, photos, cov, pop] = await Promise.all([
-        visitsApi.listAnswers(vid),
-        visitActionsApi.list(vid),
-        marketNewsApi.list(vid),
-        visitsApi.validateClose(vid),
-        visitsApi.listChecks(vid),
-        visitsApi.get(vid),
+        visitsApi.listAnswers(vid).catch(() => []),
+        visitActionsApi.list(vid).catch(() => []),
+        marketNewsApi.list(vid).catch(() => []),
+        visitsApi.validateClose(vid).catch(() => ({ missing: [], warnings: [] })),
+        visitsApi.listChecks(vid).catch(() => []),
+        visitsApi.get(vid).catch(() => null),
         visitPhotosApi.list(vid).catch(() => [] as VisitPhotoRead[]),
         visitCoverageApi.list(vid).catch(() => [] as VisitCoverageItem[]),
         visitPOPApi.list(vid).catch(() => [] as VisitPOPItem[]),
@@ -110,19 +116,19 @@ export function VisitSummaryPage() {
 
       // Load product names for coverage
       if (cov.length > 0) {
-        productsApi.list({ active_only: false }).then((prods) => {
+        fetchWithCache("products_all", () => productsApi.list({ active_only: false })).then((prods) => {
           const map: Record<number, Product> = {};
           for (const p of prods) map[p.ProductId] = p;
           setProductMap(map);
         }).catch(() => {});
       }
 
-      // Load questions for answers
+      // Load questions for answers (cached)
       if (ans.length > 0) {
-        const forms = await formsApi.list().catch(() => []);
+        const forms = await fetchWithCache("forms_active", () => formsApi.list()).catch(() => []);
         const allQ: FormQuestion[] = [];
         for (const f of forms) {
-          const qs = await formsApi.listQuestions(f.FormId).catch(() => []);
+          const qs = await fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => []);
           allQ.push(...qs);
         }
         setQuestions(allQ);
@@ -231,6 +237,9 @@ export function VisitSummaryPage() {
         label: "Cierre de visita",
         _tempVisitId: isTempVisit ? visitId : undefined,
       });
+
+      // Clear visit draft/context from localStorage
+      clearVisitContext();
 
       // 3. Si dejó una nota para la próxima visita, crear PdvNote (offline-tolerant)
       if (reminderForNext.trim() && id) {

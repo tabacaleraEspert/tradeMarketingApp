@@ -14,6 +14,8 @@ import {
   Tag,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { executeOrEnqueue } from "@/lib/offline";
 import { marketNewsApi, visitPhotosApi, ApiError } from "@/lib/api";
 import type { MarketNews } from "@/lib/api/types";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
@@ -38,7 +40,10 @@ export function MarketNewsStepPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { routeDayId, visitId } = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const recovered = useVisitStep(Number(id) || undefined, "market-news", locState);
+  const routeDayId = locState.routeDayId ?? recovered.routeDayId;
+  const visitId = locState.visitId ?? recovered.visitId;
   const currentUser = getCurrentUser();
 
   const [drafts, setDrafts] = useState<NewsDraft[]>([]);
@@ -109,19 +114,34 @@ export function MarketNewsStepPage() {
       i === idx ? { ...d, photos: [...d.photos, { url: localUrl }] } : d
     ));
 
-    // Upload immediately if we have a visitId and the draft is already saved
+    // Queue upload (offline-tolerant) if we have a visitId and the draft is already saved
     if (visitId && drafts[idx]?.id) {
       try {
-        const result = await visitPhotosApi.upload(visitId, file, {
-          photoType: `news_${drafts[idx].id}`,
+        const { compressImage } = await import("@/lib/imageCompression");
+        const compressed = await compressImage(file);
+        const isTempVisit = visitId < 0;
+        const newsId = drafts[idx].id;
+        const result = await executeOrEnqueue({
+          kind: "photo_upload",
+          method: "POST",
+          url: `/files/photos/visit/${visitId}`,
+          formParts: [
+            { name: "file", value: compressed, filename: `news_${newsId}_${Date.now()}.jpg` },
+            { name: "photo_type", value: `news_${newsId}` },
+          ],
+          label: `Foto novedad`,
+          _tempVisitId: isTempVisit ? visitId : undefined,
         });
-        setDrafts((prev) => prev.map((d, i) =>
-          i === idx ? {
-            ...d,
-            photos: d.photos.map((p) => p.url === localUrl ? { ...p, fileId: result.FileId } : p),
-          } : d
-        ));
-      } catch { /* local preview stays */ }
+        if (!result.queued && result.data) {
+          const uploaded = result.data as { FileId?: number };
+          setDrafts((prev) => prev.map((d, i) =>
+            i === idx ? {
+              ...d,
+              photos: d.photos.map((p) => p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p),
+            } : d
+          ));
+        }
+      } catch { /* local preview stays, upload queued */ }
     }
 
     setActivePhotoIdx(null);
@@ -145,8 +165,9 @@ export function MarketNewsStepPage() {
   const handleSave = async () => {
     if (!visitId) return;
     setSaving(true);
+    const isTempVisit = visitId < 0;
     try {
-      // Save each draft
+      // Save each draft (offline-tolerant)
       for (let i = 0; i < drafts.length; i++) {
         const draft = drafts[i];
         if (!draft.notes.trim()) continue; // skip empty
@@ -159,34 +180,61 @@ export function MarketNewsStepPage() {
 
         if (draft.id) {
           // Update existing
-          await marketNewsApi.update(draft.id, { Tags: payload.Tags, Notes: payload.Notes });
+          await executeOrEnqueue({
+            kind: "visit_news_update",
+            method: "PATCH",
+            url: `/visits/market-news/${draft.id}`,
+            body: { Tags: payload.Tags, Notes: payload.Notes },
+            label: "Actualizar novedad",
+          });
         } else {
-          // Create new
-          const created = await marketNewsApi.create(visitId, payload);
-          draft.id = created.MarketNewsId;
+          // Create new — try online first for photo association
+          const result = await executeOrEnqueue({
+            kind: "visit_news_create",
+            method: "POST",
+            url: `/visits/${visitId}/market-news`,
+            body: payload,
+            label: "Nueva novedad",
+            _tempVisitId: isTempVisit ? visitId : undefined,
+          });
+
+          const newsId = !result.queued && result.data
+            ? (result.data as { MarketNewsId?: number }).MarketNewsId
+            : null;
 
           // Upload any pending photos for this newly created item
-          for (const photo of draft.photos) {
-            if (!photo.fileId) {
-              try {
-                const blob = await fetch(photo.url).then((r) => r.blob());
-                const file = new File([blob], "news-photo.jpg", { type: blob.type });
-                await visitPhotosApi.upload(visitId, file, {
-                  photoType: `news_${created.MarketNewsId}`,
-                });
-              } catch { /* skip failed uploads */ }
+          if (newsId) {
+            draft.id = newsId;
+            for (const photo of draft.photos) {
+              if (!photo.fileId) {
+                try {
+                  const blob = await fetch(photo.url).then((r) => r.blob());
+                  const { compressImage } = await import("@/lib/imageCompression");
+                  const compressed = await compressImage(blob);
+                  await executeOrEnqueue({
+                    kind: "photo_upload",
+                    method: "POST",
+                    url: `/visits/${visitId}/photos`,
+                    formParts: [
+                      { name: "file", value: compressed, filename: `news_${newsId}.jpg` },
+                      { name: "photo_type", value: `news_${newsId}` },
+                    ],
+                    label: "Foto novedad",
+                    _tempVisitId: isTempVisit ? visitId : undefined,
+                  }).catch(() => {});
+                } catch { /* skip failed uploads */ }
+              }
             }
           }
         }
       }
-
       toast.success("Novedades guardadas");
-      navigate(`/pos/${id}/summary`, { state: { routeDayId, visitId } });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
     }
+    navigate(`/pos/${id}/summary`, { state: { routeDayId, visitId } });
   };
 
   const handleSkip = () => {
@@ -207,7 +255,7 @@ export function MarketNewsStepPage() {
       <input
         ref={photoInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*" capture="environment"
         className="hidden"
         onChange={handlePhoto}
       />

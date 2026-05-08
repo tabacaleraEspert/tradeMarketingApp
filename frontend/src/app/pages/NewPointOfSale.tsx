@@ -11,11 +11,11 @@ import { Badge } from "../components/ui/badge";
 import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, AlertTriangle, Info } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { toast } from "sonner";
-import { pdvsApi, pdvPhotosApi, pdvNotesApi, distributorsApi, routesApi, ApiError } from "@/lib/api";
+import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
-import type { Distributor, Route } from "@/lib/api/types";
+import type { Route } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
 
 interface ContactForm {
@@ -53,11 +53,8 @@ export function NewPointOfSale() {
     { from: "08:00", to: "13:00", label: "Mañana" },
   ]);
 
-  // Distribuidores: seleccionados de la lista + nuevos creados inline
-  const [selectedDistributorIds, setSelectedDistributorIds] = useState<number[]>([]);
-  const [newDistributors, setNewDistributors] = useState<{ name: string; phone: string }[]>([]);
 
-  const [distributors, setDistributors] = useState<Distributor[]>([]);
+
   const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const submittingRef = useRef(false);
@@ -160,21 +157,6 @@ export function NewPointOfSale() {
     });
   };
 
-  useEffect(() => {
-    distributorsApi.list().then((list) => {
-      // Dedup by phone: keep the first one for each normalized phone
-      const seen = new Map<string, number>();
-      const deduped = list.filter((d) => {
-        if (!d.Phone) return true; // keep all without phone
-        const norm = d.Phone.replace(/\D/g, "");
-        if (!norm) return true;
-        if (seen.has(norm)) return false;
-        seen.set(norm, d.DistributorId);
-        return true;
-      });
-      setDistributors(deduped);
-    }).catch(() => {});
-  }, []);
 
   const photoInputRef = useRef<HTMLInputElement>(null);
 
@@ -251,8 +233,6 @@ export function NewPointOfSale() {
         ChannelId: Number(formData.channelId),
         SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         ZoneId: currentUser.zoneId ?? undefined,
-        DistributorId: selectedDistributorIds[0] || undefined,
-        DistributorIds: selectedDistributorIds.length > 0 ? selectedDistributorIds : undefined,
         Lat: formData.lat ?? undefined,
         Lon: formData.lon ?? undefined,
         OpeningTime: validSlots[0]?.from || undefined,
@@ -271,11 +251,13 @@ export function NewPointOfSale() {
         if (photos.length > 0) {
           tasks.push(
             Promise.all(
-              photos.map((p, i) =>
-                pdvPhotosApi.upload(newPdv.PdvId, p.file, { photoType: "fachada", sortOrder: i + 1 })
+              photos.map(async (p, i) => {
+                const { compressImage } = await import("@/lib/imageCompression");
+                const compressed = await compressImage(p.file);
+                return pdvPhotosApi.upload(newPdv.PdvId, compressed, { photoType: "fachada", sortOrder: i + 1 })
                   .then(() => { photoResults.push(true); })
-                  .catch(() => { photoResults.push(false); })
-              )
+                  .catch(() => { photoResults.push(false); });
+              })
             ).then(() => {
               const failed = photoResults.filter((r) => !r).length;
               if (failed > 0) toast.warning(`No se pudieron subir ${failed} foto(s)`);
@@ -291,28 +273,6 @@ export function NewPointOfSale() {
               .then(() => {})
               .catch(() => toast.warning("Observaciones no se pudieron guardar"))
           );
-        }
-
-        // New distributors (parallel create, then single update)
-        if (newDistributors.some((nd) => nd.name.trim())) {
-          tasks.push((async () => {
-            const allDistributorIds = [...selectedDistributorIds];
-            const results = await Promise.allSettled(
-              newDistributors
-                .filter((nd) => nd.name.trim())
-                .map((nd) => distributorsApi.create({ Name: nd.name.trim(), Phone: nd.phone.trim() || undefined }))
-            );
-            for (const r of results) {
-              if (r.status === "fulfilled") allDistributorIds.push(r.value.DistributorId);
-            }
-            const failed = results.filter((r) => r.status === "rejected").length;
-            if (failed > 0) toast.warning(`No se pudieron crear ${failed} distribuidor(es)`);
-            if (allDistributorIds.length > selectedDistributorIds.length) {
-              await pdvsApi.update(newPdv.PdvId, { DistributorIds: allDistributorIds }).catch(() =>
-                toast.warning("No se pudieron asociar los nuevos distribuidores al PDV")
-              );
-            }
-          })());
         }
 
         // Route assignment
@@ -347,7 +307,7 @@ export function NewPointOfSale() {
       <input
         ref={photoInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*" capture="environment"
         className="hidden"
         onChange={handlePhotoSelected}
       />
@@ -518,6 +478,15 @@ export function NewPointOfSale() {
                   {subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Description}
                 </p>
               )}
+              {/* SubCategory2 — solo si el subcanal seleccionado lo tiene */}
+              {formData.subChannelId && subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.SubCategory2 && (
+                <div className="mt-2">
+                  <Label>Subcategoría 2</Label>
+                  <p className="text-sm font-medium text-[#A48242] mt-0.5">
+                    {subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.SubCategory2}
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -659,107 +628,6 @@ export function NewPointOfSale() {
           </CardContent>
         </Card>
 
-        {/* Distributors */}
-        <Card>
-          <CardContent className="p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-foreground">Distribuidores</h3>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setNewDistributors([...newDistributors, { name: "", phone: "" }])}
-              >
-                <Plus size={16} className="mr-1" />
-                Nuevo
-              </Button>
-            </div>
-
-            {/* Select from existing */}
-            <div className="space-y-2">
-              <Label>De la lista</Label>
-              <div className="flex flex-wrap gap-2">
-                {distributors.map((d) => {
-                  const selected = selectedDistributorIds.includes(d.DistributorId);
-                  return (
-                    <button
-                      key={d.DistributorId}
-                      type="button"
-                      onClick={() =>
-                        setSelectedDistributorIds((prev) =>
-                          selected ? prev.filter((id) => id !== d.DistributorId) : [...prev, d.DistributorId]
-                        )
-                      }
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                        selected
-                          ? "bg-[#A48242]/10 border-[#A48242] text-[#A48242]"
-                          : "bg-muted border-border text-muted-foreground hover:bg-muted/80"
-                      }`}
-                    >
-                      {d.Name}{d.Phone ? ` (${d.Phone})` : ""}
-                    </button>
-                  );
-                })}
-                {distributors.length === 0 && (
-                  <p className="text-xs text-muted-foreground">No hay distribuidores cargados</p>
-                )}
-              </div>
-            </div>
-
-            {/* New distributors inline */}
-            {newDistributors.map((nd, idx) => (
-              <div key={idx} className="p-3 bg-muted rounded-lg space-y-2 border border-border">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm font-medium text-muted-foreground">Nuevo distribuidor</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:text-red-700"
-                    onClick={() => setNewDistributors(newDistributors.filter((_, i) => i !== idx))}
-                  >
-                    <Trash2 size={16} />
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="Nombre del distribuidor"
-                    value={nd.name}
-                    onChange={(e) => {
-                      const updated = [...newDistributors];
-                      updated[idx] = { ...nd, name: e.target.value };
-                      setNewDistributors(updated);
-                    }}
-                    className="flex-1"
-                  />
-                  <Input
-                    type="tel"
-                    placeholder="Teléfono"
-                    value={nd.phone}
-                    onChange={(e) => {
-                      const phone = e.target.value;
-                      const norm = phone.replace(/\D/g, "");
-                      // Auto-match: if phone matches an existing distributor, select it and remove this draft
-                      if (norm.length >= 8) {
-                        const match = distributors.find((d) => d.Phone && d.Phone.replace(/\D/g, "").endsWith(norm.slice(-8)));
-                        if (match && !selectedDistributorIds.includes(match.DistributorId)) {
-                          setSelectedDistributorIds((prev) => [...prev, match.DistributorId]);
-                          setNewDistributors((prev) => prev.filter((_, i) => i !== idx));
-                          toast.success(`Distribuidor "${match.Name}" ya existe, seleccionado automáticamente`);
-                          return;
-                        }
-                      }
-                      const updated = [...newDistributors];
-                      updated[idx] = { ...nd, phone };
-                      setNewDistributors(updated);
-                    }}
-                    className="w-36"
-                  />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
 
         {/* Route assignment */}
         {myRoutes.length > 0 && (

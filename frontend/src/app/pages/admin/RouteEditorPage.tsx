@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { ConfirmModal } from "../../components/ui/modal";
@@ -207,6 +207,15 @@ export function RouteEditorPage() {
     loadRoute();
   }, [loadRoute]);
 
+  // In create mode, load assignments separately (loadRoute skips when no id)
+  useEffect(() => {
+    if (isCreateMode) {
+      routesApi.listPdvAssignments()
+        .then((a) => setPdvAssignments(a))
+        .catch(() => {});
+    }
+  }, [isCreateMode]);
+
   // Build PDV cache from allPdvs
   useEffect(() => {
     if (allPdvs.length > 0) {
@@ -403,6 +412,79 @@ export function RouteEditorPage() {
     }
   };
 
+  // --- Touch drag & drop reorder ---
+  const listRef = useRef<HTMLDivElement>(null);
+  const dragState = useRef<{ index: number; startY: number; currentY: number } | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [dragOffset, setDragOffset] = useState(0);
+
+  const applyReorder = async (fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    const newOrder = [...orderedPdvs];
+    const [moved] = newOrder.splice(fromIndex, 1);
+    newOrder.splice(toIndex, 0, moved);
+
+    setRoutePdvs(newOrder.map((p, i) => ({
+      RouteId: id!,
+      PdvId: p.PdvId,
+      SortOrder: i,
+      Priority: routePdvs.find((rp) => rp.PdvId === p.PdvId)?.Priority ?? 3,
+    })));
+
+    if (id) {
+      try {
+        await routesApi.reorderPdvs(id, newOrder.map((p) => p.PdvId));
+      } catch {
+        toast.error("Error al reordenar");
+      }
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, index: number) => {
+    const touch = e.touches[0];
+    dragState.current = { index, startY: touch.clientY, currentY: touch.clientY };
+    setDraggingIndex(index);
+    setDragOffset(0);
+  };
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!dragState.current || !listRef.current) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+    dragState.current.currentY = touch.clientY;
+    setDragOffset(touch.clientY - dragState.current.startY);
+  }, []);
+
+  const handleTouchEnd = useCallback(async () => {
+    if (!dragState.current || !listRef.current) return;
+    const { index } = dragState.current;
+    const cards = listRef.current.querySelectorAll("[data-pdv-card]");
+    const cardHeight = (cards[0] as HTMLElement)?.offsetHeight ?? 60;
+    const offset = dragState.current.currentY - dragState.current.startY;
+    const moveBy = Math.round(offset / cardHeight);
+    const toIndex = Math.max(0, Math.min(orderedPdvs.length - 1, index + moveBy));
+
+    dragState.current = null;
+    setDraggingIndex(null);
+    setDragOffset(0);
+
+    await applyReorder(index, toIndex);
+  }, [orderedPdvs, id, routePdvs]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    el.addEventListener("touchmove", handleTouchMove, { passive: false });
+    el.addEventListener("touchend", handleTouchEnd);
+    return () => {
+      el.removeEventListener("touchmove", handleTouchMove);
+      el.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [handleTouchMove, handleTouchEnd]);
+
+  const handleMoveUp = (index: number) => { if (index > 0) applyReorder(index, index - 1); };
+  const handleMoveDown = (index: number) => { if (index < orderedPdvs.length - 1) applyReorder(index, index + 1); };
+
   const handleAddDay = async () => {
     if (!id) return;
     setSaving(true);
@@ -459,13 +541,21 @@ export function RouteEditorPage() {
           if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + 7);
         }
-      } else if (ft === "biweekly" && config.startDate) {
-        const d = new Date(startDate);
+      } else if (ft === "biweekly" && config.day != null) {
+        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
+        // Find next occurrence of config.day
+        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+        // Align to the correct biweekly cycle from startDate
+        if (config.startDate) {
+          const anchor = new Date(config.startDate + "T12:00:00");
+          while (anchor.getDay() !== config.day) anchor.setDate(anchor.getDate() + 1);
+          const diffDays = Math.round((d.getTime() - anchor.getTime()) / 86400000);
+          const weeksOff = diffDays % 14;
+          if (weeksOff !== 0) d.setDate(d.getDate() + (14 - weeksOff));
+        }
         while (d <= endDate) {
-          if (d >= today) {
-            const ds = d.toISOString().split("T")[0];
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
+          const ds = d.toISOString().split("T")[0];
+          if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + 14);
         }
       } else if (ft === "every_x_days" && config.interval) {
@@ -766,17 +856,6 @@ export function RouteEditorPage() {
         <CardContent className="p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-foreground">Datos de la ruta</h3>
-            {!isCreateMode && routeDraft && (
-              <Button
-                variant={routeMetadataDirty ? "default" : "outline"}
-                size="sm"
-                onClick={handleSaveRouteMetadata}
-                disabled={saving || !routeDraft.Name?.trim()}
-              >
-                <Save size={16} className="mr-1" />
-                {saving ? "Guardando..." : "Guardar"}
-              </Button>
-            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className={isMyRoute ? "md:col-span-2" : ""}>
@@ -847,7 +926,7 @@ export function RouteEditorPage() {
                 />
               </div>
             )}
-            <div className="md:col-span-2">
+            {!isMyRoute && <><div className="md:col-span-2">
               <label className="block text-sm font-medium text-muted-foreground mb-1">
                 Formularios de relevamiento
               </label>
@@ -956,7 +1035,7 @@ export function RouteEditorPage() {
                     </option>
                   ))}
               </select>
-            </div>
+            </div></>}
           </div>
         </CardContent>
       </Card>
@@ -1024,7 +1103,11 @@ export function RouteEditorPage() {
                         if (!d) return null;
                         let config = d.FrequencyConfig;
                         if (ft === "specific_days" && !config) config = JSON.stringify({ days: [] });
-                        else if (ft !== "specific_days") config = ft === "every_x_days" ? JSON.stringify({ interval: 15 }) : null;
+                        else if (ft === "every_x_days") config = JSON.stringify({ interval: 15 });
+                        else if (ft === "weekly" || ft === "biweekly") {
+                          const prev = config ? JSON.parse(config) : {};
+                          config = JSON.stringify({ day: prev.day, startDate: prev.startDate });
+                        } else if (ft && ft !== "specific_days") config = null;
                         return { ...d, FrequencyType: ft, FrequencyConfig: config };
                       });
                     }}
@@ -1062,10 +1145,12 @@ export function RouteEditorPage() {
                 </div>
               )}
 
-              {/* Weekly: pick day */}
-              {routeDraft?.FrequencyType === "weekly" && (
+              {/* Weekly / Biweekly: pick day */}
+              {(routeDraft?.FrequencyType === "weekly" || routeDraft?.FrequencyType === "biweekly") && (
                 <div>
-                  <p className="text-xs text-muted-foreground mb-2">¿Qué día de la semana?</p>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    {routeDraft?.FrequencyType === "biweekly" ? "¿Qué día de la semana? (cada 2 semanas)" : "¿Qué día de la semana?"}
+                  </p>
                   <div className="flex gap-1.5">
                     {["D", "L", "M", "X", "J", "V", "S"].map((label, idx) => (
                       <button
@@ -1123,7 +1208,9 @@ export function RouteEditorPage() {
                 else if (freq === "weekly") text = frequencyConfigParsed.day != null
                   ? `Todos los ${["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"][frequencyConfigParsed.day]}${desde}`
                   : "Seleccioná el día de la semana";
-                else if (freq === "biweekly") text = `Cada 2 semanas${desde}`;
+                else if (freq === "biweekly") text = frequencyConfigParsed.day != null
+                  ? `Cada 2 semanas, los ${["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"][frequencyConfigParsed.day]}${desde}`
+                  : "Seleccioná el día de la semana";
                 else if (freq === "monthly") text = `Una vez al mes${desde}`;
                 else if (freq === "specific_days") text = frequencyDays.length > 0
                   ? `Los ${frequencyDays.map((d: number) => ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"][d]).join(", ")}${desde}`
@@ -1144,7 +1231,7 @@ export function RouteEditorPage() {
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-foreground flex items-center gap-2 text-base">
                 <MapPin size={18} />
-                PDVs ({routePdvs.length})
+                PDVs ({orderedPdvs.length})
               </h3>
               <div className="flex items-center gap-2">
                 {orderedPdvs.length >= 2 && (
@@ -1237,6 +1324,7 @@ export function RouteEditorPage() {
                   {/* All PDVs as markers */}
                   {allPdvsWithCoords.map((p) => {
                     const inRoute = routePdvIds.has(p.PdvId);
+                    const inOtherRoute = !inRoute && pdvIdsInOtherRoutes.has(p.PdvId);
                     const orderIdx = inRoute
                       ? routePdvs.findIndex((rp) => rp.PdvId === p.PdvId) + 1
                       : 0;
@@ -1266,6 +1354,15 @@ export function RouteEditorPage() {
                                 strokeWeight: 2,
                                 scale: 14,
                               }
+                            : inOtherRoute
+                            ? {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                fillColor: "#ef4444",
+                                fillOpacity: 0.7,
+                                strokeColor: "#fff",
+                                strokeWeight: 1,
+                                scale: 9,
+                              }
                             : {
                                 path: google.maps.SymbolPath.CIRCLE,
                                 fillColor: "#9ca3af",
@@ -1284,6 +1381,7 @@ export function RouteEditorPage() {
                     const p = pdvCache.get(selectedInfoPdv);
                     if (!p || p.Lat == null) return null;
                     const inRoute = routePdvIds.has(p.PdvId);
+                    const inOther = pdvIdsInOtherRoutes.has(p.PdvId);
                     return (
                       <InfoWindowF
                         position={{ lat: Number(p.Lat), lng: Number(p.Lon) }}
@@ -1294,7 +1392,10 @@ export function RouteEditorPage() {
                           {p.Address && (
                             <p className="text-xs text-gray-500 mb-1">{p.Address}</p>
                           )}
-                          <p className="text-xs text-gray-500 mb-2">{p.ChannelName || p.Channel}</p>
+                          <p className="text-xs text-gray-500 mb-1">{p.ChannelName || p.Channel}</p>
+                          {inOther && !inRoute && (
+                            <p className="text-xs text-red-500 font-medium mb-1">Asignado a otra ruta</p>
+                          )}
                           <button
                             onClick={() => handleTogglePdv(p.PdvId)}
                             disabled={saving}
@@ -1314,14 +1415,18 @@ export function RouteEditorPage() {
               )}
 
               {/* Map legend */}
-              <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-[#A48242] inline-block" />
-                  En la ruta (click para quitar)
+                  En esta ruta
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-red-500/70 inline-block" />
+                  En otra ruta
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-gray-400/50 inline-block" />
-                  Disponible (click para agregar)
+                  Disponible
                 </span>
               </div>
             </div>
@@ -1330,14 +1435,37 @@ export function RouteEditorPage() {
             <div className="space-y-4">
               {/* Current route PDVs */}
               {orderedPdvs.length > 0 && (
-                <div className="space-y-1">
+                <div className="space-y-1" ref={listRef}>
                   {orderedPdvs.map((pdv, index) => (
                     <div
                       key={pdv.PdvId}
-                      className="p-3 bg-muted rounded-lg hover:bg-secondary transition-colors"
+                      data-pdv-card
+                      className={`p-3 bg-muted rounded-lg hover:bg-secondary transition-all ${
+                        draggingIndex === index ? "opacity-70 scale-95 shadow-lg z-10 relative" : ""
+                      }`}
+                      style={draggingIndex === index ? { transform: `translateY(${dragOffset}px) scale(0.95)` } : undefined}
                     >
                       <div className="flex items-center gap-2">
-                        <GripVertical size={16} className="text-muted-foreground shrink-0" />
+                        <div
+                          className="flex flex-col items-center shrink-0 touch-none select-none cursor-grab active:cursor-grabbing"
+                          onTouchStart={(e) => handleTouchStart(e, index)}
+                        >
+                          <button
+                            onClick={() => handleMoveUp(index)}
+                            disabled={index === 0}
+                            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 15l-6-6-6 6"/></svg>
+                          </button>
+                          <GripVertical size={16} className="text-muted-foreground" />
+                          <button
+                            onClick={() => handleMoveDown(index)}
+                            disabled={index === orderedPdvs.length - 1}
+                            className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-20"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6"/></svg>
+                          </button>
+                        </div>
                         <span className="w-6 text-xs font-bold text-[#A48242] shrink-0">#{index + 1}</span>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-foreground text-sm truncate">{pdv.Name}</p>
@@ -1627,6 +1755,20 @@ export function RouteEditorPage() {
         confirmText="Salir"
         type="danger"
       />
+
+      {/* Save button — sticky at bottom (edit mode) */}
+      {!isCreateMode && routeDraft && routeMetadataDirty && (
+        <div className="sticky bottom-0 bg-background border-t border-border p-4 -mx-6 -mb-6 mt-6">
+          <Button
+            className="w-full bg-[#A48242] hover:bg-[#8B6E38] text-white h-12 text-base font-semibold"
+            onClick={handleSaveRouteMetadata}
+            disabled={saving || !routeDraft.Name?.trim()}
+          >
+            <Save size={16} className="mr-2" />
+            {saving ? "Guardando..." : "Guardar cambios"}
+          </Button>
+        </div>
+      )}
 
       {/* Create button — sticky at bottom */}
       {isCreateMode && (

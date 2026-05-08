@@ -165,6 +165,116 @@ def routes_map_overview(db: Session = Depends(get_db)):
     }
 
 
+# --- RouteDay (must be before /{route_id} to avoid path conflict) ---
+@router.get("/all-days", response_model=list[RouteDay])
+def list_all_route_days(
+    user_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """All route days, optionally filtered by AssignedUserId. Single query replaces N+1."""
+    q = db.query(RouteDayModel)
+    if user_id is not None:
+        q = q.filter(RouteDayModel.AssignedUserId == user_id)
+    return q.all()
+
+
+@router.get("/day-detail")
+def route_day_detail(
+    date: str,
+    user_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Returns route days for a date with PDV details embedded. Replaces N+1 pattern."""
+    # 1. Find matching route days
+    q = db.query(RouteDayModel).filter(RouteDayModel.WorkDate == date)
+    if user_id is not None:
+        q = q.filter(RouteDayModel.AssignedUserId == user_id)
+    route_days = q.all()
+    if not route_days:
+        return []
+
+    # 2. Get route info
+    route_ids = {rd.RouteId for rd in route_days}
+    routes_map = {r.RouteId: r for r in db.query(RouteModel).filter(RouteModel.RouteId.in_(route_ids)).all()}
+
+    # 3. Get day PDVs for all matching days
+    day_ids = [rd.RouteDayId for rd in route_days]
+    day_pdvs = db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).order_by(RouteDayPdvModel.PlannedOrder).all()
+
+    # 4. Get all PDV details in one query
+    pdv_ids = {dp.PdvId for dp in day_pdvs}
+    pdvs_map = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
+
+    # 5. Build response
+    result = []
+    seen_pdv_ids = set()
+    for dp in day_pdvs:
+        if dp.PdvId in seen_pdv_ids:
+            continue
+        seen_pdv_ids.add(dp.PdvId)
+        pdv = pdvs_map.get(dp.PdvId)
+        if not pdv:
+            continue
+        rd = next((rd for rd in route_days if rd.RouteDayId == dp.RouteDayId), None)
+        route = routes_map.get(rd.RouteId) if rd else None
+        result.append({
+            "RouteDayId": dp.RouteDayId,
+            "PdvId": dp.PdvId,
+            "PlannedOrder": dp.PlannedOrder,
+            "ExecutionStatus": dp.ExecutionStatus,
+            "Priority": dp.Priority,
+            "routeName": route.Name if route else None,
+            "routeId": route.RouteId if route else None,
+            "pdv": {
+                "PdvId": pdv.PdvId, "Name": pdv.Name, "Address": pdv.Address,
+                "Lat": pdv.Lat, "Lon": pdv.Lon, "ChannelId": pdv.ChannelId,
+                "SubChannelId": pdv.SubChannelId, "ZoneId": pdv.ZoneId,
+                "IsActive": pdv.IsActive, "BusinessName": pdv.BusinessName,
+            },
+        })
+    return result
+
+
+@router.get("/my-routes-detail")
+def my_routes_detail(
+    user_id: int,
+    db: Session = Depends(get_db),
+):
+    """Returns all routes for a user with their PDVs embedded. Replaces N+1 pattern."""
+    routes = db.query(RouteModel).filter(RouteModel.AssignedUserId == user_id).order_by(RouteModel.RouteId).all()
+    if not routes:
+        return []
+
+    route_ids = [r.RouteId for r in routes]
+    # Get all route PDVs in one query
+    all_rps = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId.in_(route_ids)).order_by(RoutePdvModel.SortOrder).all()
+    # Get all PDV details
+    pdv_ids = {rp.PdvId for rp in all_rps}
+    pdvs_map = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
+
+    result = []
+    for r in routes:
+        rps = [rp for rp in all_rps if rp.RouteId == r.RouteId]
+        pdvs = []
+        for rp in rps:
+            pdv = pdvs_map.get(rp.PdvId)
+            if pdv:
+                pdvs.append({
+                    "PdvId": pdv.PdvId, "Name": pdv.Name, "Address": pdv.Address,
+                    "Lat": pdv.Lat, "Lon": pdv.Lon, "ChannelId": pdv.ChannelId,
+                    "SubChannelId": pdv.SubChannelId, "ZoneId": pdv.ZoneId,
+                    "IsActive": pdv.IsActive, "BusinessName": pdv.BusinessName,
+                    "SortOrder": rp.SortOrder, "Priority": rp.Priority,
+                })
+        result.append({
+            "RouteId": r.RouteId, "Name": r.Name, "PdvCount": len(rps),
+            "BejermanZone": r.BejermanZone, "FrequencyType": r.FrequencyType,
+            "EstimatedMinutes": r.EstimatedMinutes, "IsOptimized": r.IsOptimized,
+            "pdvs": pdvs,
+        })
+    return result
+
+
 # --- Route ---
 @router.get("", response_model=list[Route])
 def list_routes(
@@ -389,6 +499,26 @@ def reorder_route_pdvs(
         if rp:
             rp.SortOrder = i
     route.IsOptimized = False
+
+    # Sync PlannedOrder to future RouteDayPdv records
+    from datetime import date as _dt
+    today = _dt.today()
+    future_day_ids = [
+        rd.RouteDayId
+        for rd in db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= today,
+        ).all()
+    ]
+    if future_day_ids:
+        order_map = {pid: i for i, pid in enumerate(pdv_ids)}
+        future_rdps = db.query(RouteDayPdvModel).filter(
+            RouteDayPdvModel.RouteDayId.in_(future_day_ids)
+        ).all()
+        for rdp in future_rdps:
+            if rdp.PdvId in order_map:
+                rdp.PlannedOrder = order_map[rdp.PdvId]
+
     db.commit()
     return db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).order_by(RoutePdvModel.SortOrder).all()
 
@@ -464,7 +594,6 @@ def remove_route_form(route_id: int, form_id: int, db: Session = Depends(get_db)
     db.commit()
 
 
-# --- RouteDay ---
 @router.get("/{route_id}/days", response_model=list[RouteDay])
 def list_route_days(route_id: int, db: Session = Depends(get_db)):
     return db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()
@@ -662,7 +791,32 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
                 while d <= end:
                     dates.add(d.isoformat())
                     d += _timedelta(days=7)
-        elif freq in ("every_15_days", "biweekly"):
+        elif freq == "biweekly":
+            day_js = config.get("day")
+            if day_js is not None:
+                py_wd = (day_js - 1) % 7
+                d = start
+                while d.weekday() != py_wd:
+                    d += _timedelta(days=1)
+                # Align to biweekly cycle from startDate
+                anchor_str = config.get("startDate")
+                if anchor_str:
+                    anchor = _date.fromisoformat(anchor_str)
+                    while anchor.weekday() != py_wd:
+                        anchor += _timedelta(days=1)
+                    diff = (d - anchor).days % 14
+                    if diff != 0:
+                        d += _timedelta(days=14 - diff)
+                while d <= end:
+                    dates.add(d.isoformat())
+                    d += _timedelta(days=14)
+            else:
+                # Fallback: old behavior for routes without day set
+                d = start
+                while d <= end:
+                    dates.add(d.isoformat())
+                    d += _timedelta(days=14)
+        elif freq == "every_15_days":
             interval = config.get("interval", 15)
             d = start
             while d <= end:

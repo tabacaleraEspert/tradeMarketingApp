@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "build:android": "vite build --mode capacitor && npx cap sync android",
+    "open:android": "npx cap open android",
     "dev": "vite",
     "start": "vite",
     "test": "vitest run",
@@ -12,6 +14,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@capacitor/android": "^8.3.2",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/cli": "^8.3.2",
+    "@capacitor/core": "^8.3.2",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mui/icons-material": "7.3.5",
@@ -81,6 +89,7 @@
     "@vitest/coverage-v8": "^2.1.9",
     "jsdom": "^24.1.3",
     "tailwindcss": "4.1.12",
+    "typescript": "^6.0.3",
     "vite": "6.3.5",
     "vitest": "^2.1.9"
   },

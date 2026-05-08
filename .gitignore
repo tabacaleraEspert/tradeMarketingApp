@@ -31,5 +31,12 @@ backend/backups/
 *.log
 npm-debug.log*
 
+# Android (Capacitor) — build artifacts only
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/build/
+frontend/android/local.properties
+frontend/assets/
+
 # Claude
 .claude/

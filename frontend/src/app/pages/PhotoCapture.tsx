@@ -8,6 +8,7 @@ import { ArrowLeft, Camera, Image as ImageIcon, Trash2, Check, Upload } from "lu
 import { pdvsApi, visitsApi, visitPhotosApi, ApiError } from "@/lib/api";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { toast } from "sonner";
 
 // Extiende VisitPhotoRead con campos opcionales para fotos pendientes de sync (offline)
@@ -34,8 +35,10 @@ export function PhotoCapture() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeDayId = (location.state as { routeDayId?: number } | null)?.routeDayId;
-  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
+  const locState = location.state as { routeDayId?: number; visitId?: number } | null;
+  const recovered = useVisitStep(Number(id) || undefined, "photos", locState);
+  const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
+  const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
@@ -106,12 +109,14 @@ export function PhotoCapture() {
 
     setUploading(true);
     try {
+      const { compressImage } = await import("@/lib/imageCompression");
+      const compressed = await compressImage(file);
       const coords = await getCurrentCoords();
       const sortOrder = photos.filter((p) => p.PhotoType === selectedCategory).length + 1;
 
       // Construir las partes multipart
       const formParts: Array<{ name: string; value: Blob | string; filename?: string }> = [
-        { name: "file", value: file, filename: file.name || `photo-${Date.now()}.jpg` },
+        { name: "file", value: compressed, filename: file.name || `photo-${Date.now()}.jpg` },
         { name: "photo_type", value: selectedCategory },
         { name: "sort_order", value: String(sortOrder) },
       ];
@@ -211,7 +216,7 @@ export function PhotoCapture() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*" capture="environment"
         className="hidden"
         onChange={handleFileSelected}
       />

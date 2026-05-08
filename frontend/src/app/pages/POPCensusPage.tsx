@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 
 const POP_COMPANIES = ["Espert", "Massalin", "BAT", "TABSA", "Otra"];
@@ -57,7 +59,10 @@ export function POPCensusPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { routeDayId, visitId } = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const recovered = useVisitStep(Number(id) || undefined, "pop", locState);
+  const routeDayId = locState.routeDayId ?? recovered.routeDayId;
+  const visitId = locState.visitId ?? recovered.visitId;
 
   const [rows, setRows] = useState<POPRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +76,7 @@ export function POPCensusPage() {
     if (!visitId) { setLoading(false); return; }
 
     Promise.all([
-      visitPOPApi.list(visitId),
+      visitPOPApi.list(visitId).catch(() => []),
       visitPhotosApi.list(visitId).catch(() => []),
     ]).then(([existing, photos]) => {
       // Always show ALL materials, merging with saved data
@@ -125,14 +130,22 @@ export function POPCensusPage() {
           Present: r.Present,
           HasPrice: r.HasPrice ?? undefined,
         }));
-      await visitPOPApi.bulkSave(visitId, items);
+      const isTempVisit = visitId < 0;
+      await executeOrEnqueue({
+        kind: "visit_pop",
+        method: "PUT",
+        url: `/visits/${visitId}/pop`,
+        body: { items },
+        label: "Censo POP",
+        _tempVisitId: isTempVisit ? visitId : undefined,
+      });
       toast.success("Censo POP guardado");
-      navigate(`/pos/${id}/actions`, { state: { routeDayId, visitId } });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
     }
+    navigate(`/pos/${id}/actions`, { state: { routeDayId, visitId } });
   };
 
   const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -146,18 +159,33 @@ export function POPCensusPage() {
       ...prev,
       [key]: [...(prev[key] || []), { url: localUrl }],
     }));
-    // Upload to server
+    // Queue upload (compressed, offline-tolerant)
     if (visitId) {
       try {
-        const result = await visitPhotosApi.upload(visitId, file, { photoType: key });
-        // Update with server fileId
-        setPopPhotos((prev) => ({
-          ...prev,
-          [key]: (prev[key] || []).map((p) =>
-            p.url === localUrl ? { ...p, fileId: result.FileId } : p
-          ),
-        }));
-      } catch { /* local preview stays */ }
+        const { compressImage } = await import("@/lib/imageCompression");
+        const compressed = await compressImage(file);
+        const isTempVisit = visitId < 0;
+        const result = await executeOrEnqueue({
+          kind: "photo_upload",
+          method: "POST",
+          url: `/files/photos/visit/${visitId}`,
+          formParts: [
+            { name: "file", value: compressed, filename: `pop_${Date.now()}.jpg` },
+            { name: "photo_type", value: key },
+          ],
+          label: `Foto POP ${key}`,
+          _tempVisitId: isTempVisit ? visitId : undefined,
+        });
+        if (!result.queued && result.data) {
+          const uploaded = result.data as { FileId?: number };
+          setPopPhotos((prev) => ({
+            ...prev,
+            [key]: (prev[key] || []).map((p) =>
+              p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p
+            ),
+          }));
+        }
+      } catch { /* local preview stays, upload queued */ }
     }
     setActivePhotoKey(null);
   };
@@ -213,7 +241,7 @@ export function POPCensusPage() {
                     onClick={() => {
                       const has = row.Companies.includes(c);
                       const next = has ? row.Companies.filter((x) => x !== c) : [...row.Companies, c];
-                      updateRow(idx, "Companies", next as unknown as string);
+                      updateRow(idx, "Companies", next);
                     }}
                     className={`px-2.5 py-1 rounded-full text-[11px] font-medium transition-colors ${
                       row.Companies.includes(c)
@@ -310,7 +338,7 @@ export function POPCensusPage() {
       <input
         ref={popPhotoInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*" capture="environment"
         className="hidden"
         onChange={handlePopPhoto}
       />

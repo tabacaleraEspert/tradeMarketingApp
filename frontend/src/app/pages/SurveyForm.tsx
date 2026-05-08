@@ -19,7 +19,8 @@ import {
   visitsApi,
 } from "@/lib/api";
 import type { Form, FormQuestion, FormOption } from "@/lib/api";
-import { executeOrEnqueue } from "@/lib/offline";
+import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { toast } from "sonner";
 
 interface QuestionWithOptions extends FormQuestion {
@@ -42,8 +43,10 @@ export function SurveyForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeDayId = (location.state as { routeDayId?: number; visitId?: number } | null)?.routeDayId;
-  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
+  const locState = location.state as { routeDayId?: number; visitId?: number } | null;
+  const recovered = useVisitStep(Number(id) || undefined, "survey", locState);
+  const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
+  const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
@@ -91,18 +94,20 @@ export function SurveyForm() {
     setLoading(true);
     try {
       const pdvId = Number(id);
-      const p = await pdvsApi.get(pdvId);
+      const p = await fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId));
       setPdv(p);
 
       if (!visitIdFromState) {
-        const openVisits = await visitsApi.list({ pdv_id: pdvId, status: "OPEN" });
-        if (openVisits.length > 0) setVisitId(openVisits[0].VisitId);
+        try {
+          const openVisits = await visitsApi.list({ pdv_id: pdvId, status: "OPEN" });
+          if (openVisits.length > 0) setVisitId(openVisits[0].VisitId);
+        } catch { /* offline: visitId should come from state/recovery */ }
       } else {
         setVisitId(visitIdFromState);
       }
 
-      // Load ALL active forms
-      const allForms = await formsApi.list({ limit: 200 });
+      // Load ALL active forms (cached)
+      const allForms = await fetchWithCache("forms_active", () => formsApi.list({ limit: 200 }));
       const activeForms = allForms.filter((f) => f.IsActive);
       setForms(activeForms);
       if (activeForms.length > 0) setActiveTab((prev) => (prev ? prev : String(activeForms[0].FormId)));
@@ -115,24 +120,26 @@ export function SurveyForm() {
         } catch { /* optional */ }
       }
 
-      // Load questions+options for all forms
+      // Load questions+options for all forms (cached per form)
       const questionsByForm: Record<number, QuestionWithOptions[]> = {};
       for (const f of activeForms) {
-        const qList = await formsApi.listQuestions(f.FormId);
-        const withOpts = await Promise.all(
-          qList.map(async (q) => {
-            const opts = OPTION_TYPES.includes(q.QType)
-              ? await formsApi.listOptions(q.QuestionId)
-              : [];
-            return { ...q, options: opts };
-          })
-        );
-        questionsByForm[f.FormId] = withOpts.sort((a, b) => a.SortOrder - b.SortOrder);
+        const withOpts = await fetchWithCache(`form_questions_${f.FormId}`, async () => {
+          const qList = await formsApi.listQuestions(f.FormId);
+          return Promise.all(
+            qList.map(async (q) => {
+              const opts = OPTION_TYPES.includes(q.QType)
+                ? await formsApi.listOptions(q.QuestionId)
+                : [];
+              return { ...q, options: opts };
+            })
+          );
+        });
+        questionsByForm[f.FormId] = withOpts.sort((a: QuestionWithOptions, b: QuestionWithOptions) => a.SortOrder - b.SortOrder);
       }
       setFormQuestions(questionsByForm);
 
       // Load existing answers if revisiting
-      const vid = visitIdFromState ?? (await visitsApi.list({ pdv_id: pdvId, status: "OPEN" }))[0]?.VisitId;
+      const vid = visitIdFromState ?? null;
       if (vid) {
         try {
           const existingAnswers = await visitsApi.listAnswers(vid);
@@ -145,11 +152,11 @@ export function SurveyForm() {
             else if (ans.ValueText !== null) restored[ans.QuestionId] = ans.ValueText;
           }
           if (Object.keys(restored).length > 0) setAnswers(restored);
-        } catch { /* no saved answers yet */ }
+        } catch { /* no saved answers yet — offline is OK, user can fill fresh */ }
       }
     } catch (e) {
-      toast.error("Error al cargar");
-      navigate(`/pos/${id}`);
+      // If forms couldn't load even from cache, show error but don't navigate away
+      toast.error("Error al cargar formularios. Verificá tu conexión.");
     } finally {
       setLoading(false);
     }

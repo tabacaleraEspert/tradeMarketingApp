@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">TM Espert</string>
+    <string name="title_activity_main">TM Espert</string>
+    <string name="package_name">com.espert.trademarketing</string>
+    <string name="custom_url_scheme">com.espert.trademarketing</string>
+</resources>

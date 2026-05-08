@@ -5,10 +5,13 @@ import { Button } from "../components/ui/button";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
 import { Badge } from "../components/ui/badge";
-import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare, UserCircle, AlertCircle, StickyNote, UserCog, WifiOff } from "lucide-react";
+import { ArrowLeft, MapPin, Clock, CheckCircle2, AlertTriangle, Navigation2, MessageSquare, UserCircle, AlertCircle, StickyNote, UserCog, WifiOff, X, ChevronDown } from "lucide-react";
+import { Modal } from "../components/ui/modal";
 import { pdvsApi, visitsApi, incidentsApi, pdvNotesApi, ApiError } from "@/lib/api";
+import { fetchWithCache } from "@/lib/offline";
 import type { Incident, PdvNote } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
+import { saveVisitContext } from "@/lib/useVisitAutoSave";
 import { QuickContactsModal } from "../components/QuickContactsModal";
 import { getCurrentUser } from "../lib/auth";
 import { formatTime24, formatDateCompact } from "../lib/dateUtils";
@@ -36,6 +39,26 @@ export function CheckIn() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [contactsModalOpen, setContactsModalOpen] = useState(false);
+  const [showClosedModal, setShowClosedModal] = useState(false);
+  const [closedReason, setClosedReason] = useState("");
+  const [closingAsClosed, setClosingAsClosed] = useState(false);
+
+  const handlePdvCerrado = async () => {
+    if (!closedReason.trim()) { toast.error("Ingresá el motivo"); return; }
+    setClosingAsClosed(true);
+    try {
+      const visit = await visitsApi.create({ PdvId: Number(id), UserId: Number(currentUser.id), RouteDayId: routeDayId ?? undefined, Status: "OPEN" });
+      await visitsApi.update(visit.VisitId, { Status: "CLOSED", CloseReason: `PDV_CERRADO: ${closedReason.trim()}` });
+      toast.success("PDV marcado como cerrado");
+      setShowClosedModal(false);
+      navigate("/");
+    } catch (e: any) {
+      const msg = typeof e?.message === "string" ? e.message : "Error al registrar PDV cerrado";
+      toast.error(msg);
+    } finally {
+      setClosingAsClosed(false);
+    }
+  };
 
   const currentUser = getCurrentUser();
   const currentTime = formatTime24(new Date());
@@ -43,8 +66,7 @@ export function CheckIn() {
   useEffect(() => {
     if (!id) return;
     const pdvId = Number(id);
-    pdvsApi
-      .get(pdvId)
+    fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId))
       .then((p) => {
         setPdv(p);
         setLoadError(null);
@@ -192,6 +214,9 @@ export function CheckIn() {
       setCurrentVisitId(visitId);
       setIsCheckedIn(true);
 
+      // Persist visit context so it survives browser close
+      saveVisitContext({ pdvId: Number(id), visitId, routeDayId, step: "survey" });
+
       navigate(`/pos/${id}/survey`, {
         state: { routeDayId, visitId },
       });
@@ -291,7 +316,7 @@ export function CheckIn() {
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/pos/${id}`)}
+            onClick={() => navigate("/")}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />
@@ -629,6 +654,14 @@ export function CheckIn() {
                   ? "Confirmar Check-in"
                   : "Iniciar visita igual"}
               </Button>
+              <Button
+                variant="outline"
+                className="w-full h-10 text-sm border-red-200 text-red-600 hover:bg-red-50 mt-2"
+                onClick={() => setShowClosedModal(true)}
+              >
+                <X className="mr-2" size={16} />
+                PDV Cerrado
+              </Button>
             </>
           ) : (
             <>
@@ -655,6 +688,34 @@ export function CheckIn() {
           )}
         </div>
       </div>
+      {/* Modal PDV Cerrado */}
+      <Modal
+        isOpen={showClosedModal}
+        onClose={() => { setShowClosedModal(false); setClosedReason(""); }}
+        title="PDV Cerrado"
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowClosedModal(false); setClosedReason(""); }}>Cancelar</Button>
+            <Button onClick={handlePdvCerrado} disabled={closingAsClosed || !closedReason.trim()} className="bg-red-600 hover:bg-red-700 text-white">
+              {closingAsClosed ? "Registrando..." : "Confirmar"}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-muted-foreground">El PDV se marcará como visitado sin afectar tu performance.</p>
+          <div className="flex flex-wrap gap-2">
+            {["Cerrado por vacaciones", "Cerrado por refacciones", "No atiende hoy", "Horario reducido", "Otro"].map((reason) => (
+              <button key={reason} type="button" onClick={() => setClosedReason(reason === "Otro" ? "" : reason)}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${closedReason === reason ? "bg-red-100 border-red-300 text-red-700" : "bg-muted border-border text-muted-foreground"}`}
+              >{reason}</button>
+            ))}
+          </div>
+          <textarea placeholder="Detalle del motivo..." value={closedReason} onChange={(e) => setClosedReason(e.target.value)} rows={2}
+            className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none" />
+        </div>
+      </Modal>
     </div>
   );
 }

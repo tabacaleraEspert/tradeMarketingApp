@@ -5,12 +5,14 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
 import {
-  ArrowLeft, ArrowRight, Plus, Minus, Camera, Trash2, CheckCircle2,
+  ArrowLeft, ArrowRight, Plus, Camera, Trash2, CheckCircle2,
   ChevronRight, ChevronDown, Repeat, Megaphone, Tag, Dice5, MoreHorizontal,
   Pencil, Package, X, Sparkles, GraduationCap, ClipboardList, MessageSquareWarning, UserCheck,
 } from "lucide-react";
 import { pdvsApi, visitActionsApi, productsApi, visitPhotosApi } from "@/lib/api";
 import type { VisitAction, Product } from "@/lib/api";
+import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { toast } from "sonner";
 
@@ -48,8 +50,10 @@ export function VisitActionsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const routeDayId = (location.state as { routeDayId?: number } | null)?.routeDayId;
-  const visitIdFromState = (location.state as { visitId?: number } | null)?.visitId;
+  const locState = location.state as { routeDayId?: number; visitId?: number } | null;
+  const recovered = useVisitStep(Number(id) || undefined, "actions", locState);
+  const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
+  const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
@@ -70,23 +74,25 @@ export function VisitActionsPage() {
     setLoading(true);
     try {
       const [p, products] = await Promise.all([
-        pdvsApi.get(Number(id)),
-        productsApi.list({ active_only: true }).catch(() => []),
+        fetchWithCache(`pdv_${id}`, () => pdvsApi.get(Number(id))),
+        fetchWithCache("products_active", () => productsApi.list({ active_only: true })),
       ]);
       setPdv(p);
       setOwnProducts(products.filter((pr) => pr.IsOwn));
 
       let vid = visitIdFromState;
       if (!vid) {
-        const { visitsApi: vApi } = await import("@/lib/api/services");
-        const openVisits = await vApi.list({ pdv_id: Number(id), status: "OPEN" });
-        if (openVisits.length > 0) vid = openVisits[0].VisitId;
+        try {
+          const { visitsApi: vApi } = await import("@/lib/api/services");
+          const openVisits = await vApi.list({ pdv_id: Number(id), status: "OPEN" });
+          if (openVisits.length > 0) vid = openVisits[0].VisitId;
+        } catch { /* offline: visitId should come from state/recovery */ }
       }
       if (vid) {
         setVisitId(vid);
-        setActions(await visitActionsApi.list(vid));
+        try { setActions(await visitActionsApi.list(vid)); } catch { /* offline: start with empty actions */ }
       }
-    } catch { toast.error("Error al cargar datos"); }
+    } catch { toast.error("Error al cargar datos. Verificá tu conexión."); }
     finally { setLoading(false); }
   }, [id, visitIdFromState]);
 
@@ -96,25 +102,61 @@ export function VisitActionsPage() {
 
   const handleSaveAction = async (type: string, description: string, details: Record<string, unknown>) => {
     if (!visitId) return;
-    if (formPhotos.length === 0) { toast.error("Foto obligatoria"); return; }
+    const isOffline = !navigator.onLine;
+    const hasPhotos = formPhotos.length > 0;
+    // Photos required when online, optional when offline (will be uploaded later)
+    if (!hasPhotos && !isOffline) { toast.error("Foto obligatoria"); return; }
     setSaving(true);
     try {
-      const action = await visitActionsApi.create(visitId, {
+      const isTempVisit = visitId < 0;
+      const actionBody = {
         ActionType: type,
         Description: description,
         DetailsJson: JSON.stringify(details),
         PhotoRequired: true,
-        PhotoTaken: true,
+        PhotoTaken: hasPhotos,
+      };
+      const result = await executeOrEnqueue({
+        kind: "visit_action_create",
+        method: "POST",
+        url: `/visits/${visitId}/actions`,
+        body: actionBody,
+        label: `Acción: ${type}`,
+        _tempVisitId: isTempVisit ? visitId : undefined,
       });
-      // Upload photos
-      for (const photo of formPhotos) {
-        if (photo.file) {
-          await visitPhotosApi.upload(visitId, photo.file, { photoType: `action_${type}_${action.VisitActionId}` }).catch(() => {});
+      // Queue photo uploads (compressed, deferred — don't block the user)
+      if (hasPhotos) {
+        const { compressImage } = await import("@/lib/imageCompression");
+        const actionId = !result.queued && result.data ? (result.data as { VisitActionId?: number }).VisitActionId : Date.now();
+        for (const photo of formPhotos) {
+          if (photo.file) {
+            try {
+              const compressed = await compressImage(photo.file);
+              await executeOrEnqueue({
+                kind: "photo_upload",
+                method: "POST",
+                url: `/files/photos/visit/${visitId}`,
+                formParts: [
+                  { name: "file", value: compressed, filename: `action_${actionId}.jpg` },
+                  { name: "photo_type", value: `action_${type}_${actionId}` },
+                ],
+                label: `Foto acción ${type}`,
+                _tempVisitId: isTempVisit ? visitId : undefined,
+              });
+            } catch { /* queued for later */ }
+          }
         }
       }
-      setActions((prev) => [...prev, action]);
+      // Add to local list
+      if (!result.queued && result.data) {
+        setActions((prev) => [...prev, result.data as VisitAction]);
+      } else {
+        setActions((prev) => [...prev, { ...actionBody, VisitActionId: -Date.now(), VisitId: visitId } as VisitAction]);
+      }
       resetForm();
-      toast.success("Acción registrada");
+      toast.success(isOffline && !hasPhotos
+        ? "Acción guardada (sin foto — recordá sacarla después)"
+        : "Acción registrada");
     } catch { toast.error("Error al guardar acción"); }
     finally { setSaving(false); }
   };
@@ -144,6 +186,7 @@ export function VisitActionsPage() {
   };
 
   const [showEmptyBrands, setShowEmptyBrands] = useState(false);
+  const [showEntregadosBrands, setShowEntregadosBrands] = useState(false);
   const fd = (key: string) => formData[key] as string ?? "";
   const setFd = (key: string, val: unknown) => setFormData((p) => ({ ...p, [key]: val }));
 
@@ -186,14 +229,20 @@ export function VisitActionsPage() {
   // ── CANJE DE SUELTOS ──
   const renderCanjeForm = () => {
     const cigaretteProducts = ownProducts.filter((p) => p.Category?.toLowerCase() === "cigarrillos");
-    const modalidad = fd("modalidad") || "5+1";
+    const modalidad = fd("modalidad") || "10+1";
     const divisor = modalidad === "5+1" ? 5 : 10;
+    const step = divisor; // 5+1 suma de 5, 10+1 suma de 10
     const cantidades = (formData.cantidades as Record<string, number>) || {};
     const totalVacios = Object.values(cantidades).reduce((s, v) => s + v, 0);
     const llenos = Math.floor(totalVacios / divisor);
     const filledProducts = cigaretteProducts.filter((p) => (cantidades[p.Name] || 0) > 0);
     const emptyProducts = cigaretteProducts.filter((p) => !(cantidades[p.Name] || 0));
 
+    // Atados a entregar (llenos) — por marca, de a 1
+    const entregados = (formData.entregados as Record<string, number>) || {};
+    const totalEntregados = Object.values(entregados).reduce((s, v) => s + v, 0);
+    const filledEntregados = cigaretteProducts.filter((p) => (entregados[p.Name] || 0) > 0);
+    const emptyEntregados = cigaretteProducts.filter((p) => !(entregados[p.Name] || 0));
     return (
       <div className="space-y-4">
         {/* Modalidad */}
@@ -215,7 +264,7 @@ export function VisitActionsPage() {
           </select>
         </div>
 
-        {/* Atados vacíos */}
+        {/* Atados vacíos recibidos */}
         <div>
           <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mb-2 flex items-center gap-1"><Package size={10} /> Atados vacíos recibidos</p>
           {filledProducts.length > 0 && (
@@ -225,11 +274,7 @@ export function VisitActionsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: Math.max(0, (cantidades[p.Name] || 0) - 1) })} className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center"><Minus size={14} /></button>
-                    <span className="w-9 text-center text-sm font-bold">{cantidades[p.Name] || 0}</span>
-                    <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: (cantidades[p.Name] || 0) + 1 })} className="w-8 h-8 rounded-lg bg-[#A48242] text-white flex items-center justify-center"><Plus size={14} /></button>
-                  </div>
+                  <input type="number" inputMode="numeric" min={0} value={cantidades[p.Name] || ""} placeholder="0" onChange={(e) => setFd("cantidades", { ...cantidades, [p.Name]: Math.max(0, Number(e.target.value) || 0) })} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                 </div>
               ))}
             </div>
@@ -242,14 +287,14 @@ export function VisitActionsPage() {
               {emptyProducts.map((p) => (
                 <div key={p.ProductId} className="px-3 py-2 flex items-center justify-between">
                   <span className="text-xs text-muted-foreground truncate">{p.Name}</span>
-                  <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: 1 })} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center"><Plus size={12} /></button>
+                  <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: step })} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center"><Plus size={12} /></button>
                 </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Cálculo */}
+        {/* Cálculo automático */}
         {totalVacios > 0 && (
           <div className="rounded-2xl bg-black text-white p-4">
             <p className="text-[10px] font-bold uppercase tracking-wider text-[#C9A962] mb-2">Cálculo automático</p>
@@ -259,10 +304,53 @@ export function VisitActionsPage() {
               <div><p className="text-[11px] text-white/60">Llenos a entregar</p><p className="text-xl font-bold text-[#C9A962]">{llenos} <span className="text-xs text-white/60">atados</span></p></div>
             </div>
             <p className="text-[10px] text-white/50 mt-2 pt-2 border-t border-white/10">Modalidad {modalidad} · cada {divisor} vacíos = 1 lleno</p>
+            {totalEntregados > 0 && totalEntregados !== llenos && (
+              <p className={`text-[10px] mt-1 font-semibold ${totalEntregados > llenos ? "text-red-400" : "text-amber-400"}`}>
+                {totalEntregados > llenos ? `Excedido: seleccionaste ${totalEntregados} pero corresponden ${llenos}` : `Faltan ${llenos - totalEntregados} atado(s) por asignar`}
+              </p>
+            )}
           </div>
         )}
 
-        {renderProductSelect("marcaEntregada", "Marca entregada (llenos)")}
+        {/* Atados a entregar (llenos) — de a 1, combinando marcas */}
+        {llenos > 0 && (
+          <div>
+            <p className="text-[10px] font-bold text-[#C9A962] uppercase tracking-wider mb-2 flex items-center gap-1"><Package size={10} /> Atados llenos a entregar ({totalEntregados}/{llenos})</p>
+            {filledEntregados.length > 0 && (
+              <div className="space-y-1.5 mb-2">
+                {filledEntregados.map((p) => (
+                  <div key={p.ProductId} className="bg-background rounded-xl border-l-[3px] border-l-[#C9A962] border border-border px-3 py-2.5 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
+                    </div>
+                    <input type="number" inputMode="numeric" min={0} max={llenos} value={entregados[p.Name] || ""} placeholder="0" onChange={(e) => { const v = Math.max(0, Number(e.target.value) || 0); const others = totalEntregados - (entregados[p.Name] || 0); setFd("entregados", { ...entregados, [p.Name]: Math.min(v, llenos - others) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setShowEntregadosBrands(!showEntregadosBrands)} className="w-full bg-background rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+              <ChevronDown size={12} className={showEntregadosBrands ? "rotate-180" : ""} /> {showEntregadosBrands ? "Ocultar" : "Ver"} marcas disponibles ({emptyEntregados.length})
+            </button>
+            {showEntregadosBrands && (
+              <div className="mt-1.5 space-y-1 bg-background rounded-xl border border-border divide-y divide-border overflow-hidden">
+                {emptyEntregados.map((p) => (
+                  <div key={p.ProductId} className="px-3 py-2 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground truncate">{p.Name}</span>
+                    <button
+                      onClick={() => {
+                        if (totalEntregados >= llenos) return;
+                        setFd("entregados", { ...entregados, [p.Name]: 1 });
+                      }}
+                      disabled={totalEntregados >= llenos}
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center ${totalEntregados >= llenos ? "bg-muted text-muted-foreground" : "bg-muted"}`}
+                    ><Plus size={12} /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {renderPhotoSection("Foto de evidencia")}
       </div>
     );
@@ -442,7 +530,7 @@ export function VisitActionsPage() {
     const cat = CATEGORIES.find((c) => c.id === activeForm);
     return (
       <div className="min-h-screen bg-background pb-24">
-        <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoInput} />
+        <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoInput} />
         <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <button onClick={resetForm} className="p-2 hover:bg-muted rounded-lg"><ArrowLeft size={24} /></button>
@@ -471,7 +559,7 @@ export function VisitActionsPage() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <input ref={photoInputRef} type="file" accept="image/*" className="hidden" onChange={handlePhotoInput} />
+      <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoInput} />
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">

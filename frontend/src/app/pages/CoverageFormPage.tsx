@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
+import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { productsApi, visitCoverageApi, pdvProductCategoriesApi, ApiError } from "@/lib/api";
 import type { Product, CoverageDiff } from "@/lib/api/types";
 
@@ -34,7 +36,10 @@ export function CoverageFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { routeDayId, visitId } = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
+  const recovered = useVisitStep(Number(id) || undefined, "coverage", locState);
+  const routeDayId = locState.routeDayId ?? recovered.routeDayId;
+  const visitId = locState.visitId ?? recovered.visitId;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [rows, setRows] = useState<Record<number, CoverageRow>>({});
@@ -52,8 +57,8 @@ export function CoverageFormPage() {
   useEffect(() => {
     if (!visitId) return;
     Promise.all([
-      productsApi.list(),
-      visitCoverageApi.diff(visitId),
+      fetchWithCache("products_all", () => productsApi.list()),
+      visitCoverageApi.diff(visitId).catch(() => []),
       id ? pdvProductCategoriesApi.list(Number(id)).catch(() => []) : Promise.resolve([]),
       visitCoverageApi.requirements(visitId).catch(() => null),
     ]).then(([prods, diffData, pdvCats, reqs]) => {
@@ -211,24 +216,36 @@ export function CoverageFormPage() {
           Price: r.Works && r.Price ? Number(r.Price) : undefined,
           Availability: r.Works ? r.Availability : undefined,
         }));
-      // Save coverage items + category statuses in parallel
+      // Save coverage items + category statuses in parallel (offline-tolerant)
       const categoryItems = Object.entries(categoryStatus).map(([cat, works]) => ({
         Category: cat,
         Status: works ? "trabaja" : "no_trabaja",
       }));
+      const isTempVisit = visitId < 0;
       await Promise.all([
-        visitCoverageApi.bulkSave(visitId, items),
-        id ? pdvProductCategoriesApi.bulkUpsert(Number(id), categoryItems).catch((e) => {
-          console.error("Failed to save categories:", e);
-        }) : Promise.resolve(),
+        executeOrEnqueue({
+          kind: "visit_coverage",
+          method: "PUT",
+          url: `/visits/${visitId}/coverage`,
+          body: { items },
+          label: "Cobertura de productos",
+          _tempVisitId: isTempVisit ? visitId : undefined,
+        }),
+        id ? executeOrEnqueue({
+          kind: "pdv_categories",
+          method: "PUT",
+          url: `/pdvs/${id}/product-categories`,
+          body: { categories: categoryItems },
+          label: "Categorías del PDV",
+        }).catch(() => {}) : Promise.resolve(),
       ]);
       toast.success("Cobertura guardada");
-      navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } });
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al guardar");
     } finally {
       setSaving(false);
     }
+    navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } });
   };
 
   const workedCount = Object.values(rows).filter((r) => r.Works).length;
