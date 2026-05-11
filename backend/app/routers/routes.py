@@ -401,6 +401,28 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
+
+    # Clear PDV assignments before deleting
+    pdv_ids = [row[0] for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route_id).all()]
+    if pdv_ids:
+        db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).update(
+            {PDVModel.AssignedUserId: None}, synchronize_session=False
+        )
+
+    # Manually delete children (MSSQL may not enforce CASCADE reliably via ORM)
+    day_ids = [d.RouteDayId for d in db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()]
+    if day_ids:
+        db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
+    db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).delete(synchronize_session=False)
+    db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).delete(synchronize_session=False)
+    db.query(RouteFormModel).filter(RouteFormModel.RouteId == route_id).delete(synchronize_session=False)
+
+    # SET NULL on MandatoryActivity
+    from ..models.mandatory_activity import MandatoryActivity as MandatoryActivityModel
+    db.query(MandatoryActivityModel).filter(MandatoryActivityModel.RouteId == route_id).update(
+        {MandatoryActivityModel.RouteId: None}, synchronize_session=False
+    )
+
     db.delete(r)
     db.commit()
 
