@@ -55,12 +55,7 @@
           if (s) { s.classList.add('hide'); setTimeout(() => s.remove(), 500); }
         }, 800);
       });
-      // Unregister old service worker (was duplicating requests)
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(regs => {
-          regs.forEach(r => r.unregister());
-        });
-      }
+      // Service worker is registered automatically by vite-plugin-pwa
     </script>
   </body>
 </html>

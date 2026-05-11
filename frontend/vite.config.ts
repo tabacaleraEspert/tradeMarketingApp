@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   server: {
@@ -18,10 +19,39 @@ export default defineConfig({
     },
   },
   plugins: [
-    // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      workbox: {
+        // Pre-cache all JS/CSS/HTML chunks so they work offline
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Max file size to pre-cache (5MB — covers large chunks like recharts)
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Runtime cache for API calls and images
+        runtimeCaching: [
+          {
+            // Cache Google Maps tiles
+            urlPattern: /^https:\/\/(maps|mt[0-3])\.googleapis\.com\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'google-maps',
+              expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
+            },
+          },
+          {
+            // Cache uploaded photos/files from Azure blob
+            urlPattern: /^https:\/\/.*\.blob\.core\.windows\.net\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'blob-images',
+              expiration: { maxEntries: 300, maxAgeSeconds: 30 * 24 * 60 * 60 },
+            },
+          },
+        ],
+      },
+      manifest: false, // We already have a manual manifest.json in public/
+    }),
   ],
   resolve: {
     alias: {
