@@ -9,7 +9,7 @@ from ..models.pdv import PdvDistributor as PdvDistributorModel
 from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel
 from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo, volume_to_category
 from ..schemas.pdv_contact import PdvContact
-from ..auth import require_role, get_current_user, get_user_role
+from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
@@ -17,8 +17,9 @@ router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 def _visible_pdv_ids(db: Session, user: UserModel) -> set[int] | None:
     """Return the set of PdvIds visible to this user, or None if they can see all."""
     role = get_user_role(db, user.UserId)
-    # Admin and regional managers see everything
-    if role in ("admin", "regional_manager"):
+    level = ROLE_HIERARCHY.get(role.lower(), 0)
+    # Level 4+ (admin, regional_manager) see everything
+    if level >= 4:
         return None
 
     ids: set[int] = set()
@@ -254,7 +255,7 @@ def get_pdv(
 
 
 @router.post("", response_model=Pdv, status_code=201)
-def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
+def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     code = data.Code or f"PDV-{uuid.uuid4().hex[:12].upper()}"
     channel = db.query(Channel).filter(Channel.ChannelId == data.ChannelId).first()
     if not channel:
@@ -300,6 +301,7 @@ def create_pdv(data: PdvCreate, db: Session = Depends(get_db)):
         DefaultMaterialExternalId=data.DefaultMaterialExternalId,
         SupplierTypes=",".join(data.SupplierTypes) if data.SupplierTypes else None,
         IsActive=data.IsActive,
+        AssignedUserId=current_user.UserId,
     )
     db.add(pdv)
     db.flush()
