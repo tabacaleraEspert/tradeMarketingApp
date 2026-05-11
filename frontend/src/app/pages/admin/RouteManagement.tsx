@@ -14,6 +14,7 @@ import {
   Map as MapIcon,
   List,
   User,
+  UserX,
   Clock,
   Repeat,
   ChevronRight,
@@ -702,6 +703,22 @@ export function RouteManagement() {
                       <div className="flex items-center gap-1.5">
                         <User size={13} className="text-muted-foreground shrink-0" />
                         <span className="text-sm text-foreground truncate">{route.AssignedUserName}</span>
+                        {canDelete && (
+                          <button
+                            title="Desasignar TM"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`¿Desasignar a ${route.AssignedUserName} de "${route.Name}"?`)) {
+                                routesApi.update(route.RouteId, { AssignedUserId: null })
+                                  .then(() => { toast.success("TM desasignado"); refetch(); })
+                                  .catch((err) => toast.error(err instanceof Error ? err.message : "Error"));
+                              }
+                            }}
+                            className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors shrink-0"
+                          >
+                            <UserX size={13} />
+                          </button>
+                        )}
                       </div>
                     ) : (
                       <span className="text-xs text-destructive">Sin asignar</span>
