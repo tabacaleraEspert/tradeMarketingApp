@@ -266,6 +266,83 @@ def delete_user(
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Transfer PDVs to manager (or clear if no manager)
+    manager_id = user.ManagerUserId
+    from ..models import PDV as PDVModel
+    db.query(PDVModel).filter(PDVModel.AssignedUserId == user_id).update(
+        {PDVModel.AssignedUserId: manager_id}, synchronize_session=False
+    )
+
+    # Transfer direct reports to this user's manager
+    db.query(UserModel).filter(UserModel.ManagerUserId == user_id).update(
+        {UserModel.ManagerUserId: manager_id}, synchronize_session=False
+    )
+
+    # Unassign from routes (SET NULL)
+    from ..models.route import Route as RouteModel, RouteDay as RouteDayModel
+    db.query(RouteModel).filter(RouteModel.AssignedUserId == user_id).update(
+        {RouteModel.AssignedUserId: None}, synchronize_session=False
+    )
+    db.query(RouteModel).filter(RouteModel.CreatedByUserId == user_id).update(
+        {RouteModel.CreatedByUserId: None}, synchronize_session=False
+    )
+    db.query(RouteDayModel).filter(RouteDayModel.AssignedUserId == user_id).update(
+        {RouteDayModel.AssignedUserId: manager_id or current_user.UserId}, synchronize_session=False
+    )
+
+    # Clear other FK references (SET NULL)
+    from ..models.visit import Visit as VisitModel
+    from ..models.device import Device as DeviceModel
+    from ..models.incident import Incident as IncidentModel
+    from ..models.market_news import MarketNews as MarketNewsModel
+    from ..models.notification import Notification as NotificationModel
+    from ..models.pdv_note import PdvNote as PdvNoteModel
+    from ..models.pdv import PdvAssignment as PdvAssignmentModel
+    from ..models.user_vacation import UserVacation as UserVacationModel
+    from ..models.audit import AuditEvent as AuditModel
+
+    db.query(VisitModel).filter(VisitModel.UserId == user_id).update(
+        {VisitModel.UserId: manager_id or current_user.UserId}, synchronize_session=False
+    )
+    db.query(IncidentModel).filter(IncidentModel.CreatedBy == user_id).update(
+        {IncidentModel.CreatedBy: None}, synchronize_session=False
+    )
+    db.query(MarketNewsModel).filter(MarketNewsModel.CreatedBy == user_id).update(
+        {MarketNewsModel.CreatedBy: None}, synchronize_session=False
+    )
+    db.query(NotificationModel).filter(NotificationModel.CreatedBy == user_id).update(
+        {NotificationModel.CreatedBy: None}, synchronize_session=False
+    )
+    db.query(NotificationModel).filter(NotificationModel.TargetUserId == user_id).update(
+        {NotificationModel.TargetUserId: None}, synchronize_session=False
+    )
+    db.query(PdvNoteModel).filter(PdvNoteModel.CreatedByUserId == user_id).update(
+        {PdvNoteModel.CreatedByUserId: None}, synchronize_session=False
+    )
+    db.query(PdvNoteModel).filter(PdvNoteModel.ResolvedByUserId == user_id).update(
+        {PdvNoteModel.ResolvedByUserId: None}, synchronize_session=False
+    )
+    db.query(AuditModel).filter(AuditModel.UserId == user_id).update(
+        {AuditModel.UserId: None}, synchronize_session=False
+    )
+    db.query(PdvAssignmentModel).filter(PdvAssignmentModel.UserId == user_id).delete(synchronize_session=False)
+    db.query(UserVacationModel).filter(UserVacationModel.UserId == user_id).delete(synchronize_session=False)
+
+    # Delete devices (cascade: DeviceState, SyncLog)
+    device_ids = [d.DeviceId for d in db.query(DeviceModel).filter(DeviceModel.UserId == user_id).all()]
+    if device_ids:
+        from ..models.device import DeviceState as DeviceStateModel, SyncLog as SyncLogModel
+        db.query(DeviceStateModel).filter(DeviceStateModel.DeviceId.in_(device_ids)).delete(synchronize_session=False)
+        db.query(SyncLogModel).filter(SyncLogModel.DeviceId.in_(device_ids)).delete(synchronize_session=False)
+        db.query(AuditModel).filter(AuditModel.DeviceId.in_(device_ids)).update(
+            {AuditModel.DeviceId: None}, synchronize_session=False
+        )
+    db.query(DeviceModel).filter(DeviceModel.UserId == user_id).delete(synchronize_session=False)
+
+    # Delete UserRole
+    db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).delete(synchronize_session=False)
+
     db.delete(user)
     db.commit()
 
