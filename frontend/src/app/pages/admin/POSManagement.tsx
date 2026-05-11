@@ -137,14 +137,11 @@ export function POSManagement() {
 
   // Unique trade marketers from enriched data
   const tradeMarketers = useMemo(() => {
-    const names = new Set<string>();
-    allMapData.forEach((p) => {
-      if (p.assignedUserName && p.assignedUserName !== "Sin asignar") {
-        names.add(p.assignedUserName);
-      }
-    });
-    return Array.from(names).sort();
-  }, [allMapData]);
+    return users
+      .filter((u) => u.IsActive)
+      .map((u) => ({ id: u.UserId, name: u.DisplayName }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [users]);
 
   // Count active advanced filters
   const activeFilterCount = useMemo(() => {
@@ -651,8 +648,8 @@ export function POSManagement() {
                 >
                   <option value="all">Todos</option>
                   <option value="unassigned">Sin asignar</option>
-                  {tradeMarketers.map((name) => (
-                    <option key={name} value={name}>{name}</option>
+                  {tradeMarketers.map((tm) => (
+                    <option key={tm.id} value={tm.name}>{tm.name}</option>
                   ))}
                 </select>
               </div>
