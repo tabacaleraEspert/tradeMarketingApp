@@ -44,6 +44,38 @@ export function NewPointOfSale() {
     lon: null as number | null,
   });
 
+  // Offline address fields
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [offlineAddress, setOfflineAddress] = useState({
+    street: "",
+    number: "",
+    city: "",
+    province: "",
+    postalCode: "",
+  });
+
+  useEffect(() => {
+    const on = () => setIsOnline(true);
+    const off = () => setIsOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
+
+  // Sync offline fields → address string
+  useEffect(() => {
+    if (!isOnline) {
+      const parts = [
+        offlineAddress.street,
+        offlineAddress.number,
+        offlineAddress.city,
+        offlineAddress.province,
+        offlineAddress.postalCode ? `CP ${offlineAddress.postalCode}` : "",
+      ].filter(Boolean);
+      setFormData((f) => ({ ...f, address: parts.join(", ") }));
+    }
+  }, [offlineAddress, isOnline]);
+
   const [contacts, setContacts] = useState<ContactForm[]>([
     { contactName: "", contactPhone: "", contactRole: "", decisionPower: "", birthday: "", notes: "", profileNotes: "" },
   ]);
@@ -354,28 +386,68 @@ export function NewPointOfSale() {
               <Label htmlFor="address">
                 Dirección <span className="text-red-600">*</span>
               </Label>
-              <AddressAutocomplete
-                id="address"
-                value={formData.address}
-                onChange={(address) => setFormData((f) => ({ ...f, address }))}
-                onPlaceSelect={({ address, lat, lon }) =>
-                  setFormData((f) => ({ ...f, address, lat, lon }))
-                }
-                placeholder="Buscar dirección (ej: Av. Corrientes 1234)"
-              />
-              {formData.address.trim() && (formData.lat == null || formData.lon == null) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGeocodeAddress}
-                  disabled={geocoding || !isMapsLoaded}
-                  className="w-full"
-                >
-                  <Search size={16} className="mr-2" />
-                  {geocoding ? "Buscando..." : "Buscar ubicación en mapa"}
-                </Button>
+
+              {isOnline ? (
+                <>
+                  <AddressAutocomplete
+                    id="address"
+                    value={formData.address}
+                    onChange={(address) => setFormData((f) => ({ ...f, address }))}
+                    onPlaceSelect={({ address, lat, lon }) =>
+                      setFormData((f) => ({ ...f, address, lat, lon }))
+                    }
+                    placeholder="Buscar dirección (ej: Av. Corrientes 1234)"
+                  />
+                  {formData.address.trim() && (formData.lat == null || formData.lon == null) && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGeocodeAddress}
+                      disabled={geocoding || !isMapsLoaded}
+                      className="w-full"
+                    >
+                      <Search size={16} className="mr-2" />
+                      {geocoding ? "Buscando..." : "Buscar ubicación en mapa"}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-2 p-3 bg-muted rounded-lg border border-border">
+                  <p className="text-xs text-muted-foreground mb-2">Sin conexión — completá la dirección manualmente:</p>
+                  <div className="grid grid-cols-[1fr_80px] gap-2">
+                    <Input
+                      placeholder="Calle"
+                      value={offlineAddress.street}
+                      onChange={(e) => setOfflineAddress((a) => ({ ...a, street: e.target.value }))}
+                    />
+                    <Input
+                      placeholder="Altura"
+                      value={offlineAddress.number}
+                      onChange={(e) => setOfflineAddress((a) => ({ ...a, number: e.target.value }))}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      placeholder="Localidad"
+                      value={offlineAddress.city}
+                      onChange={(e) => setOfflineAddress((a) => ({ ...a, city: e.target.value }))}
+                    />
+                    <Input
+                      placeholder="Provincia"
+                      value={offlineAddress.province}
+                      onChange={(e) => setOfflineAddress((a) => ({ ...a, province: e.target.value }))}
+                    />
+                  </div>
+                  <Input
+                    placeholder="Código Postal"
+                    value={offlineAddress.postalCode}
+                    onChange={(e) => setOfflineAddress((a) => ({ ...a, postalCode: e.target.value }))}
+                    className="w-32"
+                  />
+                </div>
               )}
+
               {formData.lat != null && formData.lon != null && (
                 <>
                   <p className="text-xs text-muted-foreground">
