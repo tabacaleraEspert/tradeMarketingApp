@@ -14,7 +14,7 @@
  */
 
 const PREFIX = "espert.cache.";
-const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const DEFAULT_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface CacheEntry<T> {
   data: T;
