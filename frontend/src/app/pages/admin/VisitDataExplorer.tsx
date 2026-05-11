@@ -132,6 +132,15 @@ export function VisitDataExplorer() {
       )
     : visits;
 
+  // Group by TM Rep
+  const groupedByUser = filtered.reduce((acc, v) => {
+    const key = v.UserName || `Usuario #${v.UserId}`;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(v);
+    return acc;
+  }, {} as Record<string, EnrichedVisit[]>);
+  const sortedGroups = Object.entries(groupedByUser).sort(([a], [b]) => a.localeCompare(b));
+
   const handleExport = () => {
     if (!selectedVisit) return;
     const sv = selectedVisit;
@@ -220,39 +229,50 @@ export function VisitDataExplorer() {
         <div className="py-20 text-center text-muted-foreground">Sin visitas encontradas</div>
       ) : (
         <>
-          <Card>
-            <CardContent className="p-0 divide-y divide-border">
-              {filtered.map((v) => (
-                <button
-                  key={v.VisitId}
-                  onClick={() => openDetail(v.VisitId)}
-                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-muted/30 transition-colors"
-                >
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                    v.Status === "CLOSED" ? "bg-green-100" : v.Status === "OPEN" ? "bg-amber-100" : "bg-muted"
-                  }`}>
-                    {v.Status === "CLOSED" ? <CheckCircle2 size={20} className="text-green-600" /> :
-                     v.Status === "OPEN" ? <Clock size={20} className="text-amber-600" /> :
-                     <AlertCircle size={20} className="text-muted-foreground" />}
+          <div className="space-y-6">
+            {sortedGroups.map(([userName, userVisits]) => (
+              <div key={userName}>
+                {/* TM Rep header */}
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-8 h-8 rounded-full bg-[#A48242]/10 flex items-center justify-center">
+                    <User size={16} className="text-[#A48242]" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-foreground text-sm truncate">{v.PdvName || `PDV #${v.PdvId}`}</p>
-                    <p className="text-xs text-muted-foreground truncate">{v.PdvAddress || "-"}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                        <User size={10} /> {v.UserName || `User #${v.UserId}`}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">{formatDate(v.OpenedAt)}</span>
-                    </div>
+                  <div>
+                    <p className="font-semibold text-foreground text-sm">{userName}</p>
+                    <p className="text-[10px] text-muted-foreground">{userVisits.length} visita{userVisits.length !== 1 ? "s" : ""}</p>
                   </div>
-                  <Badge variant={v.Status === "CLOSED" ? "secondary" : "outline"} className="text-[10px] shrink-0">
-                    {v.Status}
-                  </Badge>
-                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-                </button>
-              ))}
-            </CardContent>
-          </Card>
+                </div>
+
+                <Card>
+                  <CardContent className="p-0 divide-y divide-border">
+                    {userVisits.map((v) => (
+                      <button
+                        key={v.VisitId}
+                        onClick={() => openDetail(v.VisitId)}
+                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                      >
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                          v.Status === "CLOSED" ? "bg-green-100" : v.Status === "OPEN" ? "bg-amber-100" : "bg-muted"
+                        }`}>
+                          {v.Status === "CLOSED" ? <CheckCircle2 size={16} className="text-green-600" /> :
+                           v.Status === "OPEN" ? <Clock size={16} className="text-amber-600" /> :
+                           <AlertCircle size={16} className="text-muted-foreground" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-foreground text-sm truncate">{v.PdvName || `PDV #${v.PdvId}`}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            {v.PdvAddress && <span className="text-[11px] text-muted-foreground truncate">{v.PdvAddress}</span>}
+                            <span className="text-[10px] text-muted-foreground">{formatDate(v.OpenedAt)}</span>
+                          </div>
+                        </div>
+                        <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+                      </button>
+                    ))}
+                  </CardContent>
+                </Card>
+              </div>
+            ))}
+          </div>
 
           <div className="flex justify-center gap-2">
             {page > 0 && (

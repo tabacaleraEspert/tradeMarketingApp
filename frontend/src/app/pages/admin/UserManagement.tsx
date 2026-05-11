@@ -555,13 +555,23 @@ export function UserManagement() {
                 <SelectContent>
                   {(() => {
                     const cu = getCurrentUser();
-                    const hierarchy = ["admin", "regional_manager", "territory_manager", "ejecutivo", "vendedor"];
+                    const hierarchy = ["admin", "regional_manager", "territory_manager", "trade_rep", "ejecutivo", "vendedor"];
                     const myIdx = hierarchy.indexOf(cu.role);
-                    const allowed = myIdx >= 0 ? hierarchy.slice(myIdx) : ["vendedor"];
+                    // Admin sees all roles; others see their level and below
+                    if (myIdx <= 0) return roles; // admin or unknown → show all
+                    const allowed = hierarchy.slice(myIdx);
                     return roles.filter((r) => allowed.includes(r.Name));
                   })().map((r) => (
                     <SelectItem key={r.RoleId} value={String(r.RoleId)}>
-                      {r.Name.charAt(0).toUpperCase() + r.Name.slice(1)}
+                      {({
+                        admin: "Admin",
+                        regional_manager: "Gerente Regional",
+                        territory_manager: "Territory Manager",
+                        ejecutivo: "Ejecutivo",
+                        vendedor: "TM Rep (Vendedor)",
+                        trade_rep: "TM Rep",
+                        supervisor: "Supervisor",
+                      } as Record<string, string>)[r.Name] || r.Name}
                     </SelectItem>
                   ))}
                 </SelectContent>
