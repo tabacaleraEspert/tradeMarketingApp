@@ -339,6 +339,7 @@ export interface PdvCreateData {
   Lon?: number;
   Contacts?: { ContactName: string; ContactPhone?: string; ContactRole?: string; DecisionPower?: string; Birthday?: string }[];
   DefaultMaterialExternalId?: string;
+  AssignedUserId?: number | null;
   IsActive?: boolean;
 }
 

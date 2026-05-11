@@ -955,9 +955,25 @@ export function POSManagement() {
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Trade Marketer</p>
-                  <p className={`text-sm font-semibold ${pos.tradeMarketer === "Sin asignar" ? "text-destructive" : "text-foreground"}`}>
-                    {pos.tradeMarketer}
-                  </p>
+                  <select
+                    className={`text-sm font-semibold px-2 py-1 border border-transparent hover:border-border rounded-lg bg-transparent focus:border-[#A48242] focus:ring-1 focus:ring-[#A48242] cursor-pointer ${
+                      pos.tradeMarketer === "Sin asignar" ? "text-destructive" : "text-foreground"
+                    }`}
+                    value={pdvs.find((p) => String(p.PdvId) === pos.id)?.AssignedUserId ?? ""}
+                    onChange={async (e) => {
+                      const newUserId = e.target.value ? Number(e.target.value) : null;
+                      try {
+                        await pdvsApi.update(Number(pos.id), { AssignedUserId: newUserId });
+                        toast.success(newUserId ? "TM asignado" : "TM desasignado");
+                        refetch();
+                      } catch (err) { toast.error(err instanceof Error ? err.message : "Error"); }
+                    }}
+                  >
+                    <option value="">Sin asignar</option>
+                    {users.filter((u) => u.IsActive).map((u) => (
+                      <option key={u.UserId} value={u.UserId}>{u.DisplayName}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Visitas</p>
