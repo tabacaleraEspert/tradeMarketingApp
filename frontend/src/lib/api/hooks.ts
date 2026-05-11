@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { fetchWithCache } from "@/lib/offline";
 import { api } from "./client";
 import {
   routesApi,
@@ -148,7 +149,7 @@ export function useIncidents(filters?: {
 
 /** Hook para zonas */
 export function useZones() {
-  return useApiList(() => zonesApi.list());
+  return useApiList(() => fetchWithCache("zones", () => zonesApi.list()));
 }
 
 /** Hook para rutas */
@@ -166,13 +167,15 @@ export function useMyRoutes(userId: number | undefined) {
 
 /** Hook para canales */
 export function useChannels() {
-  return useApiList(() => channelsApi.list());
+  return useApiList(() => fetchWithCache("channels", () => channelsApi.list()));
 }
 
 /** Hook para subcanales (filtrados por canal) */
 export function useSubChannels(channelId: number | null | undefined) {
   return useApiList(
-    () => (channelId ? subchannelsApi.list(channelId) : Promise.resolve([])),
+    () => (channelId
+      ? fetchWithCache(`subchannels_${channelId}`, () => subchannelsApi.list(channelId))
+      : Promise.resolve([])),
     [channelId]
   );
 }
@@ -214,7 +217,7 @@ export function useDistributors() {
 
 /** Hook para formularios */
 export function useForms() {
-  return useApiList(() => formsApi.list());
+  return useApiList(() => fetchWithCache("forms_active", () => formsApi.list()));
 }
 
 /** Incidencia con nombre del PDV (para UI Alerts) */
