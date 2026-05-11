@@ -4,12 +4,61 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvContactModel, Distributor
+from ..models import User as UserModel
 from ..models.pdv import PdvDistributor as PdvDistributorModel
+from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel
 from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo, volume_to_category
 from ..schemas.pdv_contact import PdvContact
-from ..auth import require_role
+from ..auth import require_role, get_current_user, get_user_role
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
+
+
+def _visible_pdv_ids(db: Session, user: UserModel) -> set[int] | None:
+    """Return the set of PdvIds visible to this user, or None if they can see all."""
+    role = get_user_role(db, user.UserId)
+    # Admin and regional managers see everything
+    if role in ("admin", "regional_manager"):
+        return None
+
+    ids: set[int] = set()
+
+    # PDVs directly assigned to this user
+    direct = db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId == user.UserId).all()
+    ids.update(r[0] for r in direct)
+
+    # PDVs in routes assigned to this user
+    route_pdvs = (
+        db.query(RoutePdvModel.PdvId)
+        .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
+        .filter(RouteModel.AssignedUserId == user.UserId)
+        .all()
+    )
+    ids.update(r[0] for r in route_pdvs)
+
+    # Territory managers also see PDVs of their direct reports
+    if role == "territory_manager":
+        report_ids = [
+            u.UserId for u in
+            db.query(UserModel.UserId).filter(UserModel.ManagerUserId == user.UserId).all()
+        ]
+        if report_ids:
+            sub_direct = db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId.in_(report_ids)).all()
+            ids.update(r[0] for r in sub_direct)
+            sub_route = (
+                db.query(RoutePdvModel.PdvId)
+                .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
+                .filter(RouteModel.AssignedUserId.in_(report_ids))
+                .all()
+            )
+            ids.update(r[0] for r in sub_route)
+
+    # Users in the same zone see PDVs in their zone (only for TMs with zone)
+    if user.ZoneId:
+        zone_pdvs = db.query(PDVModel.PdvId).filter(PDVModel.ZoneId == user.ZoneId).all()
+        ids.update(r[0] for r in zone_pdvs)
+
+    return ids
 
 
 def _sync_distributors(db: Session, pdv_id: int, distributor_ids: list[int]):
@@ -160,9 +209,16 @@ def list_pdvs(
     limit: int = Query(default=500, le=1000),
     zone_id: int | None = None,
     distributor_id: int | None = None,
+    current_user: UserModel = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(PDVModel)
+
+    # Role-based visibility filter
+    visible = _visible_pdv_ids(db, current_user)
+    if visible is not None:
+        q = q.filter(PDVModel.PdvId.in_(visible)) if visible else q.filter(False)
+
     if zone_id is not None:
         q = q.filter(PDVModel.ZoneId == zone_id)
     if distributor_id is not None:
@@ -180,10 +236,20 @@ def list_pdvs(
 
 
 @router.get("/{pdv_id}", response_model=Pdv)
-def get_pdv(pdv_id: int, db: Session = Depends(get_db)):
+def get_pdv(
+    pdv_id: int,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if not pdv:
         raise HTTPException(status_code=404, detail="PDV no encontrado")
+
+    # Role-based access check
+    visible = _visible_pdv_ids(db, current_user)
+    if visible is not None and pdv_id not in visible:
+        raise HTTPException(status_code=403, detail="No tenés acceso a este PDV")
+
     return _pdv_to_response(pdv, db)
 
 
