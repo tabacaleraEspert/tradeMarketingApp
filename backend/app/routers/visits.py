@@ -72,22 +72,30 @@ def list_visits(
         return visits
 
     # Enrich with PDV name and user name for admin views
-    pdv_ids = {v.PdvId for v in visits if v.PdvId}
-    user_ids = {v.UserId for v in visits if v.UserId}
-    pdv_map = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
-    user_map = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()} if user_ids else {}
+    pdv_ids = list({v.PdvId for v in visits if v.PdvId})
+    user_ids = list({v.UserId for v in visits if v.UserId})
+    pdv_map: dict = {}
+    user_map: dict = {}
+    if pdv_ids:
+        for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all():
+            pdv_map[p.PdvId] = p
+    if user_ids:
+        for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all():
+            user_map[u.UserId] = u
 
     result = []
     for v in visits:
+        pdv = pdv_map.get(v.PdvId)
+        user = user_map.get(v.UserId)
         d = {
             "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
             "RouteDayId": v.RouteDayId, "Status": v.Status,
             "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
             "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
             "CloseReason": v.CloseReason,
-            "PdvName": pdv_map[v.PdvId].Name if v.PdvId and v.PdvId in pdv_map else None,
-            "PdvAddress": pdv_map[v.PdvId].Address if v.PdvId and v.PdvId in pdv_map else None,
-            "UserName": user_map[v.UserId].DisplayName if v.UserId and v.UserId in user_map else None,
+            "PdvName": pdv.Name if pdv else f"PDV #{v.PdvId}",
+            "PdvAddress": pdv.Address if pdv else None,
+            "UserName": user.DisplayName if user else f"Usuario #{v.UserId}",
         }
         result.append(d)
     return result
