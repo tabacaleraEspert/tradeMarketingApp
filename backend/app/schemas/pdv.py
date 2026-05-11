@@ -151,6 +151,7 @@ class PdvUpdate(BaseModel):
     MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
+    AssignedUserId: int | None = None
     IsActive: bool | None = None
     InactiveReason: str | None = Field(None, max_length=500)
     ReactivateOn: date | None = None
