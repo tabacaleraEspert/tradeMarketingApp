@@ -131,6 +131,13 @@ export function RouteManagement() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
   const canDelete = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
+  const canManage = canDelete; // same permission for reassign/unassign
+
+  // Confirmation modals
+  const [deleteRoute, setDeleteRoute] = useState<typeof routes[0] | null>(null);
+  const [unassignRoute, setUnassignRoute] = useState<typeof routes[0] | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [formName, setFormName] = useState("");
@@ -697,31 +704,34 @@ export function RouteManagement() {
                     )}
                   </div>
 
-                  {/* Trade Marketer */}
-                  <div className="min-w-0">
-                    {route.AssignedUserName ? (
-                      <div className="flex items-center gap-1.5">
-                        <User size={13} className="text-muted-foreground shrink-0" />
-                        <span className="text-sm text-foreground truncate">{route.AssignedUserName}</span>
-                        {canDelete && (
-                          <button
-                            title="Desasignar TM"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (confirm(`¿Desasignar a ${route.AssignedUserName} de "${route.Name}"?`)) {
-                                routesApi.update(route.RouteId, { AssignedUserId: null })
-                                  .then(() => { toast.success("TM desasignado"); refetch(); })
-                                  .catch((err) => toast.error(err instanceof Error ? err.message : "Error"));
-                              }
-                            }}
-                            className="p-1 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors shrink-0"
-                          >
-                            <UserX size={13} />
-                          </button>
-                        )}
-                      </div>
+                  {/* Trade Marketer — inline dropdown */}
+                  <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+                    {canManage ? (
+                      <select
+                        className="w-full px-2 py-1 text-sm border border-transparent hover:border-border rounded-lg bg-transparent focus:border-[#A48242] focus:ring-1 focus:ring-[#A48242] cursor-pointer"
+                        value={route.AssignedUserId ?? ""}
+                        onChange={async (e) => {
+                          const newUserId = e.target.value ? Number(e.target.value) : null;
+                          if (newUserId === null && route.AssignedUserName) {
+                            setUnassignRoute(route);
+                            return;
+                          }
+                          try {
+                            await routesApi.update(route.RouteId, { AssignedUserId: newUserId });
+                            toast.success(newUserId ? "TM reasignado" : "TM desasignado");
+                            refetch();
+                          } catch (err) { toast.error(err instanceof Error ? err.message : "Error"); }
+                        }}
+                      >
+                        <option value="">Sin asignar</option>
+                        {users.filter((u) => u.IsActive).map((u) => (
+                          <option key={u.UserId} value={u.UserId}>{u.DisplayName}</option>
+                        ))}
+                      </select>
                     ) : (
-                      <span className="text-xs text-destructive">Sin asignar</span>
+                      <span className="text-sm text-foreground truncate">
+                        {route.AssignedUserName || <span className="text-xs text-destructive">Sin asignar</span>}
+                      </span>
                     )}
                   </div>
 
@@ -765,14 +775,7 @@ export function RouteManagement() {
                   <div className="flex items-center justify-end gap-1">
                     {canDelete && (
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm("¿Eliminar esta ruta?")) {
-                          routesApi.delete(route.RouteId)
-                            .then(() => { toast.success("Ruta eliminada"); refetch(); })
-                            .catch((err) => toast.error(err instanceof Error ? err.message : "Error"));
-                        }
-                      }}
+                      onClick={(e) => { e.stopPropagation(); setDeleteRoute(route); }}
                       className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
                     >
                       <Trash2 size={15} />
@@ -942,6 +945,111 @@ export function RouteManagement() {
             </select>
           </div>
         </div>
+      </Modal>
+
+      {/* Delete Route Confirmation Modal */}
+      <Modal
+        isOpen={!!deleteRoute}
+        onClose={() => setDeleteRoute(null)}
+        title="Eliminar ruta"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleteRoute(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!deleteRoute) return;
+                setDeleting(true);
+                try {
+                  await routesApi.delete(deleteRoute.RouteId);
+                  toast.success("Ruta eliminada");
+                  setDeleteRoute(null);
+                  refetch();
+                } catch (err) { toast.error(err instanceof Error ? err.message : "Error"); }
+                finally { setDeleting(false); }
+              }}
+            >
+              {deleting ? "Eliminando..." : "Eliminar"}
+            </Button>
+          </>
+        }
+      >
+        {deleteRoute && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground">
+              ¿Eliminar la ruta <strong>{deleteRoute.Name}</strong>?
+            </p>
+            <div className="bg-red-50 rounded-lg p-3 space-y-1 text-sm">
+              {deleteRoute.AssignedUserName && (
+                <p className="flex items-center gap-2">
+                  <User size={14} className="text-red-500" />
+                  TM asignado: <strong>{deleteRoute.AssignedUserName}</strong> (se desvincula)
+                </p>
+              )}
+              <p className="flex items-center gap-2">
+                <MapPin size={14} className="text-red-500" />
+                {deleteRoute.PdvCount ?? 0} PDVs se desvinculan (quedan libres)
+              </p>
+              <p className="flex items-center gap-2">
+                <Calendar size={14} className="text-red-500" />
+                Todos los días planificados se eliminan
+              </p>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Los PDVs no se eliminan, solo se desvinculan de esta ruta.
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      {/* Unassign TM Confirmation Modal */}
+      <Modal
+        isOpen={!!unassignRoute}
+        onClose={() => setUnassignRoute(null)}
+        title="Desasignar Trade Marketer"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setUnassignRoute(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={async () => {
+                if (!unassignRoute) return;
+                setDeleting(true);
+                try {
+                  await routesApi.update(unassignRoute.RouteId, { AssignedUserId: null });
+                  toast.success("TM desasignado");
+                  setUnassignRoute(null);
+                  refetch();
+                } catch (err) { toast.error(err instanceof Error ? err.message : "Error"); }
+                finally { setDeleting(false); }
+              }}
+            >
+              {deleting ? "Desasignando..." : "Desasignar"}
+            </Button>
+          </>
+        }
+      >
+        {unassignRoute && (
+          <div className="space-y-3">
+            <p className="text-sm text-foreground">
+              ¿Desasignar a <strong>{unassignRoute.AssignedUserName}</strong> de la ruta <strong>{unassignRoute.Name}</strong>?
+            </p>
+            <div className="bg-amber-50 rounded-lg p-3 space-y-1 text-sm">
+              <p className="flex items-center gap-2">
+                <UserX size={14} className="text-amber-600" />
+                Se eliminan todos los días planificados futuros
+              </p>
+              <p className="flex items-center gap-2">
+                <MapPin size={14} className="text-amber-600" />
+                {unassignRoute.PdvCount ?? 0} PDVs quedan libres (sin asignar)
+              </p>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

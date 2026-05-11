@@ -354,6 +354,9 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
         setattr(r, k, v)
 
     # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta (task 13)
+    from datetime import date as _dt_date
+    today = _dt_date.today()
+
     if new_assigned_user != "__unchanged__":
         pdv_ids = [
             row[0]
@@ -363,6 +366,30 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).update(
                 {PDVModel.AssignedUserId: new_assigned_user}, synchronize_session=False
             )
+
+        # Update future PLANNED RouteDays
+        future_days = db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= today,
+            RouteDayModel.Status == "PLANNED",
+        ).all()
+        if new_assigned_user is None:
+            # Desasignar: borrar días futuros planificados
+            for fd in future_days:
+                db.delete(fd)
+        else:
+            # Reasignar: actualizar AssignedUserId en días futuros
+            for fd in future_days:
+                fd.AssignedUserId = new_assigned_user
+
+    # Si cambió la frecuencia, borrar días futuros PLANNED para que el frontend regenere
+    freq_changed = "FrequencyType" in update_data or "FrequencyConfig" in update_data
+    if freq_changed:
+        db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= today,
+            RouteDayModel.Status == "PLANNED",
+        ).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(r)
@@ -466,6 +493,21 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if pdv:
         pdv.AssignedUserId = None
+
+    # Limpiar RouteDayPdv de días futuros para este PDV
+    from datetime import date as _dt_date
+    future_day_ids = [
+        rd.RouteDayId for rd in
+        db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= _dt_date.today(),
+        ).all()
+    ]
+    if future_day_ids:
+        db.query(RouteDayPdvModel).filter(
+            RouteDayPdvModel.RouteDayId.in_(future_day_ids),
+            RouteDayPdvModel.PdvId == pdv_id,
+        ).delete(synchronize_session=False)
 
     # Invalidar optimización (task 11)
     route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()

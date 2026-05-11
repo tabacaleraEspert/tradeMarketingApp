@@ -766,7 +766,24 @@ export function RouteEditorPage() {
 
       // Auto-generate days when frequency changes, TM is assigned, and there are PDVs
       if (frequencyChanged && routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0) {
+        // Reload days (backend deleted old PLANNED days on freq change)
+        const freshDays = await routesApi.listDays(id);
+        setRouteDays(freshDays);
         await handleGenerateDays(8);
+      }
+
+      // Check for overlap with other routes of the same TM
+      if (updated.AssignedUserId) {
+        try {
+          const overlap = await routesApi.checkOverlap(id);
+          if (overlap.hasOverlap) {
+            const routeNames = [...new Set(overlap.overlaps.map((o: { routeName: string }) => o.routeName))];
+            toast.warning(
+              `Solapamiento con: ${routeNames.join(", ")} (${overlap.overlaps.length} días en común)`,
+              { duration: 6000 },
+            );
+          }
+        } catch { /* overlap check is best-effort */ }
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
