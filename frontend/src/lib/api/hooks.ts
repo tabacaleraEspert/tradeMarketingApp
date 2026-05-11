@@ -113,8 +113,9 @@ export function useApiList<T>(
 
 /** Hook para PDVs con filtros */
 export function usePdvs(zoneId?: number, distributorId?: number) {
+  const cacheKey = `pdvs_${zoneId ?? "all"}_${distributorId ?? "all"}`;
   return useApiList(
-    () => pdvsApi.list({ zone_id: zoneId, distributor_id: distributorId }),
+    () => fetchWithCache(cacheKey, () => pdvsApi.list({ zone_id: zoneId, distributor_id: distributorId })),
     [zoneId, distributorId]
   );
 }
