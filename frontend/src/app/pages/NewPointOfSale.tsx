@@ -12,6 +12,7 @@ import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, Alert
 import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
+import { executeOrEnqueue } from "@/lib/offline";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
@@ -259,7 +260,7 @@ export function NewPointOfSale() {
 
       // Time slots → OpeningTime/ClosingTime (first slot) + TimeSlotsJson (all)
       const validSlots = timeSlots.filter((s) => s.from && s.to);
-      const newPdv = await pdvsApi.create({
+      const pdvBody = {
         Name: formData.name.trim(),
         Address: formData.address.trim(),
         ChannelId: Number(formData.channelId),
@@ -272,58 +273,62 @@ export function NewPointOfSale() {
         TimeSlotsJson: validSlots.length > 0 ? JSON.stringify(validSlots) : undefined,
         MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
+      };
+
+      const result = await executeOrEnqueue({
+        kind: "pdv_create",
+        method: "POST",
+        url: "/pdvs",
+        body: pdvBody,
+        label: `Nuevo PDV: ${pdvBody.Name}`,
       });
 
-      if (newPdv?.PdvId) {
-        // Run all secondary operations in parallel for speed
-        const tasks: Promise<void>[] = [];
-
-        // Photos (all in parallel)
-        const photoResults: boolean[] = [];
+      if (!result.queued && result.data) {
+        const newPdv = result.data as { PdvId: number };
+        // Secondary operations (photos, notes, route) — best effort
         if (photos.length > 0) {
-          tasks.push(
-            Promise.all(
-              photos.map(async (p, i) => {
-                const { compressImage } = await import("@/lib/imageCompression");
-                const compressed = await compressImage(p.file);
-                return pdvPhotosApi.upload(newPdv.PdvId, compressed, { photoType: "fachada", sortOrder: i + 1 })
-                  .then(() => { photoResults.push(true); })
-                  .catch(() => { photoResults.push(false); });
-              })
-            ).then(() => {
-              const failed = photoResults.filter((r) => !r).length;
-              if (failed > 0) toast.warning(`No se pudieron subir ${failed} foto(s)`);
-            })
-          );
+          for (const [i, p] of photos.entries()) {
+            try {
+              const { compressImage } = await import("@/lib/imageCompression");
+              const compressed = await compressImage(p.file);
+              await executeOrEnqueue({
+                kind: "photo_upload",
+                method: "POST",
+                url: `/files/photos/pdv/${newPdv.PdvId}`,
+                formParts: [
+                  { name: "file", value: compressed, filename: `fachada_${i + 1}.jpg` },
+                  { name: "photo_type", value: "fachada" },
+                  { name: "sort_order", value: String(i + 1) },
+                ],
+                label: `Foto PDV ${pdvBody.Name}`,
+              }).catch(() => {});
+            } catch { /* skip */ }
+          }
         }
 
-        // Observations
         const obs = formData.observations.trim();
         if (obs) {
-          tasks.push(
-            pdvNotesApi.create(newPdv.PdvId, { Content: obs, CreatedByUserId: userId })
-              .then(() => {})
-              .catch(() => toast.warning("Observaciones no se pudieron guardar"))
-          );
+          executeOrEnqueue({
+            kind: "pdv_note_create",
+            method: "POST",
+            url: `/pdvs/${newPdv.PdvId}/notes`,
+            body: { Content: obs, CreatedByUserId: userId },
+            label: "Observación del PDV",
+          }).catch(() => {});
         }
 
-        // Route assignment
         if (selectedRouteId) {
-          tasks.push(
-            routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 })
-              .then(() => {
-                const routeName = myRoutes.find((r) => r.RouteId === Number(selectedRouteId))?.Name;
-                toast.success(`Agregado a ${routeName}`);
-              })
-              .catch(() => toast.warning("No se pudo agregar a la ruta"))
-          );
+          routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 })
+            .then(() => toast.success(`Agregado a ruta`))
+            .catch(() => {});
         }
 
-        // Wait for all secondary tasks
-        await Promise.all(tasks);
+        toast.success("PDV creado correctamente");
+      } else {
+        // Queued for later sync
+        toast.success("PDV guardado. Se creará cuando vuelva la conexión.");
       }
 
-      toast.success("PDV creado correctamente");
       navigate("/");
     } catch (err) {
       toast.error(err instanceof ApiError ? err.message : "Error al crear el PDV");
