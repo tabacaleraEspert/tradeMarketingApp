@@ -46,7 +46,7 @@ def _check_visit_ownership(visit: VisitModel, current_user: UserModel, db: Sessi
     )
 
 
-@router.get("", response_model=list[Visit])
+@router.get("")
 def list_visits(
     skip: int = 0,
     limit: int = 100,
