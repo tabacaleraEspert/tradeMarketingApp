@@ -28,6 +28,11 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         // Max file size to pre-cache (5MB — covers large chunks like recharts)
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // Activate new SW immediately (don't wait for all tabs to close)
+        skipWaiting: true,
+        clientsClaim: true,
+        // Clean old caches from previous deploys
+        cleanupOutdatedCaches: true,
         // Runtime cache for API calls and images
         runtimeCaching: [
           {
