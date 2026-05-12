@@ -354,8 +354,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
         setattr(r, k, v)
 
     # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta (task 13)
-    from datetime import date as _dt_date
-    today = _dt_today_ar()
+    today = _today_ar()
 
     if new_assigned_user != "__unchanged__":
         pdv_ids = [
@@ -475,7 +474,6 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get
         route.IsOptimized = False
 
     # Auto-add PDV to today's and future RouteDays (so it appears immediately in Home)
-    from datetime import date as date_type
     today = _today_ar()
     future_days = (
         db.query(RouteDayModel)
@@ -517,12 +515,11 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
         pdv.AssignedUserId = None
 
     # Limpiar RouteDayPdv de días futuros para este PDV
-    from datetime import date as _dt_date
     future_day_ids = [
         rd.RouteDayId for rd in
         db.query(RouteDayModel).filter(
             RouteDayModel.RouteId == route_id,
-            RouteDayModel.WorkDate >= _dt_today_ar(),
+            RouteDayModel.WorkDate >= _today_ar(),
         ).all()
     ]
     if future_day_ids:
@@ -565,7 +562,6 @@ def reorder_route_pdvs(
     route.IsOptimized = False
 
     # Sync PlannedOrder to future RouteDayPdv records
-    from datetime import date as _dt
     today = _today_ar()
     future_day_ids = [
         rd.RouteDayId

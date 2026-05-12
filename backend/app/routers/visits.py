@@ -71,22 +71,25 @@ def list_visits(
     if not enrich:
         return visits
 
-    # Enrich with PDV name and user name for admin views
-    pdv_ids = list({v.PdvId for v in visits if v.PdvId})
-    user_ids = list({v.UserId for v in visits if v.UserId})
-    pdv_map: dict = {}
-    user_map: dict = {}
-    if pdv_ids:
-        for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all():
-            pdv_map[p.PdvId] = p
-    if user_ids:
-        for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all():
-            user_map[u.UserId] = u
+    # Enrich with PDV name and user name via individual lookups
+    # (avoids IN() query issues with pymssql/MSSQL)
+    pdv_cache: dict[int, PDVModel] = {}
+    user_cache: dict[int, UserModel] = {}
+
+    def get_pdv(pid: int) -> PDVModel | None:
+        if pid not in pdv_cache:
+            pdv_cache[pid] = db.query(PDVModel).filter(PDVModel.PdvId == pid).first()
+        return pdv_cache[pid]
+
+    def get_user(uid: int) -> UserModel | None:
+        if uid not in user_cache:
+            user_cache[uid] = db.query(UserModel).filter(UserModel.UserId == uid).first()
+        return user_cache[uid]
 
     result = []
     for v in visits:
-        pdv = pdv_map.get(v.PdvId)
-        user = user_map.get(v.UserId)
+        pdv = get_pdv(v.PdvId) if v.PdvId else None
+        user = get_user(v.UserId) if v.UserId else None
         d = {
             "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
             "RouteDayId": v.RouteDayId, "Status": v.Status,
