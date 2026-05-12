@@ -93,6 +93,8 @@ export function VisitDataExplorer() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("CLOSED");
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 50;
 
@@ -106,11 +108,13 @@ export function VisitDataExplorer() {
     try {
       const params: Record<string, string | number> = { limit: PAGE_SIZE, skip: page * PAGE_SIZE };
       if (statusFilter) params.status = statusFilter;
+      if (dateFrom) params.date_from = dateFrom;
+      if (dateTo) params.date_to = dateTo;
       const data = await fetchVisitsFull(params);
       setVisits(data);
     } catch { toast.error("Error al cargar visitas"); }
     finally { setLoading(false); }
-  }, [statusFilter, page]);
+  }, [statusFilter, dateFrom, dateTo, page]);
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
 
@@ -219,6 +223,31 @@ export function VisitDataExplorer() {
               {f.label}
             </button>
           ))}
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            className="w-36 text-sm"
+            placeholder="Desde"
+          />
+          <span className="text-muted-foreground text-xs">a</span>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            className="w-36 text-sm"
+            placeholder="Hasta"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              Limpiar
+            </button>
+          )}
         </div>
       </div>
 

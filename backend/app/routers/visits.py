@@ -54,6 +54,8 @@ def list_visits(
     pdv_id: int | None = None,
     route_day_id: int | None = None,
     status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     enrich: bool = False,
     db: Session = Depends(get_db),
 ):
@@ -66,6 +68,13 @@ def list_visits(
         q = q.filter(VisitModel.RouteDayId == route_day_id)
     if status is not None:
         q = q.filter(VisitModel.Status == status)
+    if date_from:
+        from datetime import datetime as _dt
+        q = q.filter(VisitModel.OpenedAt >= _dt.fromisoformat(date_from))
+    if date_to:
+        from datetime import datetime as _dt2, timedelta as _td
+        end = _dt2.fromisoformat(date_to) + _td(days=1)
+        q = q.filter(VisitModel.OpenedAt < end)
     visits = q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
 
     if not enrich:
