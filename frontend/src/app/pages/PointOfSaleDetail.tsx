@@ -38,6 +38,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
+import { fetchWithCache } from "@/lib/offline";
 import type { PdvPhotoRead, Route } from "@/lib/api";
 import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
 import type { PdvNote } from "@/lib/api";
@@ -175,7 +176,7 @@ export function PointOfSaleDetail() {
     const pdvId = Number(id);
     setLoadError(null);
     Promise.all([
-      pdvsApi.get(pdvId).catch((e) => {
+      fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId)).catch((e) => {
         setLoadError(
           e instanceof ApiError ? e.message : "No se pudo cargar el PDV"
         );

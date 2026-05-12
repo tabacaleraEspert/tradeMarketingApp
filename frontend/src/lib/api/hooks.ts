@@ -40,20 +40,23 @@ export async function fetchRouteDayPdvsForDate(
   userId?: number
 ): Promise<RouteDayPdvWithDetails[]> {
   const dateStr = dateToYMD(date);
-  const params: Record<string, string | number> = { date: dateStr };
-  if (userId != null) params.user_id = userId;
+  const cacheKey = `route_day_${dateStr}_${userId ?? "all"}`;
 
-  const items = await api.get<any[]>("/routes/day-detail", params);
-  return items.map((item: any) => ({
-    RouteDayId: item.RouteDayId,
-    PdvId: item.PdvId,
-    PlannedOrder: item.PlannedOrder,
-    ExecutionStatus: item.ExecutionStatus,
-    Priority: item.Priority,
-    pdv: item.pdv,
-    routeName: item.routeName,
-    routeId: item.routeId,
-  }));
+  return fetchWithCache(cacheKey, async () => {
+    const params: Record<string, string | number> = { date: dateStr };
+    if (userId != null) params.user_id = userId;
+    const items = await api.get<any[]>("/routes/day-detail", params);
+    return items.map((item: any) => ({
+      RouteDayId: item.RouteDayId,
+      PdvId: item.PdvId,
+      PlannedOrder: item.PlannedOrder,
+      ExecutionStatus: item.ExecutionStatus,
+      Priority: item.Priority,
+      pdv: item.pdv,
+      routeName: item.routeName,
+      routeId: item.routeId,
+    }));
+  }, 4 * 60 * 60 * 1000); // 4 hour TTL — route day data can change during the day
 }
 
 /** Hook para PDVs de ruta por fecha. userId: filtra por ruta asignada al Trade Rep */
@@ -169,7 +172,9 @@ export function useRoutes() {
 /** Hook para rutas asignadas al TM Rep actual (no las que creó, las que tiene a cargo) */
 export function useMyRoutes(userId: number | undefined) {
   return useApiList(
-    () => (userId ? routesApi.list({ assigned_user_id: userId }) : Promise.resolve([])),
+    () => (userId
+      ? fetchWithCache(`my_routes_${userId}`, () => routesApi.list({ assigned_user_id: userId }))
+      : Promise.resolve([])),
     [userId]
   );
 }
@@ -209,8 +214,7 @@ export function useUserMonthlyStats(userId: number | undefined) {
       return;
     }
     setLoading(true);
-    usersApi
-      .getMonthlyStats(userId)
+    fetchWithCache(`monthly_stats_${userId}`, () => usersApi.getMonthlyStats(userId), 2 * 60 * 60 * 1000)
       .then(setData)
       .catch(() => setData({ visits: 0, compliance: 0, new_pdvs: 0 }))
       .finally(() => setLoading(false));
@@ -258,12 +262,19 @@ async function fetchIncidentsWithPdvNames(
 /** Hook para incidencias con nombre de PDV */
 export function useIncidentsWithPdvNames(filters?: Parameters<typeof incidentsApi.list>[0]) {
   return useApiList(
-    () => fetchIncidentsWithPdvNames(filters),
+    () => fetchWithCache(
+      `incidents_${filters?.pdvId ?? "all"}_${filters?.status ?? "all"}`,
+      () => fetchIncidentsWithPdvNames(filters),
+      2 * 60 * 60 * 1000,
+    ),
     [filters?.pdvId, filters?.visitId, filters?.status]
   );
 }
 
 /** Hook para notificaciones activas (vista Trade) */
 export function useActiveNotifications(userId?: number) {
-  return useApiList(() => notificationsApi.list({ active_only: true, for_user: userId }), [userId]);
+  return useApiList(
+    () => fetchWithCache(`notifications_${userId ?? "all"}`, () => notificationsApi.list({ active_only: true, for_user: userId }), 2 * 60 * 60 * 1000),
+    [userId]
+  );
 }
