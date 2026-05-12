@@ -13,8 +13,9 @@ import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
   useRouteDayPdvsForDate, useIncidentsWithPdvNames, useActiveNotifications,
   useUserMonthlyStats, routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
-  visitsApi, pdvsApi,
+  visitsApi, pdvsApi, productsApi, formsApi,
 } from "@/lib/api";
+import { fetchWithCache } from "@/lib/offline";
 
 export function Home() {
   const navigate = useNavigate();
@@ -59,6 +60,19 @@ export function Home() {
   const { data: incidents } = useIncidentsWithPdvNames();
   const { data: notifications } = useActiveNotifications(Number(currentUser.id) || undefined);
   const { data: monthlyStats } = useUserMonthlyStats(Number(currentUser.id) || undefined);
+
+  // Pre-fetch all data needed for offline visits when Home loads with connection
+  useEffect(() => {
+    if (!navigator.onLine || routeDayPdvs.length === 0) return;
+    // Cache each PDV detail in background
+    for (const rdp of routeDayPdvs) {
+      fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
+    }
+    // Cache products and forms (needed for visit steps)
+    fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
+    fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
+    fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
+  }, [routeDayPdvs]);
 
   // Refetch when coming back to Home (visibility change or navigation)
   useEffect(() => {
