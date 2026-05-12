@@ -32,13 +32,25 @@ export function Home() {
     visitsApi.list({ userId, status: "OPEN" }).then(async (visits) => {
       const inProgress = visits[0] || null;
       if (!inProgress) {
-        const ip = await visitsApi.list({ userId, status: "IN_PROGRESS" });
+        const ip = await visitsApi.list({ userId, status: "IN_PROGRESS" }).catch(() => []);
         if (ip[0]) {
-          try { const pdv = await pdvsApi.get(ip[0].PdvId); setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: pdv.Name }); } catch { setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: `PDV #${ip[0].PdvId}` }); }
+          try {
+            const pdv = await pdvsApi.get(ip[0].PdvId);
+            setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: pdv.Name });
+          } catch {
+            // PDV not accessible (403) or offline — skip orphan visit
+            setGlobalOpenVisit(null);
+          }
         } else { setGlobalOpenVisit(null); }
         return;
       }
-      try { const pdv = await pdvsApi.get(inProgress.PdvId); setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: pdv.Name }); } catch { setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: `PDV #${inProgress.PdvId}` }); }
+      try {
+        const pdv = await pdvsApi.get(inProgress.PdvId);
+        setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: pdv.Name });
+      } catch {
+        // PDV not accessible (403) or offline — skip orphan visit
+        setGlobalOpenVisit(null);
+      }
     }).catch(() => {});
   }, [currentUser.id]);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;

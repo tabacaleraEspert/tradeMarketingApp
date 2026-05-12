@@ -198,12 +198,12 @@ export function PointOfSaleDetail() {
           (uv) => (uv.Status === "OPEN" || uv.Status === "IN_PROGRESS") && uv.PdvId !== Number(id)
         );
         if (openElsewhere) {
-          // Try to get the PDV name
           try {
             const otherPdv = await pdvsApi.get(openElsewhere.PdvId);
             setGlobalOpenVisit({ VisitId: openElsewhere.VisitId, PdvId: openElsewhere.PdvId, PdvName: otherPdv.Name });
           } catch {
-            setGlobalOpenVisit({ VisitId: openElsewhere.VisitId, PdvId: openElsewhere.PdvId });
+            // PDV not accessible (403) — orphan visit, ignore
+            setGlobalOpenVisit(null);
           }
         } else {
           setGlobalOpenVisit(null);
