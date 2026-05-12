@@ -71,34 +71,41 @@ def list_visits(
     if not enrich:
         return visits
 
-    # Enrich with PDV name and user name via individual lookups
-    # (avoids IN() query issues with pymssql/MSSQL)
-    pdv_cache: dict[int, PDVModel] = {}
-    user_cache: dict[int, UserModel] = {}
+    # Enrich with PDV name and user name using JOIN
+    from sqlalchemy.orm import aliased
+    UserAlias = aliased(UserModel)
 
-    def get_pdv(pid: int) -> PDVModel | None:
-        if pid not in pdv_cache:
-            pdv_cache[pid] = db.query(PDVModel).filter(PDVModel.PdvId == pid).first()
-        return pdv_cache[pid]
-
-    def get_user(uid: int) -> UserModel | None:
-        if uid not in user_cache:
-            user_cache[uid] = db.query(UserModel).filter(UserModel.UserId == uid).first()
-        return user_cache[uid]
+    enriched_q = (
+        db.query(
+            VisitModel,
+            PDVModel.Name.label("PdvName"),
+            PDVModel.Address.label("PdvAddress"),
+            UserAlias.DisplayName.label("UserName"),
+        )
+        .outerjoin(PDVModel, VisitModel.PdvId == PDVModel.PdvId)
+        .outerjoin(UserAlias, VisitModel.UserId == UserAlias.UserId)
+    )
+    if user_id is not None:
+        enriched_q = enriched_q.filter(VisitModel.UserId == user_id)
+    if pdv_id is not None:
+        enriched_q = enriched_q.filter(VisitModel.PdvId == pdv_id)
+    if route_day_id is not None:
+        enriched_q = enriched_q.filter(VisitModel.RouteDayId == route_day_id)
+    if status is not None:
+        enriched_q = enriched_q.filter(VisitModel.Status == status)
+    rows = enriched_q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
 
     result = []
-    for v in visits:
-        pdv = get_pdv(v.PdvId) if v.PdvId else None
-        user = get_user(v.UserId) if v.UserId else None
+    for v, pdv_name, pdv_address, user_name in rows:
         d = {
             "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
             "RouteDayId": v.RouteDayId, "Status": v.Status,
             "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
             "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
             "CloseReason": v.CloseReason,
-            "PdvName": pdv.Name if pdv else f"PDV #{v.PdvId}",
-            "PdvAddress": pdv.Address if pdv else None,
-            "UserName": user.DisplayName if user else f"Usuario #{v.UserId}",
+            "PdvName": pdv_name or f"PDV #{v.PdvId}",
+            "PdvAddress": pdv_address,
+            "UserName": user_name or f"Usuario #{v.UserId}",
         }
         result.append(d)
     return result
