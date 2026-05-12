@@ -355,7 +355,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
 
     # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta (task 13)
     from datetime import date as _dt_date
-    today = _dt_date.today()
+    today = _dt_today_ar()
 
     if new_assigned_user != "__unchanged__":
         pdv_ids = [
@@ -476,7 +476,7 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get
 
     # Auto-add PDV to today's and future RouteDays (so it appears immediately in Home)
     from datetime import date as date_type
-    today = date_type.today()
+    today = _today_ar()
     future_days = (
         db.query(RouteDayModel)
         .filter(
@@ -522,7 +522,7 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
         rd.RouteDayId for rd in
         db.query(RouteDayModel).filter(
             RouteDayModel.RouteId == route_id,
-            RouteDayModel.WorkDate >= _dt_date.today(),
+            RouteDayModel.WorkDate >= _dt_today_ar(),
         ).all()
     ]
     if future_day_ids:
@@ -566,7 +566,7 @@ def reorder_route_pdvs(
 
     # Sync PlannedOrder to future RouteDayPdv records
     from datetime import date as _dt
-    today = _dt.today()
+    today = _today_ar()
     future_day_ids = [
         rd.RouteDayId
         for rd in db.query(RouteDayModel).filter(
@@ -802,7 +802,12 @@ def update_route_day_pdv(route_day_id: int, pdv_id: int, data: RouteDayPdvUpdate
 
 # ── Route Overlap Detection ──────────────────────────────
 import json as _json
-from datetime import date as _date, timedelta as _timedelta
+from datetime import date as _date, timedelta as _timedelta, datetime as _datetime, timezone as _tz
+
+def _today_ar() -> _date:
+    """Today's date in Argentina timezone (UTC-3). Servers may be in UTC."""
+    ar_tz = _tz(_timedelta(hours=-3))
+    return _datetime.now(ar_tz).date()
 
 
 @router.get("/{route_id}/check-overlap")
@@ -832,7 +837,7 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
     # Generate next 8 weeks of dates for this route
     def generate_dates(freq: str, config_str: str | None) -> set[str]:
         config = _json.loads(config_str) if config_str else {}
-        today = _date.today()
+        today = _today_ar()
         end = today + _timedelta(weeks=8)
         start = _date.fromisoformat(config["startDate"]) if config.get("startDate") else today
         if start < today:

@@ -27,11 +27,19 @@ export interface RouteDayPdvWithDetails extends RouteDayPdv {
  * Obtiene los PDVs planificados para una fecha.
  * Si userId se pasa, solo incluye días asignados a ese usuario (ruta del Trade Rep).
  */
+/** Timezone-safe Date → YYYY-MM-DD (uses date's local representation, not UTC) */
+function dateToYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export async function fetchRouteDayPdvsForDate(
   date: Date,
   userId?: number
 ): Promise<RouteDayPdvWithDetails[]> {
-  const dateStr = date.toISOString().split("T")[0];
+  const dateStr = dateToYMD(date);
   const params: Record<string, string | number> = { date: dateStr };
   if (userId != null) params.user_id = userId;
 
@@ -54,7 +62,7 @@ export function useRouteDayPdvsForDate(date: Date | null, userId?: number) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const dateKey = date ? date.toISOString().split("T")[0] : null;
+  const dateKey = date ? dateToYMD(date) : null;
 
   const refetch = useCallback(async () => {
     if (!date) {

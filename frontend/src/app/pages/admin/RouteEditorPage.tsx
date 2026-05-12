@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
+import { todayAR } from "../../lib/dateUtils";
 import { Card, CardContent } from "../../components/ui/card";
 import { ConfirmModal } from "../../components/ui/modal";
 import { Button } from "../../components/ui/button";
@@ -514,64 +515,74 @@ export function RouteEditorPage() {
       const ft = routeDraft.FrequencyType;
       const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
       const dates: string[] = [];
-      const today = new Date();
-      const startDate = config.startDate ? new Date(config.startDate + "T12:00:00") : today;
-      const endDate = new Date(today);
+
+      // Use Argentina timezone for all date operations
+      const todayStr = todayAR();
+      const parseDate = (s: string) => new Date(s + "T12:00:00");
+      const toStr = (d: Date) => {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      };
+
+      const today = parseDate(todayStr);
+      const startDate = config.startDate ? parseDate(config.startDate) : parseDate(todayStr);
+      const endDate = parseDate(todayStr);
       endDate.setDate(endDate.getDate() + weeksAhead * 7);
 
       // Existing dates to avoid duplicates
       const existingDates = new Set(routeDays.map((d) => d.WorkDate.split("T")[0]));
 
+      // Start from startDate or today, whichever is later (INCLUSIVE)
+      const effectiveStart = startDate >= today ? startDate : parseDate(todayStr);
+
       if (ft === "daily") {
-        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
+        const d = new Date(effectiveStart);
         while (d <= endDate) {
           const dow = d.getDay();
-          if (dow >= 1 && dow <= 5) { // Mon-Fri
-            const ds = d.toISOString().split("T")[0];
+          if (dow >= 1 && dow <= 5) {
+            const ds = toStr(d);
             if (!existingDates.has(ds)) dates.push(ds);
           }
           d.setDate(d.getDate() + 1);
         }
       } else if (ft === "weekly" && config.day != null) {
-        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
-        // Find next occurrence of config.day
+        const d = new Date(effectiveStart);
         while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
         while (d <= endDate) {
-          const ds = d.toISOString().split("T")[0];
+          const ds = toStr(d);
           if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + 7);
         }
       } else if (ft === "biweekly" && config.day != null) {
-        const d = new Date(Math.max(today.getTime(), startDate.getTime()));
-        // Find next occurrence of config.day
+        const d = new Date(effectiveStart);
         while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-        // Align to the correct biweekly cycle from startDate
         if (config.startDate) {
-          const anchor = new Date(config.startDate + "T12:00:00");
+          const anchor = parseDate(config.startDate);
           while (anchor.getDay() !== config.day) anchor.setDate(anchor.getDate() + 1);
           const diffDays = Math.round((d.getTime() - anchor.getTime()) / 86400000);
           const weeksOff = diffDays % 14;
           if (weeksOff !== 0) d.setDate(d.getDate() + (14 - weeksOff));
         }
         while (d <= endDate) {
-          const ds = d.toISOString().split("T")[0];
+          const ds = toStr(d);
           if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + 14);
         }
       } else if (ft === "every_x_days" && config.interval) {
-        const d = new Date(config.startDate ? startDate : today);
+        const d = new Date(startDate);
+        while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
         while (d <= endDate) {
-          if (d >= today) {
-            const ds = d.toISOString().split("T")[0];
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
+          const ds = toStr(d);
+          if (!existingDates.has(ds)) dates.push(ds);
           d.setDate(d.getDate() + config.interval);
         }
       } else if (ft === "specific_days" && config.days?.length > 0) {
-        const d = new Date(today);
+        const d = new Date(effectiveStart);
         while (d <= endDate) {
           if (config.days.includes(d.getDay())) {
-            const ds = d.toISOString().split("T")[0];
+            const ds = toStr(d);
             if (!existingDates.has(ds)) dates.push(ds);
           }
           d.setDate(d.getDate() + 1);
