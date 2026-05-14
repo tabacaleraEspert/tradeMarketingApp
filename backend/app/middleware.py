@@ -89,24 +89,14 @@ class AuditMiddleware(BaseHTTPMiddleware):
         if method not in self.WRITE_METHODS or any(path.startswith(p) for p in self.SKIP_PREFIXES):
             return await call_next(request)
 
-        # Read body for payload (limit to 4KB to avoid huge uploads)
-        body_bytes = b""
-        try:
-            body_bytes = await request.body()
-        except Exception:
-            pass
-        payload_str = None
-        content_type = request.headers.get("content-type", "")
-        if "json" in content_type and len(body_bytes) < 4096:
-            try:
-                payload_str = body_bytes.decode("utf-8")
-            except Exception:
-                pass
-        elif "multipart" in content_type:
-            payload_str = '{"_type": "file_upload"}'
-
-        # Execute the request
+        # Execute the request first (don't read body — it breaks downstream)
         response = await call_next(request)
+
+        # Derive payload info from content-type (don't read body to avoid consuming it)
+        content_type = request.headers.get("content-type", "")
+        payload_str = None
+        if "multipart" in content_type:
+            payload_str = '{"_type": "file_upload"}'
 
         # Only log successful writes
         if response.status_code >= 200 and response.status_code < 300:
