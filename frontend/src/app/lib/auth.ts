@@ -56,6 +56,26 @@ export function persistSession(login: LoginResponse): void {
   localStorage.setItem("isAuthenticated", "true");
 }
 
+/** Refresca el rol del usuario desde el backend (silencioso, no bloquea). */
+export async function refreshUserRole(): Promise<void> {
+  const token = getAccessToken();
+  const user = getStoredUser();
+  if (!token || !user) return;
+  try {
+    const res = await fetch(
+      `${(await import("@/lib/api/config")).API_BASE_URL}/users/${user.id}/role`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.roleName && data.roleName !== user.role) {
+      const updated = { ...user, role: data.roleName };
+      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      console.info(`[auth] Role updated: ${user.role} → ${data.roleName}`);
+    }
+  } catch { /* silent */ }
+}
+
 /** Cierra sesión: borra tokens y user. El caller es responsable de redirigir a /login. */
 export function logout(): void {
   clearTokens();

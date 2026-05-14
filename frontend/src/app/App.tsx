@@ -5,7 +5,7 @@ import { Toaster } from "./components/ui/sonner";
 import { useArgentinaTheme } from "./lib/useArgentinaTheme";
 import { SelectedDateProvider } from "./lib/SelectedDateContext";
 import { setUnauthorizedHandler } from "@/lib/api/client";
-import { isAuthenticated, logout, getStoredUser } from "./lib/auth";
+import { isAuthenticated, logout, getStoredUser, refreshUserRole } from "./lib/auth";
 import { authApi } from "@/lib/api";
 import { ForcePasswordChangeModal } from "./components/ForcePasswordChangeModal";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -47,6 +47,9 @@ export default function App() {
     if (stored) {
       setObservabilityUser({ id: stored.id, email: stored.email, role: stored.role });
     }
+
+    // Refresh role from backend (in case admin changed it since last login)
+    refreshUserRole();
 
     authApi
       .me()
