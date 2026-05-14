@@ -348,6 +348,11 @@ export function RouteEditorPage() {
       // Backend invalida IsOptimized — reflejarlo localmente
       setRoute((prev) => (prev ? { ...prev, IsOptimized: false } : prev));
       toast.success("PDV agregado a la ruta");
+
+      // Auto-generate days if frequency + TM are set but no days exist yet
+      if (routeDraft?.FrequencyType && route?.AssignedUserId && routeDays.length === 0) {
+        await handleGenerateDays(8);
+      }
     } catch (e: any) {
       console.error("Error adding PDV:", e);
       toast.error(e?.message || "Error al agregar PDV");
@@ -775,12 +780,16 @@ export function RouteEditorPage() {
       });
       toast.success("Ruta guardada");
 
-      // Auto-generate days when frequency changes, TM is assigned, and there are PDVs
-      if (frequencyChanged && routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0) {
-        // Reload days (backend deleted old PLANNED days on freq change)
+      // Auto-generate days when: frequency is set + TM assigned + PDVs exist
+      // Generate if frequency changed OR if there are no days yet
+      const hasDaysCondition = routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0;
+      if (hasDaysCondition && (frequencyChanged || routeDays.length === 0)) {
+        // Reload days (backend may have deleted old PLANNED days on freq change)
         const freshDays = await routesApi.listDays(id);
         setRouteDays(freshDays);
-        await handleGenerateDays(8);
+        if (freshDays.length === 0 || frequencyChanged) {
+          await handleGenerateDays(8);
+        }
       }
 
       // Check for overlap with other routes of the same TM

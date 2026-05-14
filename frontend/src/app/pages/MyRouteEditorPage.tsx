@@ -133,6 +133,12 @@ export function MyRouteEditorPage() {
       ]);
       setShowAddPdv(false);
       toast.success("PDV agregado");
+
+      // Auto-generate days if frequency is set but no days exist yet
+      if (routeDraft?.FrequencyType && routeDays.length === 0) {
+        await handleGenerateDays(8);
+      }
+
       await notifyAdmin("agregó un PDV");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
