@@ -401,12 +401,8 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
 
-    # Clear PDV assignments before deleting
-    pdv_ids = [row[0] for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route_id).all()]
-    if pdv_ids:
-        db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).update(
-            {PDVModel.AssignedUserId: None}, synchronize_session=False
-        )
+    # PDVs keep their AssignedUserId — deleting a route does NOT unassign the TM.
+    # Only removing a PDV from a route or explicitly unassigning clears the TM.
 
     # Manually delete children (MSSQL may not enforce CASCADE reliably via ORM)
     day_ids = [d.RouteDayId for d in db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()]
