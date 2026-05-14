@@ -17,6 +17,8 @@ interface TimelineEvent {
   visitId?: number;
   pdvId?: number;
   pdvName?: string;
+  userId?: number;
+  userName?: string;
 }
 
 interface TimelineResponse {
@@ -104,17 +106,14 @@ export function AuditTimeline() {
   }, [users, searchUser]);
 
   const loadTimeline = async () => {
-    if (!selectedUserId) {
-      toast.error("Seleccioná un usuario");
-      return;
-    }
     setLoading(true);
     try {
-      const result = await api.get<TimelineResponse>("/audit/user-timeline", {
-        user_id: selectedUserId,
+      const params: Record<string, string | number> = {
         date_from: dateFrom,
         date_to: dateTo + "T23:59:59",
-      });
+      };
+      if (selectedUserId) params.user_id = selectedUserId;
+      const result = await api.get<TimelineResponse>("/audit/user-timeline", params);
       setData(result);
     } catch (e: any) {
       toast.error(e?.message || "Error al cargar timeline");
@@ -123,22 +122,36 @@ export function AuditTimeline() {
     }
   };
 
+  // Auto-load on mount
+  useEffect(() => { loadTimeline(); }, []);
+
   const filteredEvents = useMemo(() => {
     if (!data) return [];
     if (filterType === "all") return data.events;
     return data.events.filter(e => e.type === filterType);
   }, [data, filterType]);
 
-  // Group events by date
-  const groupedEvents = useMemo(() => {
-    const groups: Record<string, TimelineEvent[]> = {};
+  // Group events by user then by date
+  const groupedByUser = useMemo(() => {
+    const userGroups: Record<string, TimelineEvent[]> = {};
     for (const ev of filteredEvents) {
+      const key = ev.userName || `Usuario #${ev.userId || "?"}`;
+      if (!userGroups[key]) userGroups[key] = [];
+      userGroups[key].push(ev);
+    }
+    return Object.entries(userGroups).sort(([a], [b]) => a.localeCompare(b));
+  }, [filteredEvents]);
+
+  // Group events by date (within a user or all)
+  const groupByDate = (events: TimelineEvent[]) => {
+    const groups: Record<string, TimelineEvent[]> = {};
+    for (const ev of events) {
       const dateKey = ev.ts ? ev.ts.split("T")[0] : "sin-fecha";
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(ev);
     }
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [filteredEvents]);
+  };
 
   const eventTypes = useMemo(() => {
     if (!data) return [];
@@ -196,8 +209,8 @@ export function AuditTimeline() {
             </div>
           </div>
 
-          <Button onClick={loadTimeline} disabled={loading || !selectedUserId} className="w-full h-9 bg-[#A48242] hover:bg-[#8a6d35]">
-            {loading ? "Cargando..." : "Ver timeline"}
+          <Button onClick={loadTimeline} disabled={loading} className="w-full h-9 bg-[#A48242] hover:bg-[#8a6d35]">
+            {loading ? "Cargando..." : selectedUserId ? "Ver timeline" : "Ver todos los usuarios"}
           </Button>
         </CardContent>
       </Card>
@@ -205,17 +218,26 @@ export function AuditTimeline() {
       {/* Results */}
       {data && (
         <>
-          {/* User info + stats */}
+          {/* Stats */}
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-[#A48242] flex items-center justify-center text-white font-bold text-lg">
-                  {data.user.DisplayName.charAt(0)}
-                </div>
-                <div>
-                  <p className="font-bold">{data.user.DisplayName}</p>
-                  <p className="text-xs text-muted-foreground">{data.user.Email}</p>
-                </div>
+                {data.user ? (
+                  <>
+                    <div className="w-10 h-10 rounded-full bg-[#A48242] flex items-center justify-center text-white font-bold text-lg">
+                      {data.user.DisplayName.charAt(0)}
+                    </div>
+                    <div>
+                      <p className="font-bold">{data.user.DisplayName}</p>
+                      <p className="text-xs text-muted-foreground">{data.user.Email}</p>
+                    </div>
+                  </>
+                ) : (
+                  <div>
+                    <p className="font-bold">Todos los usuarios</p>
+                    <p className="text-xs text-muted-foreground">{groupedByUser.length} usuarios con actividad</p>
+                  </div>
+                )}
                 <div className="ml-auto text-right">
                   <p className="text-2xl font-bold text-[#A48242]">{data.totalEvents}</p>
                   <p className="text-[10px] text-muted-foreground">eventos</p>
@@ -246,44 +268,57 @@ export function AuditTimeline() {
             })}
           </div>
 
-          {/* Timeline */}
-          <div className="space-y-4">
-            {groupedEvents.map(([dateKey, events]) => (
-              <div key={dateKey}>
-                <div className="flex items-center gap-2 mb-2">
-                  <Calendar size={14} className="text-[#A48242]" />
-                  <p className="text-xs font-bold text-[#A48242] uppercase">
-                    {dateKey !== "sin-fecha" ? formatDate(dateKey) : "Sin fecha"}
-                  </p>
-                  <Badge variant="outline" className="text-[10px]">{events.length}</Badge>
-                </div>
-
-                <div className="relative ml-3 border-l-2 border-border pl-4 space-y-2">
-                  {events.map((ev, i) => (
-                    <div key={`${dateKey}-${i}`} className="relative">
-                      {/* Dot on timeline */}
-                      <div className={`absolute -left-[21px] top-2 w-3 h-3 rounded-full border-2 border-background ${TYPE_COLORS[ev.type] || "bg-gray-400"}`} />
-
-                      <div className="bg-muted rounded-lg p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-base">{ev.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold truncate">{ev.title}</p>
-                              <Badge variant="outline" className={`text-[9px] shrink-0 ${TYPE_COLORS[ev.type] || ""} text-white border-0`}>
-                                {TYPE_LABELS[ev.type] || ev.type}
-                              </Badge>
-                            </div>
-                            {ev.detail && <p className="text-xs text-muted-foreground mt-0.5">{ev.detail}</p>}
-                          </div>
-                          <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
-                            {ev.ts ? new Date(ev.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }) : ""}
-                          </span>
-                        </div>
-                      </div>
+          {/* Timeline grouped by user */}
+          <div className="space-y-6">
+            {groupedByUser.map(([userName, userEvents]) => (
+              <div key={userName}>
+                {/* User header */}
+                {!selectedUserId && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-8 h-8 rounded-full bg-[#A48242]/10 flex items-center justify-center">
+                      <User size={16} className="text-[#A48242]" />
                     </div>
-                  ))}
-                </div>
+                    <p className="font-bold text-foreground">{userName}</p>
+                    <Badge variant="outline" className="text-[10px]">{userEvents.length} eventos</Badge>
+                  </div>
+                )}
+
+                {groupByDate(userEvents).map(([dateKey, events]) => (
+                  <div key={`${userName}-${dateKey}`} className={!selectedUserId ? "ml-4" : ""}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar size={14} className="text-[#A48242]" />
+                      <p className="text-xs font-bold text-[#A48242] uppercase">
+                        {dateKey !== "sin-fecha" ? formatDate(dateKey) : "Sin fecha"}
+                      </p>
+                      <Badge variant="outline" className="text-[10px]">{events.length}</Badge>
+                    </div>
+
+                    <div className="relative ml-3 border-l-2 border-border pl-4 space-y-2 mb-4">
+                      {events.map((ev, i) => (
+                        <div key={`${dateKey}-${i}`} className="relative">
+                          <div className={`absolute -left-[21px] top-2 w-3 h-3 rounded-full border-2 border-background ${TYPE_COLORS[ev.type] || "bg-gray-400"}`} />
+                          <div className="bg-muted rounded-lg p-3">
+                            <div className="flex items-start gap-2">
+                              <span className="text-base">{ev.icon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-semibold truncate">{ev.title}</p>
+                                  <Badge variant="outline" className={`text-[9px] shrink-0 ${TYPE_COLORS[ev.type] || ""} text-white border-0`}>
+                                    {TYPE_LABELS[ev.type] || ev.type}
+                                  </Badge>
+                                </div>
+                                {ev.detail && <p className="text-xs text-muted-foreground mt-0.5">{ev.detail}</p>}
+                              </div>
+                              <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
+                                {ev.ts ? new Date(ev.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }) : ""}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
 

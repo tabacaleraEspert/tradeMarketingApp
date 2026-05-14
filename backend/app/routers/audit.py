@@ -21,40 +21,48 @@ router = APIRouter(prefix="/audit", tags=["Auditoría"])
 
 @router.get("/user-timeline")
 def user_timeline(
-    user_id: int,
+    user_id: int | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = Query(default=500, le=2000),
     db: Session = Depends(get_db),
 ):
-    """Returns a chronological timeline of ALL activity for a user across all tables."""
+    """Returns a chronological timeline of ALL activity for a user (or all users) across all tables."""
 
     # Parse date filters
     dt_from = datetime.fromisoformat(date_from) if date_from else None
     dt_to = datetime.fromisoformat(date_to) if date_to else None
 
-    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
-    if not user:
-        raise HTTPException(404, "Usuario no encontrado")
+    user = None
+    if user_id:
+        user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+        if not user:
+            raise HTTPException(404, "Usuario no encontrado")
 
     events: list[dict] = []
 
     # --- 1. Visits (opened / closed) ---
-    vq = db.query(VisitModel).filter(VisitModel.UserId == user_id)
+    vq = db.query(VisitModel)
+    if user_id:
+        vq = vq.filter(VisitModel.UserId == user_id)
     if dt_from:
         vq = vq.filter(VisitModel.OpenedAt >= dt_from)
     if dt_to:
         vq = vq.filter(VisitModel.OpenedAt <= dt_to)
     visits = vq.order_by(VisitModel.OpenedAt.desc()).limit(limit).all()
 
-    # Preload PDV names
+    # Preload PDV names and user names
     pdv_ids = {v.PdvId for v in visits}
     pdv_map = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
+    all_user_ids = {v.UserId for v in visits}
+    user_name_map = {u.UserId: u.DisplayName for u in db.query(UserModel).filter(UserModel.UserId.in_(all_user_ids)).all()} if all_user_ids else {}
 
     visit_ids = [v.VisitId for v in visits]
+    visit_user = {v.VisitId: v.UserId for v in visits}
 
     for v in visits:
         pdv_name = pdv_map.get(v.PdvId, f"PDV #{v.PdvId}")
+        uname = user_name_map.get(v.UserId, f"Usuario #{v.UserId}")
         events.append({
             "ts": v.OpenedAt.isoformat() if v.OpenedAt else None,
             "type": "visit_open",
@@ -64,6 +72,8 @@ def user_timeline(
             "visitId": v.VisitId,
             "pdvId": v.PdvId,
             "pdvName": pdv_name,
+            "userId": v.UserId,
+            "userName": uname,
         })
         if v.ClosedAt:
             duration = (v.ClosedAt - v.OpenedAt).total_seconds() / 60 if v.OpenedAt else 0
@@ -76,11 +86,14 @@ def user_timeline(
                 "visitId": v.VisitId,
                 "pdvId": v.PdvId,
                 "pdvName": pdv_name,
+                "userId": v.UserId,
+                "userName": uname,
             })
 
     if not visit_ids:
         events.sort(key=lambda e: e["ts"] or "", reverse=True)
-        return {"user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email}, "events": events}
+        user_info = {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email} if user else None
+        return {"user": user_info, "events": events, "totalEvents": len(events)}
 
     # --- 2. Check-ins / Check-outs ---
     checks = db.query(VisitCheckModel).filter(VisitCheckModel.VisitId.in_(visit_ids)).all()
@@ -199,7 +212,9 @@ def user_timeline(
         })
 
     # --- 9. Incidents ---
-    incidents = db.query(IncidentModel).filter(IncidentModel.CreatedBy == user_id)
+    incidents = db.query(IncidentModel)
+    if user_id:
+        incidents = incidents.filter(IncidentModel.CreatedBy == user_id)
     if dt_from:
         incidents = incidents.filter(IncidentModel.CreatedAt >= dt_from)
     if dt_to:
@@ -214,7 +229,9 @@ def user_timeline(
         })
 
     # --- 10. PDV Notes ---
-    notes = db.query(NoteModel).filter(NoteModel.CreatedByUserId == user_id)
+    notes = db.query(NoteModel)
+    if user_id:
+        notes = notes.filter(NoteModel.CreatedByUserId == user_id)
     if dt_from:
         notes = notes.filter(NoteModel.CreatedAt >= dt_from)
     if dt_to:
@@ -229,7 +246,9 @@ def user_timeline(
         })
 
     # --- 11. PDV creation (by this user) ---
-    pdv_q = db.query(PDVModel).filter(PDVModel.AssignedUserId == user_id)
+    pdv_q = db.query(PDVModel)
+    if user_id:
+        pdv_q = pdv_q.filter(PDVModel.AssignedUserId == user_id)
     if dt_from:
         pdv_q = pdv_q.filter(PDVModel.CreatedAt >= dt_from)
     if dt_to:
@@ -247,7 +266,9 @@ def user_timeline(
 
     # --- 12. Route creation (by this user) ---
     from ..models.route import Route as RouteModel
-    route_q = db.query(RouteModel).filter(RouteModel.CreatedByUserId == user_id)
+    route_q = db.query(RouteModel)
+    if user_id:
+        route_q = route_q.filter(RouteModel.CreatedByUserId == user_id)
     if dt_from:
         route_q = route_q.filter(RouteModel.CreatedAt >= dt_from)
     if dt_to:
@@ -264,8 +285,15 @@ def user_timeline(
     # Sort by timestamp descending
     events.sort(key=lambda e: e["ts"] or "", reverse=True)
 
+    # Add userName to events from visit-related queries (checks, photos, answers, etc.)
+    for ev in events:
+        if "userId" not in ev and ev.get("visitId") and ev["visitId"] in visit_user:
+            ev["userId"] = visit_user[ev["visitId"]]
+            ev["userName"] = user_name_map.get(visit_user[ev["visitId"]], "")
+
+    user_info = {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email} if user else None
     return {
-        "user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email},
+        "user": user_info,
         "events": events[:limit],
         "totalEvents": len(events),
     }
