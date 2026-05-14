@@ -282,6 +282,42 @@ def user_timeline(
             "detail": f"Frecuencia: {r.FrequencyType or 'sin definir'}" + (f" · Zona: {r.BejermanZone}" if r.BejermanZone else ""),
         })
 
+    # --- 13. AuditEvent table (login, edits, deletes captured by middleware) ---
+    from ..models.audit import AuditEvent as AuditModel
+    ae_q = db.query(AuditModel)
+    if user_id:
+        ae_q = ae_q.filter(AuditModel.UserId == user_id)
+    if dt_from:
+        ae_q = ae_q.filter(AuditModel.Ts >= dt_from)
+    if dt_to:
+        ae_q = ae_q.filter(AuditModel.Ts <= dt_to)
+    # Only include types not already covered by the reconstructed events
+    AUDIT_ICONS = {
+        "login": "🔑", "create": "➕", "update": "✏️", "delete": "🗑️",
+    }
+    AUDIT_SKIP_ENTITIES = {"visits", "visits_answers", "visits_checks", "visits_coverage",
+                           "visits_pop", "visits_actions", "visits_market-news", "visits_photos",
+                           "files_photos"}
+    for ae in ae_q.order_by(AuditModel.Ts.desc()).limit(500).all():
+        # Skip entities already covered by reconstructed events
+        if ae.Entity in AUDIT_SKIP_ENTITIES:
+            continue
+        ae_user_name = user_name_map.get(ae.UserId, "") if ae.UserId else ""
+        if not ae_user_name and ae.UserId:
+            u = db.query(UserModel).filter(UserModel.UserId == ae.UserId).first()
+            if u:
+                ae_user_name = u.DisplayName
+                user_name_map[ae.UserId] = ae_user_name
+        events.append({
+            "ts": ae.Ts.isoformat() if ae.Ts else None,
+            "type": f"audit_{ae.Action}",
+            "icon": AUDIT_ICONS.get(ae.Action, "📄"),
+            "title": f"{ae.Action.capitalize()} — {ae.Entity} #{ae.EntityId}",
+            "detail": ae.PayloadJson[:200] if ae.PayloadJson else "",
+            "userId": ae.UserId,
+            "userName": ae_user_name,
+        })
+
     # Sort by timestamp descending
     events.sort(key=lambda e: e["ts"] or "", reverse=True)
 

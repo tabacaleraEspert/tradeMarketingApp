@@ -48,6 +48,10 @@ const TYPE_COLORS: Record<string, string> = {
   note: "bg-gray-500",
   pdv_create: "bg-emerald-600",
   route_create: "bg-violet-500",
+  audit_login: "bg-sky-600",
+  audit_create: "bg-emerald-500",
+  audit_update: "bg-blue-500",
+  audit_delete: "bg-red-600",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -65,6 +69,10 @@ const TYPE_LABELS: Record<string, string> = {
   note: "Nota",
   pdv_create: "Alta PDV",
   route_create: "Ruta creada",
+  audit_login: "Login",
+  audit_create: "Creación",
+  audit_update: "Edición",
+  audit_delete: "Eliminación",
 };
 
 function formatTs(iso: string | null) {

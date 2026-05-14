@@ -74,6 +74,100 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class AuditMiddleware(BaseHTTPMiddleware):
+    """Logs all write operations (POST/PUT/PATCH/DELETE) to AuditEvent table."""
+
+    # Paths to skip (health checks, auth, static files)
+    SKIP_PREFIXES = ("/docs", "/openapi", "/static", "/auth/refresh")
+    WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+    async def dispatch(self, request: Request, call_next):
+        method = request.method
+        path = request.url.path
+
+        # Only audit write operations
+        if method not in self.WRITE_METHODS or any(path.startswith(p) for p in self.SKIP_PREFIXES):
+            return await call_next(request)
+
+        # Read body for payload (limit to 4KB to avoid huge uploads)
+        body_bytes = b""
+        try:
+            body_bytes = await request.body()
+        except Exception:
+            pass
+        payload_str = None
+        content_type = request.headers.get("content-type", "")
+        if "json" in content_type and len(body_bytes) < 4096:
+            try:
+                payload_str = body_bytes.decode("utf-8")
+            except Exception:
+                pass
+        elif "multipart" in content_type:
+            payload_str = '{"_type": "file_upload"}'
+
+        # Execute the request
+        response = await call_next(request)
+
+        # Only log successful writes
+        if response.status_code >= 200 and response.status_code < 300:
+            try:
+                # Extract user from JWT token
+                user_id = None
+                auth_header = request.headers.get("authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:]
+                    try:
+                        from .auth import decode_token
+                        payload = decode_token(token)
+                        user_id = payload.get("sub")
+                    except Exception:
+                        pass
+
+                # Derive entity and entity_id from path
+                # Examples: /pdvs/123 → entity=PDV, entityId=123
+                #           /routes/42/pdvs → entity=RoutePdv, entityId=42
+                #           /visits/100/actions → entity=VisitAction, entityId=100
+                parts = [p for p in path.strip("/").split("/") if p]
+                entity = parts[0] if parts else "unknown"
+                entity_id = parts[1] if len(parts) > 1 else "0"
+                if len(parts) > 2:
+                    entity = f"{parts[0]}_{parts[2]}"
+                    entity_id = parts[1]
+
+                # Map action from HTTP method
+                action_map = {"POST": "create", "PUT": "update", "PATCH": "update", "DELETE": "delete"}
+                action = action_map.get(method, method.lower())
+
+                # Special cases
+                if path == "/auth/login":
+                    entity, action = "session", "login"
+                    entity_id = str(user_id or 0)
+                    payload_str = None  # Don't log passwords
+
+                from .database import SessionLocal
+                from .models.audit import AuditEvent
+                db = SessionLocal()
+                try:
+                    ev = AuditEvent(
+                        UserId=int(user_id) if user_id else None,
+                        Entity=entity[:60],
+                        EntityId=str(entity_id)[:60],
+                        Action=action[:20],
+                        PayloadJson=payload_str[:4000] if payload_str else None,
+                    )
+                    db.add(ev)
+                    db.commit()
+                except Exception as exc:
+                    logger.debug("Audit write failed: %s", exc)
+                    db.rollback()
+                finally:
+                    db.close()
+            except Exception as exc:
+                logger.debug("Audit middleware error: %s", exc)
+
+        return response
+
+
 def configure_logging() -> None:
     """Logging estructurado básico: timestamp | level | logger | message."""
     logging.basicConfig(
