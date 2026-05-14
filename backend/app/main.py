@@ -186,6 +186,10 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user.IsActive:
         raise HTTPException(status_code=401, detail="Usuario inactivo")
 
+    from .audit_log import audit
+    audit(db, user.UserId, "session", user.UserId, "login")
+    db.commit()
+
     return _build_login_response(user, db)
 
 

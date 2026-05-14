@@ -330,13 +330,15 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
                 ProfileNotes=c.ProfileNotes,
             )
             db.add(pc)
+    from ..audit_log import audit
+    audit(db, current_user.UserId, "PDV", pdv.PdvId, "create", f"{pdv.Name} | {pdv.Address}")
     db.commit()
     db.refresh(pdv)
     return _pdv_to_response(pdv, db)
 
 
 @router.patch("/{pdv_id}", response_model=Pdv)
-def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
+def update_pdv(pdv_id: int, data: PdvUpdate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     from datetime import datetime, timedelta, timezone
 
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
@@ -407,6 +409,9 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
             )
             db.add(pc)
 
+    from ..audit_log import audit
+    changed = ", ".join(data.model_dump(exclude_unset=True).keys())
+    audit(db, current_user.UserId, "PDV", pdv_id, "update", changed)
     db.commit()
     db.refresh(pdv)
     return _pdv_to_response(pdv, db)

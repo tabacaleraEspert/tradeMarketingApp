@@ -174,7 +174,7 @@ def get_user_monthly_stats(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=User, status_code=201, dependencies=[Depends(require_role("admin"))])
-def create_user(data: UserCreate, db: Session = Depends(get_db)):
+def create_user(data: UserCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     # Validar email único
     existing = db.query(UserModel).filter(UserModel.Email == data.Email).first()
     if existing:
@@ -202,6 +202,8 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
     db.flush()
     if data.RoleName:
         _ensure_role(db, user.UserId, data.RoleName)
+    from ..audit_log import audit
+    audit(db, current_user.UserId, "User", user.UserId, "create", user.Email)
     db.commit()
     db.refresh(user)
     return _attach_role(user, db)
@@ -250,6 +252,9 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
         setattr(user, k, v)
     if role_name:
         _ensure_role(db, user.UserId, role_name)
+    from ..audit_log import audit
+    changed = ", ".join(dump.keys()) + (f", Role={role_name}" if role_name else "")
+    audit(db, current_user.UserId, "User", user_id, "update", changed)
     db.commit()
     db.refresh(user)
     return _attach_role(user, db)
@@ -343,6 +348,8 @@ def delete_user(
     # Delete UserRole
     db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).delete(synchronize_session=False)
 
+    from ..audit_log import audit
+    audit(db, current_user.UserId, "User", user_id, "delete", user.Email)
     db.delete(user)
     db.commit()
 
@@ -392,6 +399,8 @@ def set_user_role(
     else:
         ur = UserRoleModel(UserId=user_id, RoleId=role_id)
         db.add(ur)
+    from ..audit_log import audit
+    audit(db, current_user.UserId, "UserRole", user_id, "update", f"role → {target_role.Name}")
     db.commit()
     return {"userId": user_id, "roleId": role_id, "roleName": target_role.Name}
 
