@@ -134,13 +134,24 @@ def user_timeline(
 
     # --- 5. Actions (canje, POP, promo, etc.) ---
     actions = db.query(VisitActionModel).filter(VisitActionModel.VisitId.in_(visit_ids)).all()
+    ACTION_LABELS = {"canje_sueltos": "Canje de Sueltos", "pop": "Material POP", "promo": "Promoción", "juego": "Juego", "otra": "Otra"}
     for a in actions:
+        detail_parts = [a.Description or ""]
+        if a.DetailsJson:
+            try:
+                import json
+                details = json.loads(a.DetailsJson)
+                if isinstance(details, dict):
+                    for k, v in details.items():
+                        if v and k not in ("type",):
+                            detail_parts.append(f"{k}: {v}")
+            except: pass
         events.append({
             "ts": a.CreatedAt.isoformat() if a.CreatedAt else None,
             "type": "action",
             "icon": "⚡",
-            "title": f"Acción: {a.ActionType} — {visit_pdv.get(a.VisitId, '')}",
-            "detail": a.Description or f"Status: {a.Status}",
+            "title": f"{ACTION_LABELS.get(a.ActionType, a.ActionType)} — {visit_pdv.get(a.VisitId, '')}",
+            "detail": " · ".join(p for p in detail_parts if p),
             "visitId": a.VisitId,
         })
 
@@ -215,6 +226,39 @@ def user_timeline(
             "icon": "📝",
             "title": f"Nota en PDV #{n.PdvId}",
             "detail": n.Content[:100] if n.Content else "",
+        })
+
+    # --- 11. PDV creation (by this user) ---
+    pdv_q = db.query(PDVModel).filter(PDVModel.AssignedUserId == user_id)
+    if dt_from:
+        pdv_q = pdv_q.filter(PDVModel.CreatedAt >= dt_from)
+    if dt_to:
+        pdv_q = pdv_q.filter(PDVModel.CreatedAt <= dt_to)
+    for p in pdv_q.all():
+        events.append({
+            "ts": p.CreatedAt.isoformat() if p.CreatedAt else None,
+            "type": "pdv_create",
+            "icon": "🏠",
+            "title": f"Alta PDV: {p.Name}",
+            "detail": f"{p.Address or ''} · Canal: {p.Channel or ''}" + (f" · Vol: {p.MonthlyVolume} atados" if p.MonthlyVolume else ""),
+            "pdvId": p.PdvId,
+            "pdvName": p.Name,
+        })
+
+    # --- 12. Route creation (by this user) ---
+    from ..models.route import Route as RouteModel
+    route_q = db.query(RouteModel).filter(RouteModel.CreatedByUserId == user_id)
+    if dt_from:
+        route_q = route_q.filter(RouteModel.CreatedAt >= dt_from)
+    if dt_to:
+        route_q = route_q.filter(RouteModel.CreatedAt <= dt_to)
+    for r in route_q.all():
+        events.append({
+            "ts": r.CreatedAt.isoformat() if r.CreatedAt else None,
+            "type": "route_create",
+            "icon": "🗺️",
+            "title": f"Ruta creada: {r.Name}",
+            "detail": f"Frecuencia: {r.FrequencyType or 'sin definir'}" + (f" · Zona: {r.BejermanZone}" if r.BejermanZone else ""),
         })
 
     # Sort by timestamp descending

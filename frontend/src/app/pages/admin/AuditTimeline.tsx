@@ -44,6 +44,8 @@ const TYPE_COLORS: Record<string, string> = {
   market_news: "bg-yellow-600",
   incident: "bg-red-500",
   note: "bg-gray-500",
+  pdv_create: "bg-emerald-600",
+  route_create: "bg-violet-500",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -59,6 +61,8 @@ const TYPE_LABELS: Record<string, string> = {
   market_news: "Novedad",
   incident: "Incidente",
   note: "Nota",
+  pdv_create: "Alta PDV",
+  route_create: "Ruta creada",
 };
 
 function formatTs(iso: string | null) {
@@ -80,12 +84,8 @@ function formatDate(iso: string) {
 export function AuditTimeline() {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
-  });
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [dateFrom, setDateFrom] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }));
+  const [dateTo, setDateTo] = useState(() => new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }));
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
