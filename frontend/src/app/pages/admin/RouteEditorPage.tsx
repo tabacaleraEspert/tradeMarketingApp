@@ -839,6 +839,55 @@ export function RouteEditorPage() {
           });
         } catch { /* skip */ }
       }
+
+      // Auto-generate days if frequency + TM + PDVs are all set at creation time
+      const hasFreq = routeDraft.FrequencyType;
+      const hasTM = isMyRoute ? Number(currentUser.id) : routeDraft.AssignedUserId;
+      if (hasFreq && hasTM && draftPdvIds.length > 0) {
+        try {
+          const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
+          const todayStr = todayAR();
+          const parseDate = (s: string) => new Date(s + "T12:00:00");
+          const toStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+          const today = parseDate(todayStr);
+          const startDate = config.startDate ? parseDate(config.startDate) : today;
+          const effectiveStart = startDate >= today ? startDate : today;
+          const endDate = parseDate(todayStr);
+          endDate.setDate(endDate.getDate() + 8 * 7);
+          const dates: string[] = [];
+          const ft = routeDraft.FrequencyType;
+
+          if (ft === "daily") {
+            const d = new Date(effectiveStart);
+            while (d <= endDate) { if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
+          } else if (ft === "weekly" && config.day != null) {
+            const d = new Date(effectiveStart);
+            while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 7); }
+          } else if (ft === "biweekly" && config.day != null) {
+            const d = new Date(effectiveStart);
+            while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 14); }
+          } else if (ft === "specific_days" && config.days?.length) {
+            const d = new Date(effectiveStart);
+            while (d <= endDate) { if (config.days.includes(d.getDay())) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
+          } else if (ft === "every_x_days" && config.interval) {
+            const d = new Date(startDate);
+            while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
+            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + config.interval); }
+          } else if (ft === "monthly") {
+            const d = new Date(startDate);
+            while (toStr(d) < todayStr) d.setMonth(d.getMonth() + 1);
+            while (d <= endDate) { dates.push(toStr(d)); d.setMonth(d.getMonth() + 1); }
+          }
+
+          for (const dt of dates) {
+            try { await routesApi.createDay(newRoute.RouteId, { WorkDate: dt, AssignedUserId: Number(hasTM) }); } catch { /* skip dups */ }
+          }
+          if (dates.length > 0) toast.success(`${dates.length} días generados`);
+        } catch { /* non-blocking */ }
+      }
+
       toast.success("Ruta creada");
       const editPath = isMyRoute
         ? `/my-routes/${newRoute.RouteId}/edit`
