@@ -338,8 +338,6 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db)):
     if data.FormId is not None:
         rf = RouteFormModel(RouteId=r.RouteId, FormId=data.FormId, SortOrder=0)
         db.add(rf)
-    from ..audit_log import audit
-    audit(db, getattr(r, "CreatedByUserId", None), "Route", r.RouteId, "create", r.Name)
     db.commit()
     db.refresh(r)
     return _route_to_response(r, db)
@@ -392,9 +390,6 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             RouteDayModel.Status == "PLANNED",
         ).delete(synchronize_session=False)
 
-    from ..audit_log import audit
-    changed = ", ".join(update_data.keys())
-    audit(db, getattr(r, "AssignedUserId", None), "Route", route_id, "update", changed)
     db.commit()
     db.refresh(r)
     return _route_to_response(r, db)
@@ -423,8 +418,6 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
         {MandatoryActivityModel.RouteId: None}, synchronize_session=False
     )
 
-    from ..audit_log import audit
-    audit(db, None, "Route", route_id, "delete", r.Name)
     db.delete(r)
     db.commit()
 

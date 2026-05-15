@@ -74,65 +74,6 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         return response
 
 
-def log_audit_event(
-    method: str, path: str, status_code: int, auth_header: str = "",
-    content_type: str = "",
-) -> None:
-    """Fire-and-forget audit log. Called from a background task after response is sent."""
-    if method not in ("POST", "PUT", "PATCH", "DELETE"):
-        return
-    if status_code < 200 or status_code >= 300:
-        return
-    skip = ("/docs", "/openapi", "/static", "/auth/refresh")
-    if any(path.startswith(p) for p in skip):
-        return
-
-    try:
-        user_id = None
-        if auth_header.startswith("Bearer "):
-            try:
-                from .auth import decode_token
-                payload = decode_token(auth_header[7:])
-                user_id = payload.get("sub")
-            except Exception:
-                pass
-
-        parts = [p for p in path.strip("/").split("/") if p]
-        entity = parts[0] if parts else "unknown"
-        entity_id = parts[1] if len(parts) > 1 else "0"
-        if len(parts) > 2:
-            entity = f"{parts[0]}_{parts[2]}"
-            entity_id = parts[1]
-
-        action_map = {"POST": "create", "PUT": "update", "PATCH": "update", "DELETE": "delete"}
-        action = action_map.get(method, method.lower())
-
-        if path == "/auth/login":
-            entity, action = "session", "login"
-            entity_id = str(user_id or 0)
-
-        payload_str = '{"_type": "file_upload"}' if "multipart" in content_type else None
-
-        from .database import SessionLocal
-        from .models.audit import AuditEvent
-        db = SessionLocal()
-        try:
-            db.add(AuditEvent(
-                UserId=int(user_id) if user_id else None,
-                Entity=entity[:60],
-                EntityId=str(entity_id)[:60],
-                Action=action[:20],
-                PayloadJson=payload_str,
-            ))
-            db.commit()
-        except Exception:
-            db.rollback()
-        finally:
-            db.close()
-    except Exception:
-        pass
-
-
 def configure_logging() -> None:
     """Logging estructurado básico: timestamp | level | logger | message."""
     logging.basicConfig(

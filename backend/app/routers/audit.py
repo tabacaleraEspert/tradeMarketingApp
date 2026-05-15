@@ -21,48 +21,40 @@ router = APIRouter(prefix="/audit", tags=["Auditoría"])
 
 @router.get("/user-timeline")
 def user_timeline(
-    user_id: int | None = None,
+    user_id: int,
     date_from: str | None = None,
     date_to: str | None = None,
     limit: int = Query(default=500, le=2000),
     db: Session = Depends(get_db),
 ):
-    """Returns a chronological timeline of ALL activity for a user (or all users) across all tables."""
+    """Returns a chronological timeline of ALL activity for a user across all tables."""
 
     # Parse date filters
     dt_from = datetime.fromisoformat(date_from) if date_from else None
     dt_to = datetime.fromisoformat(date_to) if date_to else None
 
-    user = None
-    if user_id:
-        user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
-        if not user:
-            raise HTTPException(404, "Usuario no encontrado")
+    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+    if not user:
+        raise HTTPException(404, "Usuario no encontrado")
 
     events: list[dict] = []
 
     # --- 1. Visits (opened / closed) ---
-    vq = db.query(VisitModel)
-    if user_id:
-        vq = vq.filter(VisitModel.UserId == user_id)
+    vq = db.query(VisitModel).filter(VisitModel.UserId == user_id)
     if dt_from:
         vq = vq.filter(VisitModel.OpenedAt >= dt_from)
     if dt_to:
         vq = vq.filter(VisitModel.OpenedAt <= dt_to)
     visits = vq.order_by(VisitModel.OpenedAt.desc()).limit(limit).all()
 
-    # Preload PDV names and user names
+    # Preload PDV names
     pdv_ids = {v.PdvId for v in visits}
     pdv_map = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
-    all_user_ids = {v.UserId for v in visits}
-    user_name_map = {u.UserId: u.DisplayName for u in db.query(UserModel).filter(UserModel.UserId.in_(all_user_ids)).all()} if all_user_ids else {}
 
     visit_ids = [v.VisitId for v in visits]
-    visit_user = {v.VisitId: v.UserId for v in visits}
 
     for v in visits:
         pdv_name = pdv_map.get(v.PdvId, f"PDV #{v.PdvId}")
-        uname = user_name_map.get(v.UserId, f"Usuario #{v.UserId}")
         events.append({
             "ts": v.OpenedAt.isoformat() if v.OpenedAt else None,
             "type": "visit_open",
@@ -72,8 +64,6 @@ def user_timeline(
             "visitId": v.VisitId,
             "pdvId": v.PdvId,
             "pdvName": pdv_name,
-            "userId": v.UserId,
-            "userName": uname,
         })
         if v.ClosedAt:
             duration = (v.ClosedAt - v.OpenedAt).total_seconds() / 60 if v.OpenedAt else 0
@@ -86,14 +76,11 @@ def user_timeline(
                 "visitId": v.VisitId,
                 "pdvId": v.PdvId,
                 "pdvName": pdv_name,
-                "userId": v.UserId,
-                "userName": uname,
             })
 
     if not visit_ids:
         events.sort(key=lambda e: e["ts"] or "", reverse=True)
-        user_info = {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email} if user else None
-        return {"user": user_info, "events": events, "totalEvents": len(events)}
+        return {"user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email}, "events": events}
 
     # --- 2. Check-ins / Check-outs ---
     checks = db.query(VisitCheckModel).filter(VisitCheckModel.VisitId.in_(visit_ids)).all()
@@ -147,24 +134,13 @@ def user_timeline(
 
     # --- 5. Actions (canje, POP, promo, etc.) ---
     actions = db.query(VisitActionModel).filter(VisitActionModel.VisitId.in_(visit_ids)).all()
-    ACTION_LABELS = {"canje_sueltos": "Canje de Sueltos", "pop": "Material POP", "promo": "Promoción", "juego": "Juego", "otra": "Otra"}
     for a in actions:
-        detail_parts = [a.Description or ""]
-        if a.DetailsJson:
-            try:
-                import json
-                details = json.loads(a.DetailsJson)
-                if isinstance(details, dict):
-                    for k, v in details.items():
-                        if v and k not in ("type",):
-                            detail_parts.append(f"{k}: {v}")
-            except: pass
         events.append({
             "ts": a.CreatedAt.isoformat() if a.CreatedAt else None,
             "type": "action",
             "icon": "⚡",
-            "title": f"{ACTION_LABELS.get(a.ActionType, a.ActionType)} — {visit_pdv.get(a.VisitId, '')}",
-            "detail": " · ".join(p for p in detail_parts if p),
+            "title": f"Acción: {a.ActionType} — {visit_pdv.get(a.VisitId, '')}",
+            "detail": a.Description or f"Status: {a.Status}",
             "visitId": a.VisitId,
         })
 
@@ -212,9 +188,7 @@ def user_timeline(
         })
 
     # --- 9. Incidents ---
-    incidents = db.query(IncidentModel)
-    if user_id:
-        incidents = incidents.filter(IncidentModel.CreatedBy == user_id)
+    incidents = db.query(IncidentModel).filter(IncidentModel.CreatedBy == user_id)
     if dt_from:
         incidents = incidents.filter(IncidentModel.CreatedAt >= dt_from)
     if dt_to:
@@ -229,9 +203,7 @@ def user_timeline(
         })
 
     # --- 10. PDV Notes ---
-    notes = db.query(NoteModel)
-    if user_id:
-        notes = notes.filter(NoteModel.CreatedByUserId == user_id)
+    notes = db.query(NoteModel).filter(NoteModel.CreatedByUserId == user_id)
     if dt_from:
         notes = notes.filter(NoteModel.CreatedAt >= dt_from)
     if dt_to:
@@ -245,91 +217,11 @@ def user_timeline(
             "detail": n.Content[:100] if n.Content else "",
         })
 
-    # --- 11. PDV creation (by this user) ---
-    pdv_q = db.query(PDVModel)
-    if user_id:
-        pdv_q = pdv_q.filter(PDVModel.AssignedUserId == user_id)
-    if dt_from:
-        pdv_q = pdv_q.filter(PDVModel.CreatedAt >= dt_from)
-    if dt_to:
-        pdv_q = pdv_q.filter(PDVModel.CreatedAt <= dt_to)
-    for p in pdv_q.all():
-        events.append({
-            "ts": p.CreatedAt.isoformat() if p.CreatedAt else None,
-            "type": "pdv_create",
-            "icon": "🏠",
-            "title": f"Alta PDV: {p.Name}",
-            "detail": f"{p.Address or ''} · Canal: {p.Channel or ''}" + (f" · Vol: {p.MonthlyVolume} atados" if p.MonthlyVolume else ""),
-            "pdvId": p.PdvId,
-            "pdvName": p.Name,
-        })
-
-    # --- 12. Route creation (by this user) ---
-    from ..models.route import Route as RouteModel
-    route_q = db.query(RouteModel)
-    if user_id:
-        route_q = route_q.filter(RouteModel.CreatedByUserId == user_id)
-    if dt_from:
-        route_q = route_q.filter(RouteModel.CreatedAt >= dt_from)
-    if dt_to:
-        route_q = route_q.filter(RouteModel.CreatedAt <= dt_to)
-    for r in route_q.all():
-        events.append({
-            "ts": r.CreatedAt.isoformat() if r.CreatedAt else None,
-            "type": "route_create",
-            "icon": "🗺️",
-            "title": f"Ruta creada: {r.Name}",
-            "detail": f"Frecuencia: {r.FrequencyType or 'sin definir'}" + (f" · Zona: {r.BejermanZone}" if r.BejermanZone else ""),
-        })
-
-    # --- 13. AuditEvent table (login, edits, deletes captured by middleware) ---
-    from ..models.audit import AuditEvent as AuditModel
-    ae_q = db.query(AuditModel)
-    if user_id:
-        ae_q = ae_q.filter(AuditModel.UserId == user_id)
-    if dt_from:
-        ae_q = ae_q.filter(AuditModel.Ts >= dt_from)
-    if dt_to:
-        ae_q = ae_q.filter(AuditModel.Ts <= dt_to)
-    # Only include types not already covered by the reconstructed events
-    AUDIT_ICONS = {
-        "login": "🔑", "create": "➕", "update": "✏️", "delete": "🗑️",
-    }
-    AUDIT_SKIP_ENTITIES = {"visits", "visits_answers", "visits_checks", "visits_coverage",
-                           "visits_pop", "visits_actions", "visits_market-news", "visits_photos",
-                           "files_photos"}
-    for ae in ae_q.order_by(AuditModel.Ts.desc()).limit(500).all():
-        # Skip entities already covered by reconstructed events
-        if ae.Entity in AUDIT_SKIP_ENTITIES:
-            continue
-        ae_user_name = user_name_map.get(ae.UserId, "") if ae.UserId else ""
-        if not ae_user_name and ae.UserId:
-            u = db.query(UserModel).filter(UserModel.UserId == ae.UserId).first()
-            if u:
-                ae_user_name = u.DisplayName
-                user_name_map[ae.UserId] = ae_user_name
-        events.append({
-            "ts": ae.Ts.isoformat() if ae.Ts else None,
-            "type": f"audit_{ae.Action}",
-            "icon": AUDIT_ICONS.get(ae.Action, "📄"),
-            "title": f"{ae.Action.capitalize()} — {ae.Entity} #{ae.EntityId}",
-            "detail": ae.PayloadJson[:200] if ae.PayloadJson else "",
-            "userId": ae.UserId,
-            "userName": ae_user_name,
-        })
-
     # Sort by timestamp descending
     events.sort(key=lambda e: e["ts"] or "", reverse=True)
 
-    # Add userName to events from visit-related queries (checks, photos, answers, etc.)
-    for ev in events:
-        if "userId" not in ev and ev.get("visitId") and ev["visitId"] in visit_user:
-            ev["userId"] = visit_user[ev["visitId"]]
-            ev["userName"] = user_name_map.get(visit_user[ev["visitId"]], "")
-
-    user_info = {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email} if user else None
     return {
-        "user": user_info,
+        "user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email},
         "events": events[:limit],
         "totalEvents": len(events),
     }
