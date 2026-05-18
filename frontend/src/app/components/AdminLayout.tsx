@@ -17,6 +17,7 @@ import {
   Package,
   Eye,
   Shield,
+  Truck,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -70,6 +71,7 @@ export function AdminLayout() {
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
+    { path: "/admin/supplier-config", icon: Truck, label: "Proveedores" },
     { path: "/admin/products", icon: Package, label: "Productos" },
     { path: "/admin/routes", icon: Route, label: "Rutas Foco" },
     { path: "/admin/territory", icon: Users, label: "Territorio" },
