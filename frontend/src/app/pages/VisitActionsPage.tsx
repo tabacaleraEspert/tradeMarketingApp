@@ -235,8 +235,8 @@ export function VisitActionsPage() {
     const cantidades = (formData.cantidades as Record<string, number>) || {};
     const totalVacios = Object.values(cantidades).reduce((s, v) => s + v, 0);
     const llenos = Math.floor(totalVacios / divisor);
-    const filledProducts = cigaretteProducts.filter((p) => (cantidades[p.Name] || 0) > 0);
-    const emptyProducts = cigaretteProducts.filter((p) => !(cantidades[p.Name] || 0));
+    const filledProducts = cigaretteProducts.filter((p) => p.Name in cantidades && cantidades[p.Name] !== undefined);
+    const emptyProducts = cigaretteProducts.filter((p) => !(p.Name in cantidades) || cantidades[p.Name] === undefined);
 
     // Atados a entregar (llenos) — por marca, de a 1
     const entregados = (formData.entregados as Record<string, number>) || {};
@@ -274,7 +274,7 @@ export function VisitActionsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                   </div>
-                  <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={cantidades[p.Name] || ""} placeholder="0" onChange={(e) => setFd("cantidades", { ...cantidades, [p.Name]: Math.max(0, Number(e.target.value) || 0) })} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                  <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={cantidades[p.Name] ?? ""} placeholder="0" onChange={(e) => { const v = e.target.value; setFd("cantidades", { ...cantidades, [p.Name]: v === "" ? 0 : Math.max(0, Number(v) || 0) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                 </div>
               ))}
             </div>
