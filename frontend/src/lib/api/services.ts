@@ -106,6 +106,9 @@ import type {
   VisitPOPItem,
   VisitLooseSurvey,
   VisitIndicators,
+  SupplierType,
+  SupplierProductType,
+  PdvSupplier,
 } from "./types";
 
 // --- Zones ---
@@ -811,4 +814,37 @@ export const reportsApi = {
       total: number; high: number; medium: number; low: number;
       alerts: Array<{ type: string; severity: string; title: string; detail: string; pdvId?: number; userId?: number; channel?: string }>;
     }>("/reports/smart-alerts"),
+};
+
+// --- Supplier Types (admin lookup) ---
+export const supplierTypesApi = {
+  list: () => api.get<SupplierType[]>("/supplier-types"),
+  listAll: () => api.get<SupplierType[]>("/supplier-types/all"),
+  create: (data: { Name: string; IsActive?: boolean }) =>
+    api.post<SupplierType>("/supplier-types", data),
+  update: (id: number, data: { Name?: string; IsActive?: boolean }) =>
+    api.patch<SupplierType>(`/supplier-types/${id}`, data),
+  delete: (id: number) => api.delete(`/supplier-types/${id}`),
+};
+
+// --- Supplier Product Types (admin lookup) ---
+export const supplierProductTypesApi = {
+  list: () => api.get<SupplierProductType[]>("/supplier-product-types"),
+  listAll: () => api.get<SupplierProductType[]>("/supplier-product-types/all"),
+  create: (data: { Name: string; IsActive?: boolean }) =>
+    api.post<SupplierProductType>("/supplier-product-types", data),
+  update: (id: number, data: { Name?: string; IsActive?: boolean }) =>
+    api.patch<SupplierProductType>(`/supplier-product-types/${id}`, data),
+  delete: (id: number) => api.delete(`/supplier-product-types/${id}`),
+};
+
+// --- PDV Suppliers (censo proveedores) ---
+export const pdvSuppliersApi = {
+  list: (pdvId: number) => api.get<PdvSupplier[]>(`/pdvs/${pdvId}/suppliers`),
+  create: (pdvId: number, data: { Name: string; Phone: string; SupplierTypeId?: number; ZoneId?: number; Products?: string[] }) =>
+    api.post<PdvSupplier>(`/pdvs/${pdvId}/suppliers`, data),
+  update: (pdvId: number, supplierId: number, data: { Name?: string; Phone?: string; SupplierTypeId?: number; ZoneId?: number; Products?: string[]; IsActive?: boolean }) =>
+    api.patch<PdvSupplier>(`/pdvs/${pdvId}/suppliers/${supplierId}`, data),
+  delete: (pdvId: number, supplierId: number) =>
+    api.delete(`/pdvs/${pdvId}/suppliers/${supplierId}`),
 };

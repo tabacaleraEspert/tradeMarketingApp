@@ -26,6 +26,9 @@ from .visit_coverage import VisitCoverage
 from .visit_pop import VisitPOPItem
 from .visit_loose import VisitLooseSurvey
 from .app_setting import AppSetting
+from .supplier_type import SupplierType
+from .supplier_product_type import SupplierProductType
+from .pdv_supplier import PdvSupplier
 
 __all__ = [
     "Zone",
@@ -73,4 +76,7 @@ __all__ = [
     "VisitPOPItem",
     "VisitLooseSurvey",
     "AppSetting",
+    "SupplierType",
+    "SupplierProductType",
+    "PdvSupplier",
 ]

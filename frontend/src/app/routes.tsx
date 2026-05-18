@@ -22,6 +22,7 @@ const MyRouteEditorPage = lazy(() => import("./pages/MyRouteEditorPage").then(m 
 const RouteGeneratorPage = lazy(() => import("./pages/RouteGeneratorPage").then(m => ({ default: m.RouteGeneratorPage })));
 const CoverageFormPage = lazy(() => import("./pages/CoverageFormPage").then(m => ({ default: m.CoverageFormPage })));
 const POPCensusPage = lazy(() => import("./pages/POPCensusPage").then(m => ({ default: m.POPCensusPage })));
+const SupplierCensusPage = lazy(() => import("./pages/SupplierCensusPage").then(m => ({ default: m.SupplierCensusPage })));
 const VisitActionsPage = lazy(() => import("./pages/VisitActionsPage").then(m => ({ default: m.VisitActionsPage })));
 const VisitSummaryPage = lazy(() => import("./pages/VisitSummaryPage").then(m => ({ default: m.VisitSummaryPage })));
 const MarketNewsStepPage = lazy(() => import("./pages/MarketNewsStepPage").then(m => ({ default: m.MarketNewsStepPage })));
@@ -44,6 +45,7 @@ const TerritoryManagement = lazy(() => import("./pages/admin/TerritoryManagement
 const VisitDataExplorer = lazy(() => import("./pages/admin/VisitDataExplorer").then(m => ({ default: m.VisitDataExplorer })));
 const PlantDashboard = lazy(() => import("./pages/plant/PlantDashboard").then(m => ({ default: m.PlantDashboard })));
 const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m => ({ default: m.AuditTimeline })));
+const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
 
 function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
@@ -84,6 +86,7 @@ export const router = createBrowserRouter([
       { path: "pos/:id/survey", element: <SuspenseWrap><SurveyForm /></SuspenseWrap> },
       { path: "pos/:id/coverage", element: <SuspenseWrap><CoverageFormPage /></SuspenseWrap> },
       { path: "pos/:id/pop", element: <SuspenseWrap><POPCensusPage /></SuspenseWrap> },
+      { path: "pos/:id/suppliers", element: <SuspenseWrap><SupplierCensusPage /></SuspenseWrap> },
       { path: "pos/:id/actions", element: <SuspenseWrap><VisitActionsPage /></SuspenseWrap> },
       { path: "pos/:id/market-news", element: <SuspenseWrap><MarketNewsStepPage /></SuspenseWrap> },
       { path: "pos/:id/photos", element: <SuspenseWrap><PhotoCapture /></SuspenseWrap> },
@@ -104,6 +107,7 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspenseWrap><AdminDashboard /></SuspenseWrap> },
       { path: "pos-management", element: <SuspenseWrap><POSManagement /></SuspenseWrap> },
       { path: "channels", element: <SuspenseWrap><ChannelManagement /></SuspenseWrap> },
+      { path: "supplier-config", element: <SuspenseWrap><SupplierConfig /></SuspenseWrap> },
       { path: "products", element: <SuspenseWrap><ProductManagement /></SuspenseWrap> },
       { path: "routes", element: <SuspenseWrap><RouteManagement /></SuspenseWrap> },
       { path: "routes/:routeId/edit", element: <SuspenseWrap><RouteEditorPage /></SuspenseWrap> },

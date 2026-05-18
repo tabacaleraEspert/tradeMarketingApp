@@ -145,7 +145,7 @@ export function POPCensusPage() {
     } finally {
       setSaving(false);
     }
-    navigate(`/pos/${id}/actions`, { state: { routeDayId, visitId } });
+    navigate(`/pos/${id}/suppliers`, { state: { routeDayId, visitId } });
   };
 
   const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -31,6 +31,7 @@ import {
   MoreHorizontal,
   Zap,
   BookOpen,
+  RotateCcw,
 } from "lucide-react";
 import { useApiList, formsApi, routesApi, mandatoryActivitiesApi } from "@/lib/api";
 import type { MandatoryActivity } from "@/lib/api";
@@ -444,7 +445,19 @@ export function FormBuilder() {
                   {canEditForm(form) ? (
                     <>
                       <button onClick={() => navigate(`/admin/forms/${form.FormId}/edit`)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Editar"><Edit size={15} /></button>
-                      <button onClick={() => setConfirmDeleteFormId(form.FormId)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" title="Eliminar"><Trash2 size={15} /></button>
+                      <button
+                        onClick={async () => {
+                          try {
+                            await formsApi.update(form.FormId, { IsActive: !form.IsActive });
+                            toast.success(form.IsActive ? "Formulario desactivado" : "Formulario reactivado");
+                            refetchForms();
+                          } catch { toast.error("Error al cambiar estado"); }
+                        }}
+                        className={`p-1.5 rounded transition-colors ${form.IsActive ? "hover:bg-red-50 text-muted-foreground hover:text-red-600" : "hover:bg-green-50 text-muted-foreground hover:text-green-600"}`}
+                        title={form.IsActive ? "Desactivar" : "Reactivar"}
+                      >
+                        {form.IsActive ? <Trash2 size={15} /> : <RotateCcw size={15} />}
+                      </button>
                     </>
                   ) : (
                     <span className="text-[10px] text-muted-foreground px-1">Solo lectura</span>

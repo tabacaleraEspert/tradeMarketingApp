@@ -563,7 +563,7 @@ export function VisitActionsPage() {
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } })} className="p-2 hover:bg-muted rounded-lg"><ArrowLeft size={24} /></button>
+          <button onClick={() => navigate(`/pos/${id}/suppliers`, { state: { routeDayId, visitId } })} className="p-2 hover:bg-muted rounded-lg"><ArrowLeft size={24} /></button>
           <div className="flex-1">
             <h1 className="text-lg font-bold text-foreground">Acciones de Ejecución</h1>
             <p className="text-xs text-muted-foreground">{pdv?.Name}</p>

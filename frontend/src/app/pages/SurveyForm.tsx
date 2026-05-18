@@ -367,8 +367,14 @@ export function SurveyForm() {
 
   if (forms.length === 0) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-4">
         <p className="text-muted-foreground">No hay formularios activos disponibles</p>
+        <button
+          onClick={() => navigate(`/pos/${id}/coverage`, { state: { routeDayId, visitId } })}
+          className="px-6 py-3 bg-[#A48242] hover:bg-[#8B6E38] text-white rounded-lg font-medium transition-colors"
+        >
+          Continuar a Cobertura
+        </button>
       </div>
     );
   }

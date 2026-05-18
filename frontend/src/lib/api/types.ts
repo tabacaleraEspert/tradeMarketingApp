@@ -424,3 +424,32 @@ export interface DaySummary {
   actionsByType: Record<string, number>;
   pendingItems: Array<{ pdvName: string; description: string }>;
 }
+
+// --- Supplier Census ---
+
+export interface SupplierType {
+  SupplierTypeId: number;
+  Name: string;
+  IsActive: boolean;
+  CreatedAt: string;
+}
+
+export interface SupplierProductType {
+  SupplierProductTypeId: number;
+  Name: string;
+  IsActive: boolean;
+  CreatedAt: string;
+}
+
+export interface PdvSupplier {
+  PdvSupplierId: number;
+  PdvId: number;
+  ZoneId: number | null;
+  Name: string;
+  Phone: string;
+  SupplierTypeId: number | null;
+  Products: string[] | null;
+  IsActive: boolean;
+  CreatedAt: string;
+  UpdatedAt: string;
+}
