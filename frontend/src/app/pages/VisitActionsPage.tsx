@@ -323,7 +323,7 @@ export function VisitActionsPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                     </div>
-                    <input type="number" inputMode="numeric" min={0} max={llenos} value={entregados[p.Name] || ""} placeholder="0" onChange={(e) => { const v = Math.max(0, Number(e.target.value) || 0); const others = totalEntregados - (entregados[p.Name] || 0); setFd("entregados", { ...entregados, [p.Name]: Math.min(v, llenos - others) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                    <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} max={llenos} value={entregados[p.Name] ?? ""} placeholder="0" onChange={(e) => { const v = e.target.value; const num = v === "" ? 0 : Math.max(0, Number(v) || 0); const others = totalEntregados - (entregados[p.Name] || 0); setFd("entregados", { ...entregados, [p.Name]: Math.min(num, llenos - others) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                   </div>
                 ))}
               </div>
