@@ -30,10 +30,10 @@ export function Home() {
   useEffect(() => {
     const userId = Number(currentUser.id);
     if (!userId) return;
-    visitsApi.list({ userId, status: "OPEN" }).then(async (visits) => {
+    visitsApi.list({ user_id: userId, status: "OPEN" }).then(async (visits) => {
       const inProgress = visits[0] || null;
       if (!inProgress) {
-        const ip = await visitsApi.list({ userId, status: "IN_PROGRESS" }).catch(() => []);
+        const ip = await visitsApi.list({ user_id: userId, status: "IN_PROGRESS" }).catch(() => []);
         if (ip[0]) {
           try {
             const pdv = await pdvsApi.get(ip[0].PdvId);
