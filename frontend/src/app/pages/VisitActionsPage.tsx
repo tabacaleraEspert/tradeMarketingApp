@@ -274,7 +274,7 @@ export function VisitActionsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                   </div>
-                  <input type="number" inputMode="numeric" min={0} value={cantidades[p.Name] || ""} placeholder="0" onChange={(e) => setFd("cantidades", { ...cantidades, [p.Name]: Math.max(0, Number(e.target.value) || 0) })} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                  <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={cantidades[p.Name] || ""} placeholder="0" onChange={(e) => setFd("cantidades", { ...cantidades, [p.Name]: Math.max(0, Number(e.target.value) || 0) })} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                 </div>
               ))}
             </div>

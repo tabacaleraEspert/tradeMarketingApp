@@ -318,9 +318,12 @@ export function NewPointOfSale() {
         }
 
         if (selectedRouteId) {
-          routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 })
-            .then(() => toast.success(`Agregado a ruta`))
-            .catch(() => {});
+          try {
+            await routesApi.addPdv(Number(selectedRouteId), { PdvId: newPdv.PdvId, SortOrder: 999, Priority: 3 });
+            toast.success("Agregado a ruta (días de visita creados)");
+          } catch (routeErr) {
+            toast.error(routeErr instanceof Error ? routeErr.message : "Error al agregar a ruta");
+          }
         }
 
         toast.success("PDV creado correctamente");
