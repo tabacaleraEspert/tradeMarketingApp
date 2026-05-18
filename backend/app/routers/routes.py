@@ -349,14 +349,29 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     update_data = data.model_dump(exclude_unset=True)
+
+    # Detectar cambios reales comparando contra valores actuales
+    old_assigned = r.AssignedUserId
+    old_freq_type = r.FrequencyType
+    old_freq_config = r.FrequencyConfig
+
     new_assigned_user = update_data.get("AssignedUserId", "__unchanged__")
+    assigned_actually_changed = (
+        new_assigned_user != "__unchanged__" and new_assigned_user != old_assigned
+    )
+
+    freq_actually_changed = (
+        ("FrequencyType" in update_data and update_data["FrequencyType"] != old_freq_type)
+        or ("FrequencyConfig" in update_data and update_data["FrequencyConfig"] != old_freq_config)
+    )
+
     for k, v in update_data.items():
         setattr(r, k, v)
 
-    # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta (task 13)
+    # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta
     today = _today_ar()
 
-    if new_assigned_user != "__unchanged__":
+    if assigned_actually_changed:
         pdv_ids = [
             row[0]
             for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route_id).all()
@@ -373,7 +388,10 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             RouteDayModel.Status == "PLANNED",
         ).all()
         if new_assigned_user is None:
-            # Desasignar: borrar días futuros planificados
+            # Desasignar: borrar días futuros planificados (hijos primero por FK)
+            day_ids = [fd.RouteDayId for fd in future_days]
+            if day_ids:
+                db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
             for fd in future_days:
                 db.delete(fd)
         else:
@@ -381,14 +399,18 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             for fd in future_days:
                 fd.AssignedUserId = new_assigned_user
 
-    # Si cambió la frecuencia, borrar días futuros PLANNED para que el frontend regenere
-    freq_changed = "FrequencyType" in update_data or "FrequencyConfig" in update_data
-    if freq_changed:
-        db.query(RouteDayModel).filter(
-            RouteDayModel.RouteId == route_id,
-            RouteDayModel.WorkDate >= today,
-            RouteDayModel.Status == "PLANNED",
-        ).delete(synchronize_session=False)
+    # Si cambió la frecuencia DE VERDAD, borrar días futuros PLANNED para que el frontend regenere
+    if freq_actually_changed:
+        future_planned_ids = [
+            d.RouteDayId for d in db.query(RouteDayModel).filter(
+                RouteDayModel.RouteId == route_id,
+                RouteDayModel.WorkDate >= today,
+                RouteDayModel.Status == "PLANNED",
+            ).all()
+        ]
+        if future_planned_ids:
+            db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
+            db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
 
     db.commit()
     db.refresh(r)

@@ -1780,7 +1780,8 @@ export function RouteEditorPage() {
                   >
                     <Calendar size={18} className="text-muted-foreground" />
                     <span className="text-sm font-medium text-muted-foreground">
-                      {new Date(d.WorkDate).toLocaleDateString("es-AR", {
+                      {new Date(d.WorkDate.split("T")[0] + "T12:00:00").toLocaleDateString("es-AR", {
+                        timeZone: "America/Argentina/Buenos_Aires",
                         weekday: "short",
                         day: "numeric",
                         month: "short",
