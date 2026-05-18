@@ -63,7 +63,6 @@ export function VisitActionsPage() {
   const [activeForm, setActiveForm] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const [photoCallback, setPhotoCallback] = useState<((file: File) => void) | null>(null);
 
   // Form state (shared, reset per form)
   const [formData, setFormData] = useState<Record<string, unknown>>({});
@@ -170,19 +169,15 @@ export function VisitActionsPage() {
   };
 
   const takePhoto = () => {
-    setPhotoCallback(() => (file: File) => {
-      const url = URL.createObjectURL(file);
-      setFormPhotos((prev) => [...prev, { url, file }]);
-    });
     photoInputRef.current?.click();
   };
 
   const handlePhotoInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file || !photoCallback) return;
-    photoCallback(file);
-    setPhotoCallback(null);
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setFormPhotos((prev) => [...prev, { url, file }]);
   };
 
   const [showEmptyBrands, setShowEmptyBrands] = useState(false);
@@ -274,7 +269,7 @@ export function VisitActionsPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                   </div>
-                  <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={cantidades[p.Name] ?? ""} placeholder="0" onChange={(e) => { const v = e.target.value; setFd("cantidades", { ...cantidades, [p.Name]: v === "" ? 0 : Math.max(0, Number(v) || 0) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                  <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} value={cantidades[p.Name] || ""} placeholder="0" onChange={(e) => { const v = e.target.value === "" ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0); setFd("cantidades", { ...cantidades, [p.Name]: v }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                 </div>
               ))}
             </div>
@@ -323,7 +318,7 @@ export function VisitActionsPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
                     </div>
-                    <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} max={llenos} value={entregados[p.Name] ?? ""} placeholder="0" onChange={(e) => { const v = e.target.value; const num = v === "" ? 0 : Math.max(0, Number(v) || 0); const others = totalEntregados - (entregados[p.Name] || 0); setFd("entregados", { ...entregados, [p.Name]: Math.min(num, llenos - others) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
+                    <input type="number" inputMode="numeric" pattern="[0-9]*" min={0} max={llenos} value={entregados[p.Name] || ""} placeholder="0" onChange={(e) => { const num = e.target.value === "" ? 0 : Math.max(0, parseInt(e.target.value, 10) || 0); const others = totalEntregados - (entregados[p.Name] || 0); setFd("entregados", { ...entregados, [p.Name]: Math.min(num, llenos - others) }); }} className="w-20 text-center text-sm font-bold border border-border rounded-lg h-9 bg-background" />
                   </div>
                 ))}
               </div>
@@ -538,7 +533,7 @@ export function VisitActionsPage() {
               <h1 className="text-lg font-bold text-foreground">{cat?.label}</h1>
               <p className="text-xs text-muted-foreground">{cat?.desc}</p>
             </div>
-            <VisitStepIndicator currentStep={4} />
+            <VisitStepIndicator currentStep={5} />
           </div>
         </div>
         <div className="p-4">
@@ -568,7 +563,7 @@ export function VisitActionsPage() {
             <h1 className="text-lg font-bold text-foreground">Acciones de Ejecución</h1>
             <p className="text-xs text-muted-foreground">{pdv?.Name}</p>
           </div>
-          <VisitStepIndicator currentStep={4} />
+          <VisitStepIndicator currentStep={5} />
         </div>
       </div>
 

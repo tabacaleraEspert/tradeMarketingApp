@@ -275,7 +275,7 @@ export function MarketNewsStepPage() {
               {drafts.length} novedad{drafts.length !== 1 ? "es" : ""} registrada{drafts.length !== 1 ? "s" : ""}
             </p>
           </div>
-          <VisitStepIndicator currentStep={5} />
+          <VisitStepIndicator currentStep={6} />
         </div>
       </div>
 

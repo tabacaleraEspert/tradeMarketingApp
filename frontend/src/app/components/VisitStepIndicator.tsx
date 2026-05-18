@@ -2,8 +2,9 @@ const STEPS = [
   { num: 1, label: "Formularios" },
   { num: 2, label: "Cobertura" },
   { num: 3, label: "POP" },
-  { num: 4, label: "Acciones" },
-  { num: 5, label: "Novedades" },
+  { num: 4, label: "Proveedores" },
+  { num: 5, label: "Acciones" },
+  { num: 6, label: "Novedades" },
 ];
 
 interface Props {

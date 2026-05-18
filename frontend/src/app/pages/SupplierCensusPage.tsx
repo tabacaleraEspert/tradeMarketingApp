@@ -143,7 +143,7 @@ export function SupplierCensusPage() {
             <h1 className="text-lg font-bold text-foreground">Censo Proveedores</h1>
             <p className="text-xs text-muted-foreground">Registrá los proveedores de este PDV</p>
           </div>
-          <VisitStepIndicator currentStep={5} />
+          <VisitStepIndicator currentStep={4} />
         </div>
       </div>
 
