@@ -16,6 +16,8 @@ from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel, Route
 from ..models.visit_form_time import VisitFormTime as VisitFormTimeModel
 from ..models.user import UserRole as UserRoleModel, Role as RoleModel
 from ..models.zone import Zone as ZoneModel
+from ..models.product import Product as ProductModel
+from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
 
 router = APIRouter(prefix="/reports", tags=["Reportes"], dependencies=[Depends(get_current_user)])
 
@@ -971,4 +973,127 @@ def smart_alerts(
         "medium": sum(1 for a in alerts if a["severity"] == "medium"),
         "low": sum(1 for a in alerts if a["severity"] == "low"),
         "alerts": alerts,
+    }
+
+
+# ─── Product Analytics ───────────────────────────────────────────────
+
+@router.get("/product-analytics")
+def product_analytics(db: Session = Depends(get_db)):
+    """Analytics de productos basado en datos de cobertura de visitas.
+
+    Para cada producto, calcula métricas del último relevamiento por PDV
+    (evita duplicar si un PDV fue visitado múltiples veces).
+    """
+    import statistics
+
+    # Subquery: último VisitCoverageId por (ProductId, PdvId)
+    # = la entrada de cobertura más reciente para cada producto en cada PDV
+    latest_sq = (
+        db.query(
+            VisitCoverageModel.ProductId,
+            VisitModel.PdvId,
+            sqlfunc.max(VisitCoverageModel.VisitCoverageId).label("latest_id"),
+        )
+        .join(VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId)
+        .group_by(VisitCoverageModel.ProductId, VisitModel.PdvId)
+        .subquery()
+    )
+
+    # Fetch all latest coverage rows with product info
+    rows = (
+        db.query(
+            VisitCoverageModel.ProductId,
+            VisitCoverageModel.Works,
+            VisitCoverageModel.Price,
+            VisitCoverageModel.Availability,
+            VisitModel.PdvId,
+            VisitCoverageModel.CreatedAt,
+        )
+        .join(latest_sq, VisitCoverageModel.VisitCoverageId == latest_sq.c.latest_id)
+        .join(VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId)
+        .all()
+    )
+
+    # Group by product
+    product_data: dict[int, list] = {}
+    for r in rows:
+        product_data.setdefault(r.ProductId, []).append(r)
+
+    # Load all products
+    products = {p.ProductId: p for p in db.query(ProductModel).all()}
+
+    by_product = []
+    for pid, entries in product_data.items():
+        p = products.get(pid)
+        if not p:
+            continue
+        pdv_count = len(entries)
+        works_entries = [e for e in entries if e.Works]
+        works_count = len(works_entries)
+        prices = [float(e.Price) for e in works_entries if e.Price is not None and float(e.Price) > 0]
+        available_count = sum(1 for e in works_entries if e.Availability == "disponible")
+        out_of_stock_count = sum(1 for e in works_entries if e.Availability == "quiebre")
+        last_seen = max((e.CreatedAt for e in entries), default=None)
+
+        avg_price = round(statistics.mean(prices), 2) if prices else None
+        median_price = round(statistics.median(prices), 2) if prices else None
+        min_price = round(min(prices), 2) if prices else None
+        max_price = round(max(prices), 2) if prices else None
+        std_dev = round(statistics.stdev(prices), 2) if len(prices) >= 2 else None
+
+        by_product.append({
+            "ProductId": pid,
+            "Name": p.Name,
+            "Category": p.Category,
+            "IsOwn": p.IsOwn,
+            "Manufacturer": p.Manufacturer,
+            "pdvCount": pdv_count,
+            "worksCount": works_count,
+            "avgPrice": avg_price,
+            "medianPrice": median_price,
+            "minPrice": min_price,
+            "maxPrice": max_price,
+            "stdDev": std_dev,
+            "availableCount": available_count,
+            "outOfStockCount": out_of_stock_count,
+            "lastSeen": last_seen.isoformat() if last_seen else None,
+        })
+
+    by_product.sort(key=lambda x: (x["Category"] or "", x["Name"]))
+
+    # Category summary
+    cat_map: dict[str, list] = {}
+    for bp in by_product:
+        cat_map.setdefault(bp["Category"] or "Sin categoría", []).append(bp)
+
+    by_category = []
+    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive == True).count()
+    for cat, items in sorted(cat_map.items()):
+        pdvs_with_cat = set()
+        for item in items:
+            pdvs_with_cat.update(e.PdvId for e in product_data.get(item["ProductId"], []) if e.Works)
+        avg_coverage = round(len(pdvs_with_cat) / total_pdvs * 100, 1) if total_pdvs else 0
+        by_category.append({
+            "Category": cat,
+            "productCount": len(items),
+            "avgCoverage": avg_coverage,
+        })
+
+    # Totals
+    all_pdv_ids = set()
+    all_visit_ids = set()
+    for entries in product_data.values():
+        for e in entries:
+            all_pdv_ids.add(e.PdvId)
+
+    total_visits_with_coverage = (
+        db.query(sqlfunc.count(sqlfunc.distinct(VisitCoverageModel.VisitId))).scalar() or 0
+    )
+
+    return {
+        "byProduct": by_product,
+        "byCategory": by_category,
+        "totalPdvsWithCoverage": len(all_pdv_ids),
+        "totalVisitsWithCoverage": total_visits_with_coverage,
     }

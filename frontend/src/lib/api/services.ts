@@ -814,6 +814,17 @@ export const reportsApi = {
       total: number; high: number; medium: number; low: number;
       alerts: Array<{ type: string; severity: string; title: string; detail: string; pdvId?: number; userId?: number; channel?: string }>;
     }>("/reports/smart-alerts"),
+  productAnalytics: () =>
+    api.get<{
+      byProduct: Array<{
+        ProductId: number; Name: string; Category: string; IsOwn: boolean; Manufacturer: string | null;
+        pdvCount: number; worksCount: number;
+        avgPrice: number | null; medianPrice: number | null; minPrice: number | null; maxPrice: number | null; stdDev: number | null;
+        availableCount: number; outOfStockCount: number; lastSeen: string | null;
+      }>;
+      byCategory: Array<{ Category: string; productCount: number; avgCoverage: number }>;
+      totalPdvsWithCoverage: number; totalVisitsWithCoverage: number;
+    }>("/reports/product-analytics"),
 };
 
 // --- Supplier Types (admin lookup) ---
