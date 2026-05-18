@@ -3,11 +3,12 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Badge } from "../../components/ui/badge";
-import { Plus, Edit, Trash2, Truck, Package } from "lucide-react";
+import { Plus, Edit, Trash2, Truck, Package, MapPin } from "lucide-react";
 import {
   useApiList,
   supplierTypesApi,
   supplierProductTypesApi,
+  zonesApi,
 } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -127,6 +128,98 @@ function LookupSection({
   );
 }
 
+function ZoneSection() {
+  const { data: zones, refetch } = useApiList(() => zonesApi.list());
+  const [newName, setNewName] = useState("");
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editName, setEditName] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  const handleAdd = async () => {
+    if (!newName.trim()) return;
+    setAdding(true);
+    try {
+      await zonesApi.create({ Name: newName.trim() });
+      setNewName("");
+      toast.success("Zona creada");
+      refetch();
+    } catch { toast.error("Error al crear zona"); }
+    setAdding(false);
+  };
+
+  const handleSaveEdit = async (id: number) => {
+    if (!editName.trim()) return;
+    try {
+      await zonesApi.update(id, { Name: editName.trim() });
+      setEditId(null);
+      toast.success("Zona actualizada");
+      refetch();
+    } catch { toast.error("Error al actualizar"); }
+  };
+
+  const handleDelete = async (id: number) => {
+    try {
+      await zonesApi.delete(id);
+      toast.success("Zona eliminada");
+      refetch();
+    } catch { toast.error("No se puede eliminar (puede tener PDVs o usuarios asignados)"); }
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <MapPin size={18} className="text-[#A48242]" />
+          <h2 className="text-lg font-bold text-foreground">Zonas</h2>
+          <Badge variant="outline" className="ml-auto">{zones.length}</Badge>
+        </div>
+
+        <div className="flex gap-2">
+          <Input
+            placeholder="Nueva zona..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          />
+          <Button onClick={handleAdd} disabled={adding || !newName.trim()} size="sm" className="bg-[#A48242] hover:bg-[#8B6E38] text-white">
+            <Plus size={16} />
+          </Button>
+        </div>
+
+        <div className="divide-y divide-border">
+          {zones.map((zone) => (
+            <div key={zone.ZoneId} className="flex items-center gap-2 py-2">
+              {editId === zone.ZoneId ? (
+                <>
+                  <Input
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleSaveEdit(zone.ZoneId)}
+                    className="flex-1"
+                    autoFocus
+                  />
+                  <Button size="sm" variant="outline" onClick={() => handleSaveEdit(zone.ZoneId)}>OK</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setEditId(null)}>X</Button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm text-foreground">{zone.Name}</span>
+                  <button onClick={() => { setEditId(zone.ZoneId); setEditName(zone.Name); }} className="p-1.5 hover:bg-muted rounded text-muted-foreground">
+                    <Edit size={14} />
+                  </button>
+                  <button onClick={() => handleDelete(zone.ZoneId)} className="p-1.5 rounded hover:bg-red-50 text-red-400">
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SupplierConfig() {
   const { data: types, refetch: refetchTypes } = useApiList(() => supplierTypesApi.listAll());
   const { data: productTypes, refetch: refetchProducts } = useApiList(() => supplierProductTypesApi.listAll());
@@ -135,8 +228,10 @@ export function SupplierConfig() {
     <div className="p-4 space-y-6 max-w-2xl mx-auto">
       <div>
         <h1 className="text-2xl font-bold text-foreground">Configurar Proveedores</h1>
-        <p className="text-sm text-muted-foreground mt-1">Gestioná los tipos de proveedor y productos disponibles para el censo</p>
+        <p className="text-sm text-muted-foreground mt-1">Gestioná zonas, tipos de proveedor y productos disponibles para el censo</p>
       </div>
+
+      <ZoneSection />
 
       <LookupSection
         title="Tipos de Proveedor"
