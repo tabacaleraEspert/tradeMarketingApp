@@ -825,6 +825,31 @@ export const reportsApi = {
       byCategory: Array<{ Category: string; productCount: number; avgCoverage: number }>;
       totalPdvsWithCoverage: number; totalVisitsWithCoverage: number;
     }>("/reports/product-analytics"),
+  supplierAnalytics: () =>
+    api.get<{
+      totalSuppliers: number; totalPdvsWithSuppliers: number;
+      byType: Array<{ type: string; count: number }>;
+      byZone: Array<{ zone: string; count: number }>;
+      byProduct: Array<{ product: string; count: number }>;
+      topSuppliers: Array<{ name: string; phone: string; type: string; pdvCount: number }>;
+    }>("/reports/supplier-analytics"),
+  routeAnalytics: () =>
+    api.get<{
+      totalRoutes: number; totalPdvsInRoutes: number; avgCompliance: number;
+      routes: Array<{
+        RouteId: number; Name: string; Zone: string; AssignedUser: string; FrequencyType: string;
+        pdvCount: number; totalDays30d: number; completedDays30d: number; compliance30d: number;
+        futurePlannedDays: number; visits30d: number;
+      }>;
+    }>("/reports/route-analytics"),
+  pdvAnalytics: () =>
+    api.get<{
+      total: number; active: number; inactive: number; withCoords: number; assigned: number;
+      visited30d: number; neverVisited: number;
+      byChannel: Array<{ channel: string; count: number }>;
+      byZone: Array<{ zone: string; count: number }>;
+      byCategory: Array<{ category: string; count: number }>;
+    }>("/reports/pdv-analytics"),
 };
 
 // --- Supplier Types (admin lookup) ---

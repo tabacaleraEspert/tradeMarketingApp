@@ -19,8 +19,14 @@ import {
   Repeat,
   ChevronRight,
   CalendarDays,
+  BarChart3,
+  Settings,
+  CheckCircle,
+  TrendingUp,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
-import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES } from "@/lib/api";
+import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES, reportsApi } from "@/lib/api";
 import { RouteCalendar } from "../../components/RouteCalendar";
 import { api } from "@/lib/api/client";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-google-maps/api";
@@ -127,9 +133,96 @@ function formatFrequency(type: string | null, config: string | null): string {
   }
 }
 
+type RouteAnalytics = Awaited<ReturnType<typeof reportsApi.routeAnalytics>>;
+
+function RouteAnalyticsView({ analytics, loading }: { analytics: RouteAnalytics | null; loading: boolean }) {
+  const [search, setSearch] = useState("");
+  const [sortField, setSortField] = useState<string>("compliance30d");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  if (loading) return <div className="py-12 text-center text-muted-foreground">Cargando analytics...</div>;
+  if (!analytics) return <div className="py-12 text-center text-muted-foreground">Sin datos de rutas</div>;
+
+  const filtered = analytics.routes
+    .filter((r) => !search || r.Name.toLowerCase().includes(search.toLowerCase()) || r.AssignedUser.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => { const av = (a as any)[sortField] ?? 0; const bv = (b as any)[sortField] ?? 0; return sortDir === "asc" ? av - bv : bv - av; });
+
+  const SortHeader = ({ field, children }: { field: string; children: React.ReactNode }) => (
+    <th className="py-3 px-3 text-xs font-semibold text-muted-foreground uppercase cursor-pointer hover:text-foreground select-none"
+      onClick={() => { if (sortField === field) setSortDir((d) => d === "asc" ? "desc" : "asc"); else { setSortField(field); setSortDir("desc"); } }}>
+      <span className="inline-flex items-center gap-1">{children}{sortField === field && <ArrowUpDown size={10} className="text-[#A48242]" />}</span>
+    </th>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-[#A48242]/10 border-[#A48242]/30"><CardContent className="p-4 text-center">
+          <Repeat size={24} className="mx-auto text-[#A48242] mb-1" />
+          <p className="text-2xl font-bold">{analytics.totalRoutes}</p><p className="text-xs text-[#A48242]">Rutas activas</p>
+        </CardContent></Card>
+        <Card className="bg-blue-50 border-blue-200"><CardContent className="p-4 text-center">
+          <MapPin size={24} className="mx-auto text-blue-600 mb-1" />
+          <p className="text-2xl font-bold text-blue-900">{analytics.totalPdvsInRoutes}</p><p className="text-xs text-blue-600">PDVs en rutas</p>
+        </CardContent></Card>
+        <Card className="bg-green-50 border-green-200"><CardContent className="p-4 text-center">
+          <CheckCircle size={24} className="mx-auto text-green-600 mb-1" />
+          <p className="text-2xl font-bold text-green-900">{analytics.avgCompliance}%</p><p className="text-xs text-green-600">Cumplimiento prom (30d)</p>
+        </CardContent></Card>
+        <Card className="bg-amber-50 border-amber-200"><CardContent className="p-4 text-center">
+          <TrendingUp size={24} className="mx-auto text-amber-600 mb-1" />
+          <p className="text-2xl font-bold text-amber-900">{analytics.totalRoutes > 0 ? Math.round(analytics.totalPdvsInRoutes / analytics.totalRoutes) : 0}</p><p className="text-xs text-amber-600">Prom PDV/ruta</p>
+        </CardContent></Card>
+      </div>
+
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Input placeholder="Buscar ruta o usuario..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
+      </div>
+
+      <Card><CardContent className="p-0"><div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b bg-muted">
+            <th className="text-left py-3 px-3 text-xs font-semibold text-muted-foreground uppercase">Ruta</th>
+            <th className="text-left py-3 px-3 text-xs font-semibold text-muted-foreground uppercase">TM</th>
+            <SortHeader field="pdvCount">PDVs</SortHeader>
+            <SortHeader field="compliance30d">Cumplimiento</SortHeader>
+            <SortHeader field="visits30d">Visitas 30d</SortHeader>
+            <SortHeader field="totalDays30d">Dias plan</SortHeader>
+            <SortHeader field="completedDays30d">Completados</SortHeader>
+            <SortHeader field="futurePlannedDays">Futuros</SortHeader>
+          </tr></thead>
+          <tbody>{filtered.map((r) => (
+            <tr key={r.RouteId} className="border-b hover:bg-muted/50">
+              <td className="py-2.5 px-3"><p className="font-semibold">{r.Name}</p><p className="text-[10px] text-muted-foreground">{r.Zone} · {r.FrequencyType}</p></td>
+              <td className="py-2.5 px-3 text-muted-foreground text-xs">{r.AssignedUser}</td>
+              <td className="py-2.5 px-3 text-center font-medium">{r.pdvCount}</td>
+              <td className="py-2.5 px-3 text-center">
+                <span className={`font-bold ${r.compliance30d >= 80 ? "text-green-600" : r.compliance30d >= 50 ? "text-amber-600" : "text-red-500"}`}>{r.compliance30d}%</span>
+              </td>
+              <td className="py-2.5 px-3 text-center">{r.visits30d}</td>
+              <td className="py-2.5 px-3 text-center text-muted-foreground">{r.totalDays30d}</td>
+              <td className="py-2.5 px-3 text-center text-muted-foreground">{r.completedDays30d}</td>
+              <td className="py-2.5 px-3 text-center text-muted-foreground">{r.futurePlannedDays}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div></CardContent></Card>
+    </div>
+  );
+}
+
 export function RouteManagement() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
+  const [routeActiveTab, setRouteActiveTab] = useState<"data" | "config">("data");
+  const [routeAnalytics, setRouteAnalytics] = useState<RouteAnalytics | null>(null);
+  const [routeAnalyticsLoading, setRouteAnalyticsLoading] = useState(false);
+
+  useEffect(() => {
+    setRouteAnalyticsLoading(true);
+    reportsApi.routeAnalytics().then(setRouteAnalytics).catch(() => {}).finally(() => setRouteAnalyticsLoading(false));
+  }, []);
   const canDelete = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
   const canManage = canDelete; // same permission for reassign/unassign
 
@@ -245,12 +338,28 @@ export function RouteManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
+      {/* Page Header with Tabs */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Gestión de Rutas Foco</h1>
-          <p className="text-muted-foreground">Asignar PDV a usuarios y configurar frecuencias</p>
+          <h1 className="text-3xl font-bold text-foreground mb-1">Rutas Foco</h1>
+          <p className="text-muted-foreground">{routeActiveTab === "data" ? "Analytics y cumplimiento de rutas" : "Configurar rutas y asignaciones"}</p>
         </div>
+        <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+          <button onClick={() => setRouteActiveTab("data")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${routeActiveTab === "data" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <BarChart3 size={16} /> Datos
+          </button>
+          <button onClick={() => setRouteActiveTab("config")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${routeActiveTab === "config" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <Settings size={16} /> Gestion
+          </button>
+        </div>
+      </div>
+
+      {routeActiveTab === "data" ? (
+        <RouteAnalyticsView analytics={routeAnalytics} loading={routeAnalyticsLoading} />
+      ) : (<>
+      {/* Original config content */}
+      <div className="flex items-center justify-between">
+        <div />
         <div className="flex items-center gap-2">
           {/* View Toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -1051,6 +1160,7 @@ export function RouteManagement() {
           </div>
         )}
       </Modal>
+      </>)}
     </div>
   );
 }

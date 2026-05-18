@@ -26,7 +26,8 @@ import {
   Navigation,
   BarChart3,
 } from "lucide-react";
-import { usePdvs, useZones, useDistributors, useChannels, useSubChannels, useUsers, pdvsApi, distributorsApi } from "@/lib/api";
+import { usePdvs, useZones, useDistributors, useChannels, useSubChannels, useUsers, pdvsApi, distributorsApi, reportsApi } from "@/lib/api";
+import { Settings } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { GpsCaptureButton } from "../../components/GpsCaptureButton";
 import { LocationMap } from "../../components/LocationMap";
@@ -51,7 +52,94 @@ interface POSData {
   hasCoords: boolean;
 }
 
+type PdvAnalytics = Awaited<ReturnType<typeof reportsApi.pdvAnalytics>>;
+
+function PdvAnalyticsView({ analytics, loading }: { analytics: PdvAnalytics | null; loading: boolean }) {
+  if (loading) return <div className="py-12 text-center text-muted-foreground">Cargando analytics...</div>;
+  if (!analytics) return <div className="py-12 text-center text-muted-foreground">Sin datos</div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-[#A48242]/10 border-[#A48242]/30"><CardContent className="p-4 text-center">
+          <MapPin size={24} className="mx-auto text-[#A48242] mb-1" />
+          <p className="text-2xl font-bold">{analytics.total}</p><p className="text-xs text-[#A48242]">PDVs totales</p>
+        </CardContent></Card>
+        <Card className="bg-green-50 border-green-200"><CardContent className="p-4 text-center">
+          <CheckCircle size={24} className="mx-auto text-green-600 mb-1" />
+          <p className="text-2xl font-bold text-green-900">{analytics.active}</p><p className="text-xs text-green-600">Activos</p>
+        </CardContent></Card>
+        <Card className="bg-blue-50 border-blue-200"><CardContent className="p-4 text-center">
+          <Eye size={24} className="mx-auto text-blue-600 mb-1" />
+          <p className="text-2xl font-bold text-blue-900">{analytics.visited30d}</p><p className="text-xs text-blue-600">Visitados (30d)</p>
+        </CardContent></Card>
+        <Card className="bg-red-50 border-red-200"><CardContent className="p-4 text-center">
+          <XCircle size={24} className="mx-auto text-red-500 mb-1" />
+          <p className="text-2xl font-bold text-red-900">{analytics.neverVisited}</p><p className="text-xs text-red-500">Nunca visitados</p>
+        </CardContent></Card>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card><CardContent className="p-3 text-center">
+          <p className="text-lg font-bold">{analytics.assigned}</p><p className="text-[10px] text-muted-foreground">Con TM asignado</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-3 text-center">
+          <p className="text-lg font-bold">{analytics.withCoords}</p><p className="text-[10px] text-muted-foreground">Con coordenadas</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-3 text-center">
+          <p className="text-lg font-bold">{analytics.inactive}</p><p className="text-[10px] text-muted-foreground">Inactivos</p>
+        </CardContent></Card>
+        <Card><CardContent className="p-3 text-center">
+          <p className="text-lg font-bold">{analytics.total > 0 ? Math.round(analytics.visited30d / analytics.active * 100) : 0}%</p><p className="text-[10px] text-muted-foreground">Cobertura 30d</p>
+        </CardContent></Card>
+      </div>
+
+      <div className="grid md:grid-cols-3 gap-4">
+        {analytics.byChannel.length > 0 && (
+          <Card><CardContent className="p-4">
+            <h3 className="text-sm font-bold text-muted-foreground uppercase mb-3">Por canal</h3>
+            {analytics.byChannel.map((c) => (
+              <div key={c.channel} className="flex justify-between py-1.5 border-b border-border last:border-0">
+                <span className="text-sm truncate">{c.channel}</span><Badge variant="secondary">{c.count}</Badge>
+              </div>
+            ))}
+          </CardContent></Card>
+        )}
+        {analytics.byZone.length > 0 && (
+          <Card><CardContent className="p-4">
+            <h3 className="text-sm font-bold text-muted-foreground uppercase mb-3">Por zona</h3>
+            {analytics.byZone.map((z) => (
+              <div key={z.zone} className="flex justify-between py-1.5 border-b border-border last:border-0">
+                <span className="text-sm truncate">{z.zone}</span><Badge variant="secondary">{z.count}</Badge>
+              </div>
+            ))}
+          </CardContent></Card>
+        )}
+        {analytics.byCategory.length > 0 && (
+          <Card><CardContent className="p-4">
+            <h3 className="text-sm font-bold text-muted-foreground uppercase mb-3">Por categoria (volumen)</h3>
+            {analytics.byCategory.map((c) => (
+              <div key={c.category} className="flex justify-between py-1.5 border-b border-border last:border-0">
+                <span className="text-sm truncate">{c.category}</span><Badge variant="secondary">{c.count}</Badge>
+              </div>
+            ))}
+          </CardContent></Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function POSManagement() {
+  const [posActiveTab, setPosActiveTab] = useState<"data" | "config">("data");
+  const [pdvAnalytics, setPdvAnalytics] = useState<PdvAnalytics | null>(null);
+  const [pdvAnalyticsLoading, setPdvAnalyticsLoading] = useState(false);
+
+  useEffect(() => {
+    setPdvAnalyticsLoading(true);
+    reportsApi.pdvAnalytics().then(setPdvAnalytics).catch(() => {}).finally(() => setPdvAnalyticsLoading(false));
+  }, []);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
   const [selectedZoneId, setSelectedZoneId] = useState<number | undefined>();
@@ -519,12 +607,28 @@ export function POSManagement() {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
+      {/* Page Header with Tabs */}
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Gestión de PDV</h1>
-          <p className="text-muted-foreground">Administrar puntos de venta y aprobaciones</p>
+          <h1 className="text-3xl font-bold text-foreground mb-1">Gestion de PDV</h1>
+          <p className="text-muted-foreground">{posActiveTab === "data" ? "Analytics y distribucion de puntos de venta" : "Administrar puntos de venta"}</p>
         </div>
+        <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+          <button onClick={() => setPosActiveTab("data")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${posActiveTab === "data" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <BarChart3 size={16} /> Datos
+          </button>
+          <button onClick={() => setPosActiveTab("config")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${posActiveTab === "config" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+            <Settings size={16} /> Gestion
+          </button>
+        </div>
+      </div>
+
+      {posActiveTab === "data" ? (
+        <PdvAnalyticsView analytics={pdvAnalytics} loading={pdvAnalyticsLoading} />
+      ) : (<>
+      {/* Original config content */}
+      <div className="flex items-center justify-between">
+        <div />
         <div className="flex items-center gap-2">
           {/* View Toggle */}
           <div className="flex rounded-lg border border-border overflow-hidden">
@@ -1449,6 +1553,7 @@ export function POSManagement() {
           </div>
         </div>
       </Modal>
+      </>)}
     </div>
   );
 }

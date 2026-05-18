@@ -18,6 +18,8 @@ from ..models.user import UserRole as UserRoleModel, Role as RoleModel
 from ..models.zone import Zone as ZoneModel
 from ..models.product import Product as ProductModel
 from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
+from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
+from ..models.supplier_type import SupplierType as SupplierTypeModel
 
 router = APIRouter(prefix="/reports", tags=["Reportes"], dependencies=[Depends(get_current_user)])
 
@@ -1096,4 +1098,195 @@ def product_analytics(db: Session = Depends(get_db)):
         "byCategory": by_category,
         "totalPdvsWithCoverage": len(all_pdv_ids),
         "totalVisitsWithCoverage": total_visits_with_coverage,
+    }
+
+
+# ─── Supplier Analytics ──────────────────────────────────────────────
+
+@router.get("/supplier-analytics")
+def supplier_analytics(db: Session = Depends(get_db)):
+    """Analytics de proveedores censados por PDV."""
+    import json as _json
+
+    suppliers = db.query(PdvSupplierModel).filter(PdvSupplierModel.IsActive == True).all()
+    types = {t.SupplierTypeId: t.Name for t in db.query(SupplierTypeModel).all()}
+    zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
+
+    total = len(suppliers)
+    pdv_ids = set(s.PdvId for s in suppliers)
+    total_pdvs = len(pdv_ids)
+
+    # By type
+    by_type: dict[str, int] = {}
+    for s in suppliers:
+        tname = types.get(s.SupplierTypeId, "Sin tipo")
+        by_type[tname] = by_type.get(tname, 0) + 1
+
+    # By zone
+    by_zone: dict[str, int] = {}
+    for s in suppliers:
+        zname = zones.get(s.ZoneId, "Sin zona") if s.ZoneId else "Sin zona"
+        by_zone[zname] = by_zone.get(zname, 0) + 1
+
+    # By product
+    by_product: dict[str, int] = {}
+    for s in suppliers:
+        if s.Products:
+            try:
+                prods = _json.loads(s.Products)
+                for p in prods:
+                    by_product[p] = by_product.get(p, 0) + 1
+            except (ValueError, TypeError):
+                pass
+
+    # Top suppliers (most PDVs)
+    supplier_pdv_count: dict[str, set] = {}
+    for s in suppliers:
+        key = s.Phone  # phone as unique identifier
+        supplier_pdv_count.setdefault(key, {"name": s.Name, "phone": s.Phone, "pdvs": set(), "type": types.get(s.SupplierTypeId, "-")})
+        supplier_pdv_count[key]["pdvs"].add(s.PdvId)
+
+    top_suppliers = sorted(
+        [{"name": v["name"], "phone": v["phone"], "type": v["type"], "pdvCount": len(v["pdvs"])} for v in supplier_pdv_count.values()],
+        key=lambda x: -x["pdvCount"],
+    )[:20]
+
+    return {
+        "totalSuppliers": total,
+        "totalPdvsWithSuppliers": total_pdvs,
+        "byType": [{"type": k, "count": v} for k, v in sorted(by_type.items(), key=lambda x: -x[1])],
+        "byZone": [{"zone": k, "count": v} for k, v in sorted(by_zone.items(), key=lambda x: -x[1])],
+        "byProduct": [{"product": k, "count": v} for k, v in sorted(by_product.items(), key=lambda x: -x[1])],
+        "topSuppliers": top_suppliers,
+    }
+
+
+# ─── Route Analytics ─────────────────────────────────────────────────
+
+@router.get("/route-analytics")
+def route_analytics(db: Session = Depends(get_db)):
+    """Analytics de rutas: cumplimiento, cobertura, días."""
+    today = datetime.now(timezone.utc).date()
+    thirty_days_ago = today - timedelta(days=30)
+
+    routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+    zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
+    users = {u.UserId: u.DisplayName for u in db.query(UserModel).all()}
+
+    result = []
+    for r in routes:
+        # PDV count
+        pdv_count = db.query(sqlfunc.count(RoutePdvModel.PdvId)).filter(RoutePdvModel.RouteId == r.RouteId).scalar() or 0
+
+        # Route days in last 30 days
+        days = db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId == r.RouteId,
+            RouteDayModel.WorkDate >= thirty_days_ago,
+            RouteDayModel.WorkDate <= today,
+        ).all()
+        total_days = len(days)
+        completed_days = sum(1 for d in days if d.Status in ("COMPLETED", "CLOSED"))
+
+        # Future planned days
+        future_days = db.query(sqlfunc.count(RouteDayModel.RouteDayId)).filter(
+            RouteDayModel.RouteId == r.RouteId,
+            RouteDayModel.WorkDate > today,
+            RouteDayModel.Status == "PLANNED",
+        ).scalar() or 0
+
+        # Visits in last 30 days for this route's PDVs
+        route_pdv_ids = [row[0] for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == r.RouteId).all()]
+        visit_count = 0
+        if route_pdv_ids:
+            visit_count = db.query(sqlfunc.count(VisitModel.VisitId)).filter(
+                VisitModel.PdvId.in_(route_pdv_ids),
+                VisitModel.OpenedAt >= datetime.combine(thirty_days_ago, datetime.min.time()).replace(tzinfo=timezone.utc),
+                VisitModel.Status.in_(["CLOSED", "COMPLETED"]),
+            ).scalar() or 0
+
+        compliance = round(completed_days / total_days * 100) if total_days > 0 else 0
+
+        result.append({
+            "RouteId": r.RouteId,
+            "Name": r.Name,
+            "Zone": zones.get(r.ZoneId, "-") if r.ZoneId else "-",
+            "AssignedUser": users.get(r.AssignedUserId, "Sin asignar") if r.AssignedUserId else "Sin asignar",
+            "FrequencyType": r.FrequencyType or "-",
+            "pdvCount": pdv_count,
+            "totalDays30d": total_days,
+            "completedDays30d": completed_days,
+            "compliance30d": compliance,
+            "futurePlannedDays": future_days,
+            "visits30d": visit_count,
+        })
+
+    result.sort(key=lambda x: -x["compliance30d"])
+
+    total_routes = len(routes)
+    total_pdvs_in_routes = sum(r["pdvCount"] for r in result)
+    avg_compliance = round(sum(r["compliance30d"] for r in result) / total_routes) if total_routes else 0
+
+    return {
+        "totalRoutes": total_routes,
+        "totalPdvsInRoutes": total_pdvs_in_routes,
+        "avgCompliance": avg_compliance,
+        "routes": result,
+    }
+
+
+# ─── PDV Analytics ───────────────────────────────────────────────────
+
+@router.get("/pdv-analytics")
+def pdv_analytics(db: Session = Depends(get_db)):
+    """Analytics de PDVs: estado, distribución, actividad."""
+    pdvs = db.query(PDVModel).all()
+    zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
+    channels = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
+
+    total = len(pdvs)
+    active = sum(1 for p in pdvs if p.IsActive)
+    inactive = total - active
+    with_coords = sum(1 for p in pdvs if p.Lat and p.Lon)
+    assigned = sum(1 for p in pdvs if p.AssignedUserId)
+
+    # By channel
+    by_channel: dict[str, int] = {}
+    for p in pdvs:
+        ch = channels.get(p.ChannelId, p.Channel or "Sin canal")
+        by_channel[ch] = by_channel.get(ch, 0) + 1
+
+    # By zone
+    by_zone: dict[str, int] = {}
+    for p in pdvs:
+        z = zones.get(p.ZoneId, "Sin zona") if p.ZoneId else "Sin zona"
+        by_zone[z] = by_zone.get(z, 0) + 1
+
+    # By category (volume)
+    by_category: dict[str, int] = {}
+    for p in pdvs:
+        cat = p.Category or "Sin categorizar"
+        by_category[cat] = by_category.get(cat, 0) + 1
+
+    # Recent visit activity (last 30 days)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    visit_counts = dict(
+        db.query(VisitModel.PdvId, sqlfunc.count(VisitModel.VisitId))
+        .filter(VisitModel.OpenedAt >= thirty_days_ago, VisitModel.Status.in_(["CLOSED", "COMPLETED"]))
+        .group_by(VisitModel.PdvId)
+        .all()
+    )
+    visited_30d = len(visit_counts)
+    never_visited = sum(1 for p in pdvs if p.IsActive and p.PdvId not in visit_counts)
+
+    return {
+        "total": total,
+        "active": active,
+        "inactive": inactive,
+        "withCoords": with_coords,
+        "assigned": assigned,
+        "visited30d": visited_30d,
+        "neverVisited": never_visited,
+        "byChannel": [{"channel": k, "count": v} for k, v in sorted(by_channel.items(), key=lambda x: -x[1])],
+        "byZone": [{"zone": k, "count": v} for k, v in sorted(by_zone.items(), key=lambda x: -x[1])],
+        "byCategory": [{"category": k, "count": v} for k, v in sorted(by_category.items(), key=lambda x: -x[1])],
     }
