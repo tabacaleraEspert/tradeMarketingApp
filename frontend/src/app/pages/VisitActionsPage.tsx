@@ -236,8 +236,8 @@ export function VisitActionsPage() {
     // Atados a entregar (llenos) — por marca, de a 1
     const entregados = (formData.entregados as Record<string, number>) || {};
     const totalEntregados = Object.values(entregados).reduce((s, v) => s + v, 0);
-    const filledEntregados = cigaretteProducts.filter((p) => (entregados[p.Name] || 0) > 0);
-    const emptyEntregados = cigaretteProducts.filter((p) => !(entregados[p.Name] || 0));
+    const filledEntregados = cigaretteProducts.filter((p) => p.Name in entregados && entregados[p.Name] !== undefined);
+    const emptyEntregados = cigaretteProducts.filter((p) => !(p.Name in entregados) || entregados[p.Name] === undefined);
     return (
       <div className="space-y-4">
         {/* Modalidad */}
