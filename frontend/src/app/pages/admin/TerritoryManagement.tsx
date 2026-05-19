@@ -71,20 +71,24 @@ export function TerritoryManagement() {
       .finally(() => setLoading(false));
   }, [selectedManagerId]);
 
-  // Show the current user + their direct reports that have subordinates (territory_managers, ejecutivos)
+  // Show the current user + all subordinates (recursively) that have people under them
   const tmUsers = useMemo(() => {
     if (!currentUserId) return [];
-    const directReports = allUsers.filter((u) => u.ManagerUserId === currentUserId && u.IsActive);
-    // Include managers who have people under them
     const hasSubordinates = (userId: number) => allUsers.some((u) => u.ManagerUserId === userId && u.IsActive);
-    const managers = directReports.filter((u) => hasSubordinates(u.UserId));
-    // If no sub-managers, show the current user as the only option
-    if (managers.length === 0) {
-      const me = allUsers.find((u) => u.UserId === currentUserId);
-      return me ? [me] : [];
-    }
-    // Prepend "Mi Territorio" (current user) + sub-managers
+    // Collect all descendants recursively
+    const allDescendants: typeof allUsers = [];
+    const collect = (managerId: number) => {
+      const reports = allUsers.filter((u) => u.ManagerUserId === managerId && u.IsActive);
+      for (const r of reports) {
+        allDescendants.push(r);
+        collect(r.UserId);
+      }
+    };
+    collect(currentUserId);
+    // Keep only those who manage others (territory_managers, ejecutivos)
+    const managers = allDescendants.filter((u) => hasSubordinates(u.UserId));
     const me = allUsers.find((u) => u.UserId === currentUserId);
+    if (managers.length === 0) return me ? [me] : [];
     return me ? [me, ...managers] : managers;
   }, [allUsers, currentUserId]);
 
