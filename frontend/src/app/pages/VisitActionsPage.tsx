@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -13,6 +13,7 @@ import { pdvsApi, visitActionsApi, productsApi, visitPhotosApi } from "@/lib/api
 import type { VisitAction, Product } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { toast } from "sonner";
 
@@ -62,11 +63,12 @@ export function VisitActionsPage() {
   const [loading, setLoading] = useState(true);
   const [activeForm, setActiveForm] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Form state (shared, reset per form)
   const [formData, setFormData] = useState<Record<string, unknown>>({});
-  const [formPhotos, setFormPhotos] = useState<{ url: string; file?: File }[]>([]);
+
+  // Unified photo capture (deferred upload — photos upload when action is saved)
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto, photos: formPhotos, removePhoto, clearPhotos, hasPhotos: formHasPhotos } = usePhotoCapture({ uploadImmediately: false });
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -97,14 +99,13 @@ export function VisitActionsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const resetForm = () => { setFormData({}); setFormPhotos([]); setActiveForm(null); };
+  const resetForm = () => { setFormData({}); clearPhotos(); setActiveForm(null); };
 
   const handleSaveAction = async (type: string, description: string, details: Record<string, unknown>) => {
     if (!visitId) return;
     const isOffline = !navigator.onLine;
-    const hasPhotos = formPhotos.length > 0;
     // Photos required when online, optional when offline (will be uploaded later)
-    if (!hasPhotos && !isOffline) { toast.error("Foto obligatoria"); return; }
+    if (!formHasPhotos && !isOffline) { toast.error("Foto obligatoria"); return; }
     setSaving(true);
     try {
       const isTempVisit = visitId < 0;
@@ -113,7 +114,7 @@ export function VisitActionsPage() {
         Description: description,
         DetailsJson: JSON.stringify(details),
         PhotoRequired: true,
-        PhotoTaken: hasPhotos,
+        PhotoTaken: formHasPhotos,
       };
       const result = await executeOrEnqueue({
         kind: "visit_action_create",
@@ -124,7 +125,7 @@ export function VisitActionsPage() {
         _tempVisitId: isTempVisit ? visitId : undefined,
       });
       // Queue photo uploads (compressed, deferred — don't block the user)
-      if (hasPhotos) {
+      if (formHasPhotos) {
         const { compressImage } = await import("@/lib/imageCompression");
         const actionId = !result.queued && result.data ? (result.data as { VisitActionId?: number }).VisitActionId : Date.now();
         for (const photo of formPhotos) {
@@ -168,18 +169,6 @@ export function VisitActionsPage() {
     } catch { toast.error("Error al eliminar"); }
   };
 
-  const takePhoto = () => {
-    photoInputRef.current?.click();
-  };
-
-  const handlePhotoInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    setFormPhotos((prev) => [...prev, { url, file }]);
-  };
-
   const [showEmptyBrands, setShowEmptyBrands] = useState(false);
   const [showEntregadosBrands, setShowEntregadosBrands] = useState(false);
   const fd = (key: string) => formData[key] as string ?? "";
@@ -200,7 +189,7 @@ export function VisitActionsPage() {
           {formPhotos.map((p, i) => (
             <div key={i} className="relative">
               <img src={p.url} alt="" className="w-16 h-16 rounded-lg object-cover border border-border" />
-              <button onClick={() => setFormPhotos((prev) => prev.filter((_, j) => j !== i))} className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"><X size={10} className="text-white" /></button>
+              <button onClick={() => removePhoto(i)} className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"><X size={10} className="text-white" /></button>
             </div>
           ))}
         </div>
@@ -525,7 +514,7 @@ export function VisitActionsPage() {
     const cat = CATEGORIES.find((c) => c.id === activeForm);
     return (
       <div className="min-h-screen bg-background pb-24">
-        <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoInput} />
+        <input ref={photoInputRef} {...photoInputProps} />
         <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <button onClick={resetForm} className="p-2 hover:bg-muted rounded-lg"><ArrowLeft size={24} /></button>
@@ -554,7 +543,7 @@ export function VisitActionsPage() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <input ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoInput} />
+      <input ref={photoInputRef} {...photoInputProps} />
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
@@ -588,7 +577,7 @@ export function VisitActionsPage() {
           const count = actions.filter((a) => a.ActionType === cat.id).length;
           const Icon = cat.icon;
           return (
-            <button key={cat.id} onClick={() => { setFormData({}); setFormPhotos([]); setActiveForm(cat.id); }} className="w-full bg-card rounded-2xl border border-border p-3.5 flex items-center gap-3 text-left hover:bg-muted/30 transition-colors">
+            <button key={cat.id} onClick={() => { setFormData({}); clearPhotos(); setActiveForm(cat.id); }} className="w-full bg-card rounded-2xl border border-border p-3.5 flex items-center gap-3 text-left hover:bg-muted/30 transition-colors">
               <div className={`w-11 h-11 rounded-xl ${cat.accent} flex items-center justify-center shrink-0`}><Icon size={22} /></div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">

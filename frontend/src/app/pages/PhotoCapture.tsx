@@ -92,74 +92,76 @@ export function PhotoCapture() {
   };
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    // Resetear el input para que el mismo file pueda seleccionarse de nuevo
-    e.target.value = "";
-    if (!file || !visitId) return;
-
-    // Validación básica del lado del cliente
-    if (!file.type.startsWith("image/")) {
-      toast.error("Sólo se permiten imágenes");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("La imagen es demasiado grande (máx 10 MB)");
-      return;
-    }
-
-    setUploading(true);
     try {
-      const { compressImage } = await import("@/lib/imageCompression");
-      const compressed = await compressImage(file);
-      const coords = await getCurrentCoords();
-      const sortOrder = photos.filter((p) => p.PhotoType === selectedCategory).length + 1;
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file || !visitId) return;
 
-      // Construir las partes multipart
-      const formParts: Array<{ name: string; value: Blob | string; filename?: string }> = [
-        { name: "file", value: compressed, filename: file.name || `photo-${Date.now()}.jpg` },
-        { name: "photo_type", value: selectedCategory },
-        { name: "sort_order", value: String(sortOrder) },
-      ];
-      if (coords.lat != null) formParts.push({ name: "lat", value: String(coords.lat) });
-      if (coords.lon != null) formParts.push({ name: "lon", value: String(coords.lon) });
-
-      try {
-        const isTempVisit = visitId < 0;
-        const result = await executeOrEnqueue<VisitPhotoRead>({
-          kind: "photo_upload",
-          method: "POST",
-          url: `/files/photos/visit/${visitId}`,
-          formParts,
-          label: `Foto ${selectedCategory}`,
-          _tempVisitId: isTempVisit ? visitId : undefined,
-        });
-
-        if (result.queued) {
-          // Mostrar foto local con preview hasta que se sincronice
-          const localUrl = URL.createObjectURL(file);
-          const ghost: PhotoItem = {
-            VisitId: visitId,
-            FileId: -result.queueId, // negativo para distinguir
-            PhotoType: selectedCategory,
-            SortOrder: sortOrder,
-            Notes: null,
-            url: localUrl,
-            content_type: file.type,
-            size_bytes: file.size,
-            created_at: new Date().toISOString(),
-            _pending: true,
-            _localUrl: localUrl,
-          };
-          setPhotos((prev) => [...prev, ghost]);
-          toast.success("Foto guardada. Se subirá cuando vuelva la conexión.");
-        } else {
-          setPhotos((prev) => [...prev, result.data]);
-          toast.success("Foto subida");
-        }
-      } catch (err) {
-        toast.error(err instanceof ApiError ? err.message : "Error al subir la foto");
+      if (!file.type.startsWith("image/")) {
+        toast.error("Sólo se permiten imágenes");
+        return;
       }
-    } finally {
+      if (file.size > 15 * 1024 * 1024) {
+        toast.error("La imagen es demasiado grande (máx 15 MB)");
+        return;
+      }
+
+      setUploading(true);
+      try {
+        const { compressImage } = await import("@/lib/imageCompression");
+        const compressed = await compressImage(file);
+        const coords = await getCurrentCoords();
+        const sortOrder = photos.filter((p) => p.PhotoType === selectedCategory).length + 1;
+
+        const formParts: Array<{ name: string; value: Blob | string; filename?: string }> = [
+          { name: "file", value: compressed, filename: file.name || `photo-${Date.now()}.jpg` },
+          { name: "photo_type", value: selectedCategory },
+          { name: "sort_order", value: String(sortOrder) },
+        ];
+        if (coords.lat != null) formParts.push({ name: "lat", value: String(coords.lat) });
+        if (coords.lon != null) formParts.push({ name: "lon", value: String(coords.lon) });
+
+        try {
+          const isTempVisit = visitId < 0;
+          const result = await executeOrEnqueue<VisitPhotoRead>({
+            kind: "photo_upload",
+            method: "POST",
+            url: `/files/photos/visit/${visitId}`,
+            formParts,
+            label: `Foto ${selectedCategory}`,
+            _tempVisitId: isTempVisit ? visitId : undefined,
+          });
+
+          if (result.queued) {
+            const localUrl = URL.createObjectURL(file);
+            const ghost: PhotoItem = {
+              VisitId: visitId,
+              FileId: -result.queueId,
+              PhotoType: selectedCategory,
+              SortOrder: sortOrder,
+              Notes: null,
+              url: localUrl,
+              content_type: file.type,
+              size_bytes: file.size,
+              created_at: new Date().toISOString(),
+              _pending: true,
+              _localUrl: localUrl,
+            };
+            setPhotos((prev) => [...prev, ghost]);
+            toast.success("Foto guardada. Se subirá cuando vuelva la conexión.");
+          } else {
+            setPhotos((prev) => [...prev, result.data]);
+            toast.success("Foto subida");
+          }
+        } catch (err) {
+          toast.error(err instanceof ApiError ? err.message : "Error al subir la foto");
+        }
+      } finally {
+        setUploading(false);
+      }
+    } catch (err) {
+      // Never crash the app on photo errors
+      console.warn("[PhotoCapture] unexpected error:", err);
       setUploading(false);
     }
   };

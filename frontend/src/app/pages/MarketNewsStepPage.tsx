@@ -103,48 +103,56 @@ export function MarketNewsStepPage() {
   };
 
   const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || activePhotoIdx === null) return;
+    try {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file || activePhotoIdx === null) return;
+      if (!file.type.startsWith("image/")) return;
 
-    const localUrl = URL.createObjectURL(file);
-    const idx = activePhotoIdx;
+      const localUrl = URL.createObjectURL(file);
+      const idx = activePhotoIdx;
 
-    setDrafts((prev) => prev.map((d, i) =>
-      i === idx ? { ...d, photos: [...d.photos, { url: localUrl }] } : d
-    ));
+      // Optimistic preview
+      setDrafts((prev) => prev.map((d, i) =>
+        i === idx ? { ...d, photos: [...d.photos, { url: localUrl }] } : d
+      ));
 
-    // Queue upload (offline-tolerant) if we have a visitId and the draft is already saved
-    if (visitId && drafts[idx]?.id) {
-      try {
-        const { compressImage } = await import("@/lib/imageCompression");
-        const compressed = await compressImage(file);
-        const isTempVisit = visitId < 0;
-        const newsId = drafts[idx].id;
-        const result = await executeOrEnqueue({
-          kind: "photo_upload",
-          method: "POST",
-          url: `/files/photos/visit/${visitId}`,
-          formParts: [
-            { name: "file", value: compressed, filename: `news_${newsId}_${Date.now()}.jpg` },
-            { name: "photo_type", value: `news_${newsId}` },
-          ],
-          label: `Foto novedad`,
-          _tempVisitId: isTempVisit ? visitId : undefined,
-        });
-        if (!result.queued && result.data) {
-          const uploaded = result.data as { FileId?: number };
-          setDrafts((prev) => prev.map((d, i) =>
-            i === idx ? {
-              ...d,
-              photos: d.photos.map((p) => p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p),
-            } : d
-          ));
-        }
-      } catch { /* local preview stays, upload queued */ }
+      // Queue upload (offline-tolerant) if we have a visitId and the draft is already saved
+      if (visitId && drafts[idx]?.id) {
+        try {
+          const { compressImage } = await import("@/lib/imageCompression");
+          const compressed = await compressImage(file);
+          const isTempVisit = visitId < 0;
+          const newsId = drafts[idx].id;
+          const result = await executeOrEnqueue({
+            kind: "photo_upload",
+            method: "POST",
+            url: `/files/photos/visit/${visitId}`,
+            formParts: [
+              { name: "file", value: compressed, filename: `news_${newsId}_${Date.now()}.jpg` },
+              { name: "photo_type", value: `news_${newsId}` },
+            ],
+            label: `Foto novedad`,
+            _tempVisitId: isTempVisit ? visitId : undefined,
+          });
+          if (!result.queued && result.data) {
+            const uploaded = result.data as { FileId?: number };
+            setDrafts((prev) => prev.map((d, i) =>
+              i === idx ? {
+                ...d,
+                photos: d.photos.map((p) => p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p),
+              } : d
+            ));
+          }
+        } catch { /* local preview stays, upload queued */ }
+      }
+
+      setActivePhotoIdx(null);
+    } catch (err) {
+      // Never crash the app on photo errors
+      console.warn("[MarketNews] photo capture error:", err);
+      setActivePhotoIdx(null);
     }
-
-    setActivePhotoIdx(null);
   };
 
   const deletePhoto = async (draftIdx: number, photoIdx: number) => {

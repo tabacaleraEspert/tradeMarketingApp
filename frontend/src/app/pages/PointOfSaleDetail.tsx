@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
 import { fetchWithCache } from "@/lib/offline";
+import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import type { PdvPhotoRead, Route } from "@/lib/api";
 import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
 import type { PdvNote } from "@/lib/api";
@@ -69,8 +70,19 @@ export function PointOfSaleDetail() {
   useEffect(() => { if (shouldOpenClosedModal) setShowClosedModal(true); }, [shouldOpenClosedModal]);
   const [loading, setLoading] = useState(true);
   const [pdvPhotos, setPdvPhotos] = useState<PdvPhotoRead[]>([]);
+  const onPhotoUploaded = useCallback((_photo: unknown, serverData: unknown) => {
+    const data = serverData as PdvPhotoRead;
+    if (data?.FileId) setPdvPhotos((prev) => [...prev, data]);
+  }, []);
   const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: takePdvPhoto } = usePhotoCapture({
+    uploadUrl: id ? `/files/photos/pdv/${id}` : undefined,
+    photoType: "fachada",
+    label: "Foto PDV",
+    uploadImmediately: true,
+    onUploaded: onPhotoUploaded,
+    onError: () => toast.error("Error al subir foto"),
+  });
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deleteNoteId, setDeleteNoteId] = useState<number | null>(null);
@@ -1101,30 +1113,11 @@ export function PointOfSaleDetail() {
                 Fotos del local
               </h3>
               <div>
-                <input
-                  ref={photoInputRef}
-                  type="file"
-                  accept="image/*" capture="environment"
-                  className="hidden"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    e.target.value = "";
-                    if (!file || !id) return;
-                    try {
-                      const { compressImage } = await import("@/lib/imageCompression");
-                      const compressed = await compressImage(file);
-                      const photo = await pdvPhotosApi.upload(Number(id), compressed, { photoType: "fachada" });
-                      setPdvPhotos((prev) => [...prev, photo]);
-                      toast.success("Foto subida");
-                    } catch {
-                      toast.error("Error al subir foto");
-                    }
-                  }}
-                />
+                <input ref={photoInputRef} {...photoInputProps} />
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => photoInputRef.current?.click()}
+                  onClick={takePdvPhoto}
                   className="gap-1"
                 >
                   <Camera size={14} />
@@ -1139,7 +1132,7 @@ export function PointOfSaleDetail() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => photoInputRef.current?.click()}
+                  onClick={takePdvPhoto}
                   className="mt-2 text-xs text-[#A48242]"
                 >
                   Tomar primera foto

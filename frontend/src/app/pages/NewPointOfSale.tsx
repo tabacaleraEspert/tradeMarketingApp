@@ -13,6 +13,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/toolti
 import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
+import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
@@ -91,7 +92,7 @@ export function NewPointOfSale() {
   const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const submittingRef = useRef(false);
-  const [photos, setPhotos] = useState<{ url: string; file: File }[]>([]);
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: handleTakePhoto, photos, hasPhotos } = usePhotoCapture({ uploadImmediately: false });
 
   const userId = Number(currentUser.id) || undefined;
   const { data: myRoutes } = useMyRoutes(userId);
@@ -190,25 +191,6 @@ export function NewPointOfSale() {
     });
   };
 
-
-  const photoInputRef = useRef<HTMLInputElement>(null);
-
-  const handleTakePhoto = () => {
-    photoInputRef.current?.click();
-  };
-
-  const handlePhotoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Sólo se permiten imágenes");
-      return;
-    }
-    const localUrl = URL.createObjectURL(file);
-    setPhotos([...photos, { url: localUrl, file }]);
-    toast.success("Foto capturada");
-  };
 
   const addContact = () => {
     setContacts([...contacts, { contactName: "", contactPhone: "", contactRole: "", decisionPower: "", birthday: "", notes: "", profileNotes: "" }]);
@@ -346,10 +328,7 @@ export function NewPointOfSale() {
       {/* Photo input — at top level, outside form */}
       <input
         ref={photoInputRef}
-        type="file"
-        accept="image/*" capture="environment"
-        className="hidden"
-        onChange={handlePhotoSelected}
+        {...photoInputProps}
       />
 
       {/* Header */}

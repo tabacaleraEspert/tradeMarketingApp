@@ -149,45 +149,52 @@ export function POPCensusPage() {
   };
 
   const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !activePhotoKey) return;
-    const localUrl = URL.createObjectURL(file);
-    const key = activePhotoKey;
-    // Add to local state immediately
-    setPopPhotos((prev) => ({
-      ...prev,
-      [key]: [...(prev[key] || []), { url: localUrl }],
-    }));
-    // Queue upload (compressed, offline-tolerant)
-    if (visitId) {
-      try {
-        const { compressImage } = await import("@/lib/imageCompression");
-        const compressed = await compressImage(file);
-        const isTempVisit = visitId < 0;
-        const result = await executeOrEnqueue({
-          kind: "photo_upload",
-          method: "POST",
-          url: `/files/photos/visit/${visitId}`,
-          formParts: [
-            { name: "file", value: compressed, filename: `pop_${Date.now()}.jpg` },
-            { name: "photo_type", value: key },
-          ],
-          label: `Foto POP ${key}`,
-          _tempVisitId: isTempVisit ? visitId : undefined,
-        });
-        if (!result.queued && result.data) {
-          const uploaded = result.data as { FileId?: number };
-          setPopPhotos((prev) => ({
-            ...prev,
-            [key]: (prev[key] || []).map((p) =>
-              p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p
-            ),
-          }));
-        }
-      } catch { /* local preview stays, upload queued */ }
+    try {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file || !activePhotoKey) return;
+      if (!file.type.startsWith("image/")) return;
+      const localUrl = URL.createObjectURL(file);
+      const key = activePhotoKey;
+      // Optimistic preview
+      setPopPhotos((prev) => ({
+        ...prev,
+        [key]: [...(prev[key] || []), { url: localUrl }],
+      }));
+      // Queue upload (compressed, offline-tolerant)
+      if (visitId) {
+        try {
+          const { compressImage } = await import("@/lib/imageCompression");
+          const compressed = await compressImage(file);
+          const isTempVisit = visitId < 0;
+          const result = await executeOrEnqueue({
+            kind: "photo_upload",
+            method: "POST",
+            url: `/files/photos/visit/${visitId}`,
+            formParts: [
+              { name: "file", value: compressed, filename: `pop_${Date.now()}.jpg` },
+              { name: "photo_type", value: key },
+            ],
+            label: `Foto POP ${key}`,
+            _tempVisitId: isTempVisit ? visitId : undefined,
+          });
+          if (!result.queued && result.data) {
+            const uploaded = result.data as { FileId?: number };
+            setPopPhotos((prev) => ({
+              ...prev,
+              [key]: (prev[key] || []).map((p) =>
+                p.url === localUrl ? { ...p, fileId: uploaded.FileId } : p
+              ),
+            }));
+          }
+        } catch { /* local preview stays, upload queued */ }
+      }
+      setActivePhotoKey(null);
+    } catch (err) {
+      // Never crash the app on photo errors
+      console.warn("[POPCensus] photo capture error:", err);
+      setActivePhotoKey(null);
     }
-    setActivePhotoKey(null);
   };
 
   const handleDeletePhoto = async (key: string, photoIdx: number) => {
