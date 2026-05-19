@@ -6,7 +6,6 @@ import { Label } from "../../components/ui/label";
 import { Badge } from "../../components/ui/badge";
 import { Modal, ConfirmModal } from "../../components/ui/modal";
 import { Switch } from "../../components/ui/switch";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import {
   Search,
   Plus,
@@ -545,56 +544,49 @@ export function UserManagement() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Rol</Label>
-              <Select
-                value={form.RoleId ? String(form.RoleId) : ""}
-                onValueChange={(v) => setForm((f) => ({ ...f, RoleId: Number(v) }))}
+              <select
+                className="w-full h-10 px-3 border border-border rounded-md text-sm bg-background"
+                value={form.RoleId === "" ? "" : String(form.RoleId)}
+                onChange={(e) => setForm((f) => ({ ...f, RoleId: e.target.value ? Number(e.target.value) : "" }))}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar rol..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    const cu = getCurrentUser();
-                    const hierarchy = ["admin", "regional_manager", "territory_manager", "trade_rep", "ejecutivo", "vendedor"];
-                    const myIdx = hierarchy.indexOf(cu.role);
-                    // Admin sees all roles; others see their level and below
-                    if (myIdx <= 0) return roles; // admin or unknown → show all
-                    const allowed = hierarchy.slice(myIdx);
-                    return roles.filter((r) => allowed.includes(r.Name));
-                  })().map((r) => (
-                    <SelectItem key={r.RoleId} value={String(r.RoleId)}>
-                      {({
-                        admin: "Admin",
-                        regional_manager: "Gerente Regional",
-                        territory_manager: "Territory Manager",
-                        ejecutivo: "Ejecutivo",
-                        vendedor: "TM Rep (Vendedor)",
-                        trade_rep: "TM Rep",
-                        supervisor: "Supervisor",
-                      } as Record<string, string>)[r.Name] || r.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <option value="">Seleccionar rol...</option>
+                {(() => {
+                  const cu = getCurrentUser();
+                  const hierarchy = ["admin", "regional_manager", "territory_manager", "trade_rep", "ejecutivo", "vendedor"];
+                  const myIdx = hierarchy.indexOf(cu.role);
+                  if (myIdx <= 0) return roles;
+                  const allowed = hierarchy.slice(myIdx);
+                  return roles.filter((r) => allowed.includes(r.Name));
+                })().map((r) => (
+                  <option key={r.RoleId} value={String(r.RoleId)}>
+                    {({
+                      admin: "Admin",
+                      regional_manager: "Gerente Regional",
+                      territory_manager: "Territory Manager",
+                      ejecutivo: "Ejecutivo",
+                      vendedor: "TM Rep (Vendedor)",
+                      trade_rep: "TM Rep",
+                      supervisor: "Supervisor",
+                    } as Record<string, string>)[r.Name] || r.Name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2">
               <Label>Zona</Label>
-              <Select
-                value={form.ZoneId ? String(form.ZoneId) : ""}
-                onValueChange={(v) => setForm((f) => ({ ...f, ZoneId: Number(v) }))}
+              <select
+                className="w-full h-10 px-3 border border-border rounded-md text-sm bg-background"
+                value={form.ZoneId === "" ? "" : String(form.ZoneId)}
+                onChange={(e) => setForm((f) => ({ ...f, ZoneId: e.target.value ? Number(e.target.value) : "" }))}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar zona..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {zones.map((z) => (
-                    <SelectItem key={z.ZoneId} value={String(z.ZoneId)}>
-                      {z.Name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                <option value="">Seleccionar zona...</option>
+                {zones.map((z) => (
+                  <option key={z.ZoneId} value={String(z.ZoneId)}>
+                    {z.Name}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="space-y-2">
