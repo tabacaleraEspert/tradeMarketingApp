@@ -203,6 +203,7 @@ export const channelsApi = {
   update: (id: number, data: { Name?: string; Description?: string; IsActive?: boolean }) =>
     api.patch<Channel>(`/channels/${id}`, data),
   delete: (id: number) => api.delete(`/channels/${id}`),
+  hardDelete: (id: number) => api.delete(`/channels/${id}?hard=true`),
 };
 
 // --- Products ---

@@ -6,7 +6,20 @@ from ..database import get_db
 from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvContactModel, Distributor
 from ..models import User as UserModel
 from ..models.pdv import PdvDistributor as PdvDistributorModel
-from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel
+from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel, RouteDayPdv as RouteDayPdvModel
+from ..models.pdv import PdvPhoto as PdvPhotoModel, PdvAssignment as PdvAssignmentModel
+from ..models.pdv_kpi import PdvKpiSnapshot as PdvKpiModel
+from ..models.pdv_note import PdvNote as PdvNoteModel
+from ..models.pdv_product_category import PdvProductCategory as PdvProductCategoryModel
+from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
+from ..models.visit import Visit as VisitModel, VisitCheck, VisitAnswer, VisitPhoto as VisitPhotoModel
+from ..models.visit_action import VisitAction as VisitActionModel
+from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
+from ..models.visit_loose import VisitLooseSurvey as VisitLooseModel
+from ..models.visit_pop import VisitPOPItem as VisitPOPModel
+from ..models.visit_form_time import VisitFormTime as VisitFormTimeModel
+from ..models.market_news import MarketNews as MarketNewsModel
+from ..models.incident import Incident as IncidentModel
 from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo, volume_to_category
 from ..schemas.pdv_contact import PdvContact
 from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
@@ -417,7 +430,30 @@ def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if not pdv:
         raise HTTPException(status_code=404, detail="PDV no encontrado")
+    # Delete all visit-related data
+    visit_ids = [v.VisitId for v in db.query(VisitModel.VisitId).filter(VisitModel.PdvId == pdv_id).all()]
+    if visit_ids:
+        db.query(VisitPhotoModel).filter(VisitPhotoModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitActionModel).filter(VisitActionModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitCheck).filter(VisitCheck.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitAnswer).filter(VisitAnswer.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitCoverageModel).filter(VisitCoverageModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitLooseModel).filter(VisitLooseModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitPOPModel).filter(VisitPOPModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitFormTimeModel).filter(VisitFormTimeModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitModel).filter(VisitModel.PdvId == pdv_id).delete(synchronize_session=False)
+    # Delete PDV-related data
     db.query(PdvDistributorModel).filter(PdvDistributorModel.PdvId == pdv_id).delete()
     db.query(PdvContactModel).filter(PdvContactModel.PdvId == pdv_id).delete()
+    db.query(PdvPhotoModel).filter(PdvPhotoModel.PdvId == pdv_id).delete()
+    db.query(PdvAssignmentModel).filter(PdvAssignmentModel.PdvId == pdv_id).delete()
+    db.query(PdvKpiModel).filter(PdvKpiModel.PdvId == pdv_id).delete()
+    db.query(PdvNoteModel).filter(PdvNoteModel.PdvId == pdv_id).delete()
+    db.query(PdvProductCategoryModel).filter(PdvProductCategoryModel.PdvId == pdv_id).delete()
+    db.query(PdvSupplierModel).filter(PdvSupplierModel.PdvId == pdv_id).delete()
+    db.query(MarketNewsModel).filter(MarketNewsModel.PdvId == pdv_id).delete()
+    db.query(IncidentModel).filter(IncidentModel.PdvId == pdv_id).delete()
+    db.query(RouteDayPdvModel).filter(RouteDayPdvModel.PdvId == pdv_id).delete()
+    db.query(RoutePdvModel).filter(RoutePdvModel.PdvId == pdv_id).delete()
     db.delete(pdv)
     db.commit()

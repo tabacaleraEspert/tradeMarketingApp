@@ -84,8 +84,8 @@ export function ChannelManagement() {
 
   const handleDeleteChannel = async (channelId: number) => {
     try {
-      await channelsApi.delete(channelId);
-      toast.success("Canal desactivado");
+      await channelsApi.hardDelete(channelId);
+      toast.success("Canal eliminado");
       refetchChannels();
       setExpandedChannelId(null);
     } catch (e) {
@@ -324,13 +324,13 @@ export function ChannelManagement() {
         isOpen={confirmDelete !== null}
         onClose={() => setConfirmDelete(null)}
         onConfirm={handleConfirmDelete}
-        title={confirmDelete?.type === "channel" ? "Desactivar Canal" : "Desactivar Subcanal"}
+        title={confirmDelete?.type === "channel" ? "Eliminar Canal" : "Eliminar Subcanal"}
         message={
           confirmDelete?.type === "channel"
-            ? "¿Desactivar este canal? Los PDVs que lo usen seguirán mostrándolo."
-            : "¿Desactivar este subcanal?"
+            ? "¿Eliminar permanentemente este canal y sus subcanales? Esta acción no se puede deshacer."
+            : "¿Eliminar permanentemente este subcanal? Esta acción no se puede deshacer."
         }
-        confirmText="Desactivar"
+        confirmText="Eliminar"
         type="danger"
       />
 

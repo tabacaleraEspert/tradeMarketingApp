@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { StatusChip } from "../../components/ui/status-chip";
 import { Badge } from "../../components/ui/badge";
-import { Modal } from "../../components/ui/modal";
+import { Modal, ConfirmModal } from "../../components/ui/modal";
 import { Switch } from "../../components/ui/switch";
 import {
   Search,
@@ -456,6 +456,21 @@ export function POSManagement() {
         return "alert";
       default:
         return "pending";
+    }
+  };
+
+  const [deletingPdvId, setDeletingPdvId] = useState<string | null>(null);
+
+  const handleHardDelete = async () => {
+    if (!deletingPdvId) return;
+    try {
+      await pdvsApi.delete(Number(deletingPdvId));
+      toast.success("PDV eliminado permanentemente");
+      refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    } finally {
+      setDeletingPdvId(null);
     }
   };
 
@@ -1038,6 +1053,9 @@ export function POSManagement() {
                   <Button variant="outline" size="sm" onClick={() => { setSelectedPOS(pos); openModal(pos); }}>
                     <Edit size={16} />
                   </Button>
+                  <Button variant="outline" size="sm" onClick={() => setDeletingPdvId(pos.id)} className="text-red-600 hover:text-red-700 hover:bg-red-50">
+                    <Trash2 size={16} />
+                  </Button>
                   <Button variant="outline" size="sm">
                     <MapIcon size={16} />
                   </Button>
@@ -1554,6 +1572,16 @@ export function POSManagement() {
         </div>
       </Modal>
       </>)}
+
+      <ConfirmModal
+        isOpen={deletingPdvId !== null}
+        onClose={() => setDeletingPdvId(null)}
+        onConfirm={handleHardDelete}
+        title="Eliminar PDV"
+        message="¿Eliminar permanentemente este PDV y todos sus datos (visitas, fotos, cobertura, etc.)? Esta acción no se puede deshacer."
+        confirmText="Eliminar"
+        type="danger"
+      />
     </div>
   );
 }

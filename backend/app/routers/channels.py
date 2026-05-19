@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..auth import require_role
 from ..models import Channel as ChannelModel
+from ..models.channel import SubChannel as SubChannelModel
 from ..schemas.channel import Channel, ChannelCreate, ChannelUpdate
 
 router = APIRouter(prefix="/channels", tags=["Canales"])
@@ -60,9 +61,14 @@ def update_channel(channel_id: int, data: ChannelUpdate, db: Session = Depends(g
 
 
 @router.delete("/{channel_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
-def delete_channel(channel_id: int, db: Session = Depends(get_db)):
+def delete_channel(channel_id: int, hard: bool = False, db: Session = Depends(get_db)):
     ch = db.query(ChannelModel).filter(ChannelModel.ChannelId == channel_id).first()
     if not ch:
         raise HTTPException(status_code=404, detail="Canal no encontrado")
-    ch.IsActive = False
+    if hard:
+        # Delete subchannels first, then the channel
+        db.query(SubChannelModel).filter(SubChannelModel.ChannelId == channel_id).delete()
+        db.delete(ch)
+    else:
+        ch.IsActive = False
     db.commit()
