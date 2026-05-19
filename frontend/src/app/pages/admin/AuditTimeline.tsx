@@ -137,6 +137,10 @@ export function AuditTimeline() {
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(ev);
     }
+    // Sort events within each group by timestamp descending
+    for (const evs of Object.values(groups)) {
+      evs.sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+    }
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [filteredEvents]);
 
