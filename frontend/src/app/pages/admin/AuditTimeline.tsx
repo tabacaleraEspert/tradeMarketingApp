@@ -112,8 +112,8 @@ export function AuditTimeline() {
     try {
       const result = await api.get<TimelineResponse>("/audit/user-timeline", {
         user_id: selectedUserId,
-        date_from: dateFrom,
-        date_to: dateTo + "T23:59:59",
+        date_from: dateFrom + "T00:00:00-03:00",
+        date_to: dateTo + "T23:59:59-03:00",
       });
       setData(result);
     } catch (e: any) {
@@ -133,7 +133,8 @@ export function AuditTimeline() {
   const groupedEvents = useMemo(() => {
     const groups: Record<string, TimelineEvent[]> = {};
     for (const ev of filteredEvents) {
-      const dateKey = ev.ts ? ev.ts.split("T")[0] : "sin-fecha";
+      // Convert to Argentina timezone to group correctly
+      const dateKey = ev.ts ? new Date(ev.ts).toLocaleDateString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" }) : "sin-fecha";
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(ev);
     }
