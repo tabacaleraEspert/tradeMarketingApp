@@ -217,6 +217,26 @@ def user_timeline(
             "detail": n.Content[:100] if n.Content else "",
         })
 
+    # Post-filter: remove events outside the requested date range
+    # (sub-events of visits may fall outside the visit's date filter)
+    if dt_from or dt_to:
+        def _in_range(ev: dict) -> bool:
+            ts = ev.get("ts")
+            if not ts:
+                return True
+            try:
+                evt = datetime.fromisoformat(ts)
+                if evt.tzinfo is None:
+                    evt = evt.replace(tzinfo=dt_from.tzinfo if dt_from and dt_from.tzinfo else None)
+                if dt_from and evt < dt_from:
+                    return False
+                if dt_to and evt > dt_to:
+                    return False
+            except (ValueError, TypeError):
+                return True
+            return True
+        events = [e for e in events if _in_range(e)]
+
     # Sort by timestamp descending
     events.sort(key=lambda e: e["ts"] or "", reverse=True)
 
