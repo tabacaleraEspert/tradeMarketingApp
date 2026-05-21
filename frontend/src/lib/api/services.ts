@@ -413,8 +413,8 @@ export const routesApi = {
       FormId?: number;
       IsActive?: boolean;
       BejermanZone?: string;
-      FrequencyType?: string;
-      FrequencyConfig?: string;
+      FrequencyType?: string | null;
+      FrequencyConfig?: string | null;
       EstimatedMinutes?: number;
       AssignedUserId?: number | null;
       IsOptimized?: boolean;

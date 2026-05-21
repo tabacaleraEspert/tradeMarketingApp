@@ -266,7 +266,10 @@ export function NewPointOfSale() {
       });
 
       if (!result.queued && result.data) {
-        const newPdv = result.data as { PdvId: number };
+        const newPdv = result.data as { PdvId: number; _warning?: string };
+        if (newPdv._warning) {
+          toast.warning(newPdv._warning, { duration: 8000 });
+        }
         // Secondary operations (photos, notes, route) — best effort
         if (photos.length > 0) {
           for (const [i, p] of photos.entries()) {

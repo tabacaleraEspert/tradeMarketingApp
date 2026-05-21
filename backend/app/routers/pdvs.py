@@ -275,16 +275,14 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
         raise HTTPException(status_code=400, detail="Canal no encontrado")
     channel_name = channel.Name
 
-    # Detectar duplicado por nombre + zona
-    dup_q = db.query(PDVModel).filter(PDVModel.Name == data.Name.strip())
+    # Detectar duplicado por nombre + dirección (warn, don't block)
+    duplicate_warning = None
+    dup_q = db.query(PDVModel).filter(PDVModel.Name == data.Name.strip(), PDVModel.IsActive == True)
     if data.ZoneId is not None:
         dup_q = dup_q.filter(PDVModel.ZoneId == data.ZoneId)
     existing = dup_q.first()
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Ya existe un PDV con ese nombre en la zona (ID: {existing.PdvId})",
-        )
+        duplicate_warning = f"Ya existe un PDV con el nombre '{existing.Name}' (ID: {existing.PdvId}, Dir: {existing.Address or 'sin dirección'}). Si son locales distintos, cambiá el nombre para diferenciarlos."
 
     # Use first distributor as legacy DistributorId for backward compat
     legacy_dist_id = data.DistributorId
@@ -345,7 +343,10 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
             db.add(pc)
     db.commit()
     db.refresh(pdv)
-    return _pdv_to_response(pdv, db)
+    resp = _pdv_to_response(pdv, db)
+    if duplicate_warning:
+        resp["_warning"] = duplicate_warning
+    return resp
 
 
 @router.patch("/{pdv_id}", response_model=Pdv)

@@ -6,8 +6,9 @@ import { DateSelector } from "../components/DateSelector";
 import {
   MapPin, Plus, Search, Clock, CheckCircle2, AlertCircle,
   TrendingUp, Calendar, Route, ChevronRight, Target, Star, Zap,
-  ArrowRight, Store, Navigation,
+  ArrowRight, Store, Navigation, Locate, Loader2, X,
 } from "lucide-react";
+import { usePdvs } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
@@ -60,6 +61,42 @@ export function Home() {
   const { data: incidents } = useIncidentsWithPdvNames();
   const { data: notifications } = useActiveNotifications(Number(currentUser.id) || undefined);
   const { data: monthlyStats } = useUserMonthlyStats(Number(currentUser.id) || undefined);
+  const { data: allPdvs } = usePdvs();
+
+  // Nearby kiosk modal
+  const [nearbyOpen, setNearbyOpen] = useState(false);
+  const [nearbyLoading, setNearbyLoading] = useState(false);
+  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [nearbySearch, setNearbySearch] = useState("");
+
+  const distanceMetersBetween = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371000;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }, []);
+
+  const handleOpenNearby = useCallback(() => {
+    setNearbyOpen(true);
+    setNearbyLoading(true);
+    setNearbySearch("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setUserCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }); setNearbyLoading(false); },
+      () => { setNearbyLoading(false); },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }, []);
+
+  const nearbyPdvs = useMemo(() => {
+    if (!userCoords || allPdvs.length === 0) return [];
+    return allPdvs
+      .filter((p) => p.Lat != null && p.Lon != null && p.IsActive)
+      .map((p) => ({ ...p, distance: distanceMetersBetween(userCoords.lat, userCoords.lon, p.Lat!, p.Lon!) }))
+      .sort((a, b) => a.distance - b.distance)
+      .filter((p) => !nearbySearch || p.Name.toLowerCase().includes(nearbySearch.toLowerCase()) || (p.Address || "").toLowerCase().includes(nearbySearch.toLowerCase()));
+  }, [userCoords, allPdvs, nearbySearch, distanceMetersBetween]);
 
   // Refetch route data when user comes back to this page (e.g. after editing route frequency)
   useEffect(() => {
@@ -352,6 +389,18 @@ export function Home() {
           </button>
         )}
 
+        {/* Nearby kiosk button */}
+        <button
+          onClick={handleOpenNearby}
+          className="w-full flex items-center justify-between px-4 py-3 rounded-xl bg-[#A48242]/10 border border-[#A48242]/20 hover:bg-[#A48242]/20 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <Locate size={16} className="text-[#A48242]" />
+            <span className="text-sm font-medium text-foreground">Buscar kiosco cerca</span>
+          </div>
+          <ChevronRight size={14} className="text-[#A48242]" />
+        </button>
+
         {/* Alerts */}
         {openAlerts > 0 && (
           <button
@@ -474,6 +523,81 @@ export function Home() {
         selectedDate={selectedDate}
         onDateSelect={setSelectedDate}
       />
+
+      {/* Nearby kiosk modal */}
+      {nearbyOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/50 z-[1000]" onClick={() => setNearbyOpen(false)} />
+          <div className="fixed inset-0 z-[1001] flex items-end sm:items-center justify-center">
+            <div className="bg-card rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg max-h-[85vh] flex flex-col animate-slide-up" onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between p-4 border-b border-border shrink-0">
+                <div className="flex items-center gap-2">
+                  <Locate size={18} className="text-[#A48242]" />
+                  <h2 className="text-lg font-bold text-foreground">Kioscos cerca</h2>
+                </div>
+                <button onClick={() => setNearbyOpen(false)} className="p-2 hover:bg-muted rounded-lg"><X size={20} /></button>
+              </div>
+              {/* Search */}
+              <div className="px-4 py-2 border-b border-border shrink-0">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    type="text"
+                    placeholder="Filtrar por nombre o dirección..."
+                    value={nearbySearch}
+                    onChange={(e) => setNearbySearch(e.target.value)}
+                    className="w-full h-9 pl-9 pr-3 border border-border rounded-lg text-sm bg-background"
+                  />
+                </div>
+              </div>
+              {/* List */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {nearbyLoading ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                    <Loader2 size={24} className="animate-spin mb-2" />
+                    <p className="text-sm">Obteniendo ubicación...</p>
+                  </div>
+                ) : !userCoords ? (
+                  <div className="text-center py-12">
+                    <MapPin size={32} className="mx-auto text-muted-foreground mb-2 opacity-40" />
+                    <p className="text-sm text-muted-foreground">No se pudo obtener tu ubicación</p>
+                    <button onClick={handleOpenNearby} className="mt-2 text-xs text-[#A48242] font-semibold">Reintentar</button>
+                  </div>
+                ) : nearbyPdvs.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">No se encontraron kioscos{nearbySearch ? " con ese filtro" : ""}</p>
+                ) : (
+                  nearbyPdvs.slice(0, 50).map((p) => (
+                    <button
+                      key={p.PdvId}
+                      onClick={() => { setNearbyOpen(false); navigate(`/pos/${p.PdvId}`); }}
+                      className="w-full bg-background rounded-xl border border-border px-3 py-3 flex items-center gap-3 text-left hover:bg-muted/50 transition-colors"
+                    >
+                      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${p.distance < 500 ? "bg-green-100" : p.distance < 2000 ? "bg-amber-100" : "bg-muted"}`}>
+                        <Store size={18} className={p.distance < 500 ? "text-green-600" : p.distance < 2000 ? "text-amber-600" : "text-muted-foreground"} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">{p.Name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{p.Address || "Sin dirección"}</p>
+                        {p.ChannelName && <Badge variant="outline" className="text-[9px] mt-0.5">{p.ChannelName}</Badge>}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-sm font-bold ${p.distance < 500 ? "text-green-600" : p.distance < 2000 ? "text-amber-600" : "text-muted-foreground"}`}>
+                          {p.distance < 1000 ? `${Math.round(p.distance)}m` : `${(p.distance / 1000).toFixed(1)}km`}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+          <style>{`
+            @keyframes slide-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+            .animate-slide-up { animation: slide-up 0.25s ease-out; }
+          `}</style>
+        </>
+      )}
     </div>
   );
 }

@@ -764,8 +764,8 @@ export function RouteEditorPage() {
         ZoneId: routeDraft.ZoneId ?? undefined,
         BejermanZone: routeDraft.BejermanZone ?? undefined,
         EstimatedMinutes: routeDraft.EstimatedMinutes ?? undefined,
-        FrequencyType: routeDraft.FrequencyType ?? undefined,
-        FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
+        FrequencyType: routeDraft.FrequencyType ?? null,
+        FrequencyConfig: routeDraft.FrequencyConfig ?? null,
         AssignedUserId: routeDraft.AssignedUserId ?? undefined,
       });
       setRoute(updated);
@@ -780,15 +780,19 @@ export function RouteEditorPage() {
       });
       toast.success("Ruta guardada");
 
-      // Auto-generate days when: frequency is set + TM assigned + PDVs exist
-      // Generate if frequency changed OR if there are no days yet
-      const hasDaysCondition = routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0;
-      if (hasDaysCondition && (frequencyChanged || routeDays.length === 0)) {
-        // Reload days (backend may have deleted old PLANNED days on freq change)
-        const freshDays = await routesApi.listDays(id);
-        setRouteDays(freshDays);
-        if (freshDays.length === 0 || frequencyChanged) {
-          await handleGenerateDays(8);
+      if (frequencyChanged) {
+        if (routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0) {
+          // Frequency set → reload and regenerate days
+          const freshDays = await routesApi.listDays(id);
+          setRouteDays(freshDays);
+          if (freshDays.length === 0 || frequencyChanged) {
+            await handleGenerateDays(8);
+          }
+        } else if (!routeDraft.FrequencyType) {
+          // Frequency cleared → backend deleted future days, refresh local list
+          const freshDays = await routesApi.listDays(id);
+          setRouteDays(freshDays);
+          toast.success("Frecuencia eliminada — días programados borrados");
         }
       }
 
