@@ -75,7 +75,7 @@ export default function App() {
       <SelectedDateProvider>
         <OfflineBanner />
         <RouterProvider router={router} />
-        <Toaster />
+        <Toaster position="top-center" />
         <PendingSyncIndicator />
         <ForcePasswordChangeModal
           isOpen={mustChangePassword}
