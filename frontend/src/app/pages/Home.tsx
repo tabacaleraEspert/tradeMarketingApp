@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { DateSelector } from "../components/DateSelector";
@@ -60,6 +60,15 @@ export function Home() {
   const { data: incidents } = useIncidentsWithPdvNames();
   const { data: notifications } = useActiveNotifications(Number(currentUser.id) || undefined);
   const { data: monthlyStats } = useUserMonthlyStats(Number(currentUser.id) || undefined);
+
+  // Refetch route data when user comes back to this page (e.g. after editing route frequency)
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") refetchPdvs(); };
+    document.addEventListener("visibilitychange", onVisible);
+    // Also refetch on window focus (covers tab switching and in-app navigation)
+    window.addEventListener("focus", refetchPdvs);
+    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refetchPdvs); };
+  }, [refetchPdvs]);
 
   // Pre-fetch all data needed for offline visits when Home loads with connection
   useEffect(() => {
