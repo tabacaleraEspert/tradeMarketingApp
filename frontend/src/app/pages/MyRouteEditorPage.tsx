@@ -413,8 +413,8 @@ export function MyRouteEditorPage() {
       const updated = await routesApi.update(id, {
         Name: routeDraft.Name,
         BejermanZone: routeDraft.BejermanZone ?? undefined,
-        FrequencyType: routeDraft.FrequencyType || undefined,
-        FrequencyConfig: routeDraft.FrequencyConfig || undefined,
+        FrequencyType: routeDraft.FrequencyType ?? null,
+        FrequencyConfig: routeDraft.FrequencyConfig ?? null,
       });
       setRoute(updated);
       setRouteDraft({
@@ -429,9 +429,9 @@ export function MyRouteEditorPage() {
       const nameChanged = routeDraft.Name !== route?.Name;
       const bejermanChanged = (routeDraft.BejermanZone ?? "") !== (route?.BejermanZone ?? "");
 
-      // Auto-generate days when frequency is set and there are PDVs
-      if (routeDraft.FrequencyType && routePdvs.length > 0) {
-        if (frequencyChanged) {
+      if (frequencyChanged) {
+        if (routeDraft.FrequencyType && routePdvs.length > 0) {
+          // Frequency set → check overlap and regenerate days
           try {
             const overlap = await routesApi.checkOverlap(id);
             if (overlap.hasOverlap) {
@@ -439,8 +439,13 @@ export function MyRouteEditorPage() {
               toast.warning(`Solapamiento detectado con: ${names}. Revisá las frecuencias.`);
             }
           } catch { /* non-blocking */ }
+          await handleGenerateDays(8);
+        } else if (!routeDraft.FrequencyType) {
+          // Frequency cleared → backend already deleted future days, refresh local list
+          const freshDays = await routesApi.listDays(id);
+          setRouteDays(freshDays);
+          toast.success("Frecuencia eliminada — días programados borrados");
         }
-        await handleGenerateDays(8);
       }
 
       // Notify admin for any meaningful change
