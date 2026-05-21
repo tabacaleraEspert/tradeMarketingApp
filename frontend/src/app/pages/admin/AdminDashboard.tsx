@@ -16,6 +16,8 @@ import { Bell } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { toast } from "sonner";
 
+interface TodayRoute { routeDayId: number; routeId: number; routeName: string; userId: number | null; userName: string | null; pdvCount: number; firstActivity: string | null; visitsToday: number; started: boolean; }
+interface TodayOverview { date: string; totalRoutes: number; totalStarted: number; routes: TodayRoute[]; }
 interface Summary { totalVisits: number; closedVisits: number; totalPdvs: number; pdvsVisited: number; coverage: number; visitsWithGps: number; visitsWithPhoto: number; avgDurationMin: number; }
 interface VendorRow { userId: number; name: string; zone: string; visits: number; closed: number; pdvsVisited: number; compliance: number; withGps: number; withPhoto: number; avgTimeMin: number; rank: number; }
 interface ChannelRow { channelId: number; channel: string; total: number; visited: number; coverage: number; gps: number; photo: number; }
@@ -27,6 +29,7 @@ export function AdminDashboard() {
   const { data: visits } = useApiList(() => visitsApi.list());
   const { data: incidents } = useApiList(() => incidentsApi.list());
 
+  const [todayOverview, setTodayOverview] = useState<TodayOverview | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [vendors, setVendors] = useState<VendorRow[]>([]);
   const [channels, setChannels] = useState<ChannelRow[]>([]);
@@ -37,6 +40,7 @@ export function AdminDashboard() {
 
   useEffect(() => {
     const onErr = () => toast.error("Error al cargar datos del dashboard");
+    api.get<TodayOverview>("/routes/today-overview").then(setTodayOverview).catch(() => {});
     reportsApi.summary().then(setSummary).catch(onErr);
     reportsApi.vendorRanking().then(setVendors).catch(onErr);
     reportsApi.channelCoverage().then(setChannels).catch(onErr);
@@ -88,6 +92,54 @@ export function AdminDashboard() {
           Reportes
         </Button>
       </div>
+
+      {/* === TODAY'S FIELD STATUS === */}
+      {todayOverview && (
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-[#A48242]/10 flex items-center justify-center">
+                  <MapPin size={16} className="text-[#A48242]" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold text-foreground">Rutas de hoy</h2>
+                  <p className="text-[10px] text-muted-foreground">{todayOverview.totalStarted} de {todayOverview.totalRoutes} iniciadas</p>
+                </div>
+              </div>
+              <Badge className={todayOverview.totalStarted === todayOverview.totalRoutes ? "bg-green-100 text-green-700 border-0" : "bg-amber-100 text-amber-700 border-0"}>
+                {todayOverview.totalStarted}/{todayOverview.totalRoutes}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {todayOverview.routes.map((r) => (
+                <div key={r.routeDayId} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${r.started ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"}`}>
+                  <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${r.started ? "bg-green-500" : "bg-red-400"}`} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{r.userName || "Sin asignar"}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{r.routeName} · {r.pdvCount} PDVs</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {r.started ? (
+                      <>
+                        <p className="text-xs font-bold text-green-700">{r.visitsToday} visitas</p>
+                        <p className="text-[10px] text-green-600">
+                          Check-in {r.firstActivity ? new Date(r.firstActivity).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }) : ""}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs font-semibold text-red-600">Sin actividad</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {todayOverview.routes.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">No hay rutas programadas para hoy</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* === ROW 1: Hero KPIs === */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

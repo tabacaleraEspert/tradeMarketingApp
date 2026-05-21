@@ -18,7 +18,7 @@ export function Layout() {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-background pt-[env(safe-area-inset-top)]">
+    <div className="flex flex-col h-[100dvh] bg-background pt-[env(safe-area-inset-top)]">
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
         <div className="max-w-lg mx-auto">
@@ -27,12 +27,12 @@ export function Layout() {
       </main>
 
       {/* Bottom Navigation - Espert brand */}
-      <nav className="bg-card border-t border-border px-2 py-2 safe-area-bottom">
+      <nav className="shrink-0 bg-card border-t border-border px-2 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button
             onClick={() => navigate("/")}
             aria-label="Inicio"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/") && location.pathname === "/"
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -45,7 +45,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/search-pdv")}
             aria-label="Buscar PDV"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/search-pdv") || isActive("/route") || location.pathname.includes("/pos")
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -58,7 +58,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/alerts")}
             aria-label="Alertas"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/alerts") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -69,7 +69,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/sync")}
             aria-label="Sincronizar"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/sync") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -80,7 +80,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/profile")}
             aria-label="Perfil"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[48px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/profile") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >

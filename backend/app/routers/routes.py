@@ -80,6 +80,99 @@ def pdv_assignments(db: Session = Depends(get_db)):
     return [{"pdvId": pid, "routeId": rid} for pid, rid in rows]
 
 
+# --- Today's executive overview ---
+@router.get("/today-overview", dependencies=[Depends(get_current_user)])
+def today_overview(db: Session = Depends(get_db)):
+    """Executive view: today's routes, assigned users, and first activity time."""
+    from datetime import date, datetime, timezone
+    from ..models.visit import Visit as VisitModel, VisitCheck as VisitCheckModel
+
+    today = date.today()
+
+    # 1. Route days for today
+    route_days = db.query(RouteDayModel).filter(RouteDayModel.WorkDate == today).all()
+
+    # 2. Get route names
+    route_ids = {rd.RouteId for rd in route_days}
+    routes_map = {r.RouteId: r for r in db.query(RouteModel).filter(RouteModel.RouteId.in_(route_ids)).all()} if route_ids else {}
+
+    # 3. Get assigned user info
+    user_ids = {rd.AssignedUserId for rd in route_days if rd.AssignedUserId}
+    users_map = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()} if user_ids else {}
+
+    # 4. Count PDVs per route day
+    day_ids = [rd.RouteDayId for rd in route_days]
+    pdv_counts: dict[int, int] = {}
+    if day_ids:
+        from sqlalchemy import func as sqlfunc
+        counts = db.query(RouteDayPdvModel.RouteDayId, sqlfunc.count()).filter(
+            RouteDayPdvModel.RouteDayId.in_(day_ids)
+        ).group_by(RouteDayPdvModel.RouteDayId).all()
+        pdv_counts = {row[0]: row[1] for row in counts}
+
+    # 5. Get today's visits and first check-in per user
+    today_start = datetime(today.year, today.month, today.day, tzinfo=timezone.utc)
+    today_end = datetime(today.year, today.month, today.day, 23, 59, 59, tzinfo=timezone.utc)
+    today_visits = db.query(VisitModel).filter(
+        VisitModel.OpenedAt >= today_start,
+        VisitModel.OpenedAt <= today_end,
+    ).all()
+
+    # First activity per user: earliest OpenedAt
+    first_activity: dict[int, str] = {}
+    visits_count: dict[int, int] = {}
+    for v in today_visits:
+        uid = v.UserId
+        visits_count[uid] = visits_count.get(uid, 0) + 1
+        ts = v.OpenedAt.isoformat() if v.OpenedAt else None
+        if ts and (uid not in first_activity or ts < first_activity[uid]):
+            first_activity[uid] = ts
+
+    # Also check VisitChecks for check-in times (might be earlier than OpenedAt)
+    visit_ids = [v.VisitId for v in today_visits]
+    if visit_ids:
+        checks = db.query(VisitCheckModel).filter(
+            VisitCheckModel.VisitId.in_(visit_ids),
+            VisitCheckModel.CheckType == "IN",
+        ).all()
+        # Map visit to user
+        visit_user = {v.VisitId: v.UserId for v in today_visits}
+        for c in checks:
+            uid = visit_user.get(c.VisitId)
+            if uid and c.Ts:
+                ts = c.Ts.isoformat()
+                if uid not in first_activity or ts < first_activity[uid]:
+                    first_activity[uid] = ts
+
+    # 6. Build response
+    routes_list = []
+    for rd in route_days:
+        route = routes_map.get(rd.RouteId)
+        user = users_map.get(rd.AssignedUserId) if rd.AssignedUserId else None
+        uid = rd.AssignedUserId
+        routes_list.append({
+            "routeDayId": rd.RouteDayId,
+            "routeId": rd.RouteId,
+            "routeName": route.Name if route else f"Ruta #{rd.RouteId}",
+            "userId": uid,
+            "userName": user.DisplayName if user else None,
+            "pdvCount": pdv_counts.get(rd.RouteDayId, 0),
+            "firstActivity": first_activity.get(uid) if uid else None,
+            "visitsToday": visits_count.get(uid, 0) if uid else 0,
+            "started": uid in first_activity if uid else False,
+        })
+
+    # Sort: not started first, then by route name
+    routes_list.sort(key=lambda r: (r["started"], r["routeName"] or ""))
+
+    return {
+        "date": today.isoformat(),
+        "totalRoutes": len(routes_list),
+        "totalStarted": sum(1 for r in routes_list if r["started"]),
+        "routes": routes_list,
+    }
+
+
 # --- Route Map Overview ---
 @router.get("/map-overview", dependencies=[Depends(get_current_user)])
 def routes_map_overview(db: Session = Depends(get_db)):
