@@ -125,6 +125,31 @@ def update_pdv_supplier(
     return _row_to_response(row)
 
 
+@router.get("/search-zone", response_model=list[PdvSupplier])
+def search_suppliers_in_zone(
+    pdv_id: int,
+    phone: str | None = None,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Search all suppliers in the user's zone (across all PDVs). Optionally filter by phone."""
+    zone_id = current_user.ZoneId
+    q = db.query(Model).filter(Model.IsActive == True)
+    if zone_id is not None:
+        q = q.filter(Model.ZoneId == zone_id)
+    if phone and phone.strip():
+        q = q.filter(Model.Phone.contains(phone.strip()))
+    # Deduplicate by phone (same supplier can appear in multiple PDVs)
+    rows = q.order_by(Model.Name).limit(100).all()
+    seen_phones: set[str] = set()
+    unique: list[dict] = []
+    for r in rows:
+        if r.Phone not in seen_phones:
+            seen_phones.add(r.Phone)
+            unique.append(_row_to_response(r))
+    return unique
+
+
 @router.delete("/{supplier_id}", status_code=204)
 def delete_pdv_supplier(
     pdv_id: int,

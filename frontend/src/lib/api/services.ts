@@ -884,4 +884,6 @@ export const pdvSuppliersApi = {
     api.patch<PdvSupplier>(`/pdvs/${pdvId}/suppliers/${supplierId}`, data),
   delete: (pdvId: number, supplierId: number) =>
     api.delete(`/pdvs/${pdvId}/suppliers/${supplierId}`),
+  searchZone: (pdvId: number, phone?: string) =>
+    api.get<PdvSupplier[]>(`/pdvs/${pdvId}/suppliers/search-zone`, phone ? { phone } : undefined),
 };

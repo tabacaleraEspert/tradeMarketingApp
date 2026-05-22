@@ -45,6 +45,9 @@ export function SupplierCensusPage() {
   const [form, setForm] = useState<SupplierForm>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
+  const [zoneSuppliers, setZoneSuppliers] = useState<PdvSupplier[]>([]);
+  const [showZoneList, setShowZoneList] = useState(false);
+  const [phoneSearch, setPhoneSearch] = useState("");
 
   const pdvId = Number(id);
 
@@ -61,6 +64,28 @@ export function SupplierCensusPage() {
       setProductTypes(pt);
     }).finally(() => setLoading(false));
   }, [pdvId]);
+
+  // Load zone suppliers when form opens
+  useEffect(() => {
+    if (showForm && pdvId) {
+      pdvSuppliersApi.searchZone(pdvId).then(setZoneSuppliers).catch(() => {});
+    }
+  }, [showForm, pdvId]);
+
+  // Auto-fill when phone matches an existing supplier
+  useEffect(() => {
+    if (!form.Phone || form.Phone.length < 6 || editingId) return;
+    const match = zoneSuppliers.find((s) => s.Phone === form.Phone.trim());
+    if (match && match.Name !== form.Name) {
+      setForm((f) => ({
+        ...f,
+        Name: match.Name,
+        SupplierTypeId: match.SupplierTypeId ?? "",
+        Products: match.Products ?? [],
+      }));
+      toast.success(`Proveedor encontrado: ${match.Name}`);
+    }
+  }, [form.Phone, zoneSuppliers, editingId]);
 
   const toggleProduct = (name: string) => {
     setForm((f) => ({
@@ -213,6 +238,40 @@ export function SupplierCensusPage() {
                       <X size={16} />
                     </button>
                   </div>
+
+                  {/* Select from zone suppliers */}
+                  {!editingId && zoneSuppliers.length > 0 && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setShowZoneList(!showZoneList)}
+                        className="w-full text-left px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 flex items-center justify-between"
+                      >
+                        <span><Truck size={12} className="inline mr-1" /> Seleccionar de la zona ({zoneSuppliers.length})</span>
+                        <span>{showZoneList ? "▲" : "▼"}</span>
+                      </button>
+                      {showZoneList && (
+                        <div className="mt-1 max-h-40 overflow-y-auto border border-border rounded-lg divide-y divide-border bg-background">
+                          {zoneSuppliers
+                            .filter((s) => !suppliers.some((ex) => ex.Phone === s.Phone))
+                            .map((s) => (
+                            <button
+                              key={s.PdvSupplierId}
+                              type="button"
+                              onClick={() => {
+                                setForm({ Name: s.Name, Phone: s.Phone, SupplierTypeId: s.SupplierTypeId ?? "", Products: s.Products ?? [] });
+                                setShowZoneList(false);
+                              }}
+                              className="w-full text-left px-3 py-2 hover:bg-muted/50 text-sm"
+                            >
+                              <span className="font-medium">{s.Name}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">{s.Phone}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="space-y-2">
                     <input
