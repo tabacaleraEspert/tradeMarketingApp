@@ -70,10 +70,13 @@ def bulk_save_coverage(visit_id: int, data: VisitCoverageBulk, current_user: Use
     for item in data.items:
         db.add(CoverageModel(
             VisitId=visit_id,
-            ProductId=item.ProductId,
+            ProductId=item.ProductId if item.ProductId else None,
             Works=item.Works,
             Price=item.Price if item.Works else None,
             Availability=item.Availability if item.Works else None,
+            Puffs=getattr(item, "Puffs", None) if item.Works else None,
+            ProductName=getattr(item, "ProductName", None),
+            Category=getattr(item, "Category", None),
         ))
     db.commit()
     return db.query(CoverageModel).filter(CoverageModel.VisitId == visit_id).all()
@@ -125,9 +128,11 @@ def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_curr
             Works=cur.Works if cur else False,
             Price=cur.Price if cur else None,
             Availability=cur.Availability if cur else None,
+            Puffs=getattr(cur, "Puffs", None) if cur else None,
             HasCurrentData=cur is not None,
             PrevWorks=prev.Works if prev else None,
             PrevPrice=prev.Price if prev else None,
             PrevAvailability=prev.Availability if prev else None,
+            PrevPuffs=getattr(prev, "Puffs", None) if prev else None,
         ))
     return result

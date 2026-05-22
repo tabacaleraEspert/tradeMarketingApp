@@ -345,6 +345,23 @@ def my_routes_detail(
     pdv_ids = {rp.PdvId for rp in all_rps}
     pdvs_map = {p.PdvId: p for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
 
+    # Get next scheduled day per route (today or future)
+    from datetime import date
+    today = date.today()
+    next_days = db.query(
+        RouteDayModel.RouteId,
+        RouteDayModel.WorkDate,
+    ).filter(
+        RouteDayModel.RouteId.in_(route_ids),
+        RouteDayModel.WorkDate >= today,
+        RouteDayModel.Status == "PLANNED",
+    ).order_by(RouteDayModel.WorkDate).all()
+    # First upcoming day per route
+    next_day_map: dict[int, str] = {}
+    for rid, wdate in next_days:
+        if rid not in next_day_map:
+            next_day_map[rid] = wdate.isoformat() if hasattr(wdate, "isoformat") else str(wdate)
+
     result = []
     for r in routes:
         rps = [rp for rp in all_rps if rp.RouteId == r.RouteId]
@@ -363,8 +380,11 @@ def my_routes_detail(
             "RouteId": r.RouteId, "Name": r.Name, "PdvCount": len(rps),
             "BejermanZone": r.BejermanZone, "FrequencyType": r.FrequencyType,
             "EstimatedMinutes": r.EstimatedMinutes, "IsOptimized": r.IsOptimized,
+            "nextDay": next_day_map.get(r.RouteId),
             "pdvs": pdvs,
         })
+    # Sort: today first, then nearest future day, then no day (sin definir) at the end
+    result.sort(key=lambda r: r["nextDay"] or "9999-99-99")
     return result
 
 

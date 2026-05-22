@@ -5,10 +5,13 @@ from pydantic import BaseModel, Field
 
 
 class VisitCoverageItem(BaseModel):
-    ProductId: int
+    ProductId: int | None = None
     Works: bool = False
     Price: Decimal | None = Field(None, ge=0)
     Availability: Literal["disponible", "quiebre"] | None = None
+    Puffs: int | None = None
+    ProductName: str | None = None  # For custom "Otros" products
+    Category: str | None = None     # For custom "Otros" products
 
 
 class VisitCoverageBulk(BaseModel):
@@ -34,7 +37,9 @@ class CoverageDiff(BaseModel):
     Works: bool = False
     Price: Decimal | None = None
     Availability: str | None = None
-    HasCurrentData: bool = False  # True if this visit has saved coverage for this product
+    Puffs: int | None = None
+    HasCurrentData: bool = False
     PrevWorks: bool | None = None
     PrevPrice: Decimal | None = None
     PrevAvailability: str | None = None
+    PrevPuffs: int | None = None

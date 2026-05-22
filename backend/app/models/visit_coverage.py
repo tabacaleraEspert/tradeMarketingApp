@@ -12,11 +12,16 @@ class VisitCoverage(Base):
 
     VisitCoverageId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     VisitId = Column(Integer, ForeignKey("Visit.VisitId", ondelete="CASCADE"), nullable=False, index=True)
-    ProductId = Column(Integer, ForeignKey("Product.ProductId"), nullable=False, index=True)
+    ProductId = Column(Integer, ForeignKey("Product.ProductId"), nullable=True, index=True)
     # "Lo trabaja" — Sí / No
     Works = Column(Boolean, nullable=False, default=False)
     # Precio al consumidor en pesos (solo si Works=True)
     Price = Column(Numeric(10, 2), nullable=True)
     # Disponibilidad: "disponible" / "quiebre" (solo si Works=True)
     Availability = Column(String(20), nullable=True)
+    # Puffs (solo para Vapes)
+    Puffs = Column(Integer, nullable=True)
+    # Nombre custom para productos "Otros" no catalogados
+    ProductName = Column(String(120), nullable=True)
+    Category = Column(String(80), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

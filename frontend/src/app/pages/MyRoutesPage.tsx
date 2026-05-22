@@ -27,6 +27,7 @@ import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
 import { useMyRoutes, routesApi, pdvsApi } from "@/lib/api";
 import { api } from "@/lib/api/client";
+import { fetchWithCache } from "@/lib/offline";
 import type { Pdv, RoutePdv } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
@@ -54,6 +55,7 @@ interface RouteWithPdvs {
   frequencyType: string | null;
   estimatedMinutes: number | null;
   isOptimized: boolean;
+  nextDay: string | null;
   pdvs: Pdv[];
   routePdvs: RoutePdv[];
   color: string;
@@ -113,7 +115,7 @@ export function MyRoutesPage() {
       return;
     }
     setEnriching(true);
-    api.get<any[]>("/routes/my-routes-detail", { user_id: Number(currentUser.id) })
+    fetchWithCache(`my_routes_detail_${currentUser.id}`, () => api.get<any[]>("/routes/my-routes-detail", { user_id: Number(currentUser.id) }))
       .then((data) => {
         const enriched: RouteWithPdvs[] = data.map((r: any, i: number) => ({
           routeId: r.RouteId,
@@ -123,6 +125,7 @@ export function MyRoutesPage() {
           frequencyType: r.FrequencyType,
           estimatedMinutes: r.EstimatedMinutes,
           isOptimized: r.IsOptimized,
+          nextDay: r.nextDay ?? null,
           pdvs: r.pdvs.map((p: any) => ({ ...p } as Pdv)),
           routePdvs: r.pdvs.map((p: any) => ({ PdvId: p.PdvId, SortOrder: p.SortOrder, Priority: p.Priority, RouteId: r.RouteId } as RoutePdv)),
           color: ROUTE_COLORS[i % ROUTE_COLORS.length],
@@ -670,6 +673,21 @@ export function MyRoutesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <h3 className="font-bold text-foreground truncate">{route.name}</h3>
+                        {route.nextDay === new Date().toISOString().split("T")[0] && (
+                          <Badge className="bg-[#A48242] text-white border-0 text-[10px] px-1.5 py-0">
+                            Hoy
+                          </Badge>
+                        )}
+                        {route.nextDay && route.nextDay !== new Date().toISOString().split("T")[0] && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                            {new Date(route.nextDay + "T12:00:00").toLocaleDateString("es-AR", { weekday: "short", day: "numeric", month: "short" })}
+                          </Badge>
+                        )}
+                        {!route.nextDay && !route.frequencyType && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+                            Sin programar
+                          </Badge>
+                        )}
                         {route.isOptimized && (
                           <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0 gap-0.5">
                             <Zap size={9} />

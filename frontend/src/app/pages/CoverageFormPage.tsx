@@ -30,6 +30,7 @@ interface CoverageRow {
   Works: boolean;
   Price: string;
   Availability: string;
+  Puffs: string;
 }
 
 export function CoverageFormPage() {
@@ -49,6 +50,9 @@ export function CoverageFormPage() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [categoryStatus, setCategoryStatus] = useState<Record<string, boolean>>({});
+  // "Otros" custom products per category (name + price)
+  const [otherProducts, setOtherProducts] = useState<Record<string, { name: string; price: string }[]>>({});
+  const [newOtherName, setNewOtherName] = useState<Record<string, string>>({});
   const [coverageReqs, setCoverageReqs] = useState<{
     ownRequired: boolean; competitorRequired: boolean; competitorEveryN: number; visitNumber: number;
   } | null>(null);
@@ -131,6 +135,7 @@ export function CoverageFormPage() {
             Works: d.Works,
             Price: d.Price != null ? String(d.Price) : "",
             Availability: d.Availability || "disponible",
+            Puffs: d.Puffs != null ? String(d.Puffs) : "",
           };
         } else if (!isFirstVisit && hasPrevData && d) {
           // Subsequent visit: pre-load from previous
@@ -139,6 +144,7 @@ export function CoverageFormPage() {
             Works: d.PrevWorks ?? false,
             Price: d.PrevPrice != null ? String(d.PrevPrice) : "",
             Availability: d.PrevAvailability || "disponible",
+            Puffs: d.PrevPuffs != null ? String(d.PrevPuffs) : "",
           };
         } else {
           // First visit or no data at all: start empty
@@ -147,6 +153,7 @@ export function CoverageFormPage() {
             Works: false,
             Price: "",
             Availability: "disponible",
+            Puffs: "",
           };
         }
       }
@@ -215,9 +222,33 @@ export function CoverageFormPage() {
           Works: r.Works,
           Price: r.Works && r.Price ? Number(r.Price) : undefined,
           Availability: r.Works ? r.Availability : undefined,
+          Puffs: r.Works && r.Puffs ? Number(r.Puffs) : undefined,
         }));
+      // Auto-correct: if category is "trabaja" but no products are marked as working (and no "otros"), set to "no_trabaja"
+      const correctedCategoryStatus = { ...categoryStatus };
+      for (const cat of Object.keys(correctedCategoryStatus)) {
+        if (correctedCategoryStatus[cat]) {
+          const catProducts = products.filter((p) => p.Category === cat);
+          const anyWorking = catProducts.some((p) => rows[p.ProductId]?.Works);
+          const hasOthers = (otherProducts[cat] || []).length > 0;
+          if (!anyWorking && !hasOthers) correctedCategoryStatus[cat] = false;
+        }
+      }
+      // Add "otros" custom products as extra items
+      const otherItems = Object.entries(otherProducts).flatMap(([cat, others]) =>
+        others.filter((o) => o.name.trim()).map((o) => ({
+          ProductId: null,
+          ProductName: o.name.trim(),
+          Category: cat,
+          Works: true,
+          Price: o.price ? Number(o.price) : undefined,
+          Availability: "disponible",
+        }))
+      );
+      if (otherItems.length > 0) items.push(...otherItems as any);
+
       // Save coverage items + category statuses in parallel (offline-tolerant)
-      const categoryItems = Object.entries(categoryStatus).map(([cat, works]) => ({
+      const categoryItems = Object.entries(correctedCategoryStatus).map(([cat, works]) => ({
         Category: cat,
         Status: works ? "trabaja" : "no_trabaja",
       }));
@@ -400,7 +431,6 @@ export function CoverageFormPage() {
                 const priceChanged = diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
                 const newProduct = diff && diff.PrevWorks === null;
                 const lostProduct = diff && diff.PrevWorks === true && !row.Works;
-                // Inherited: data comes from previous visit (not yet confirmed in this visit)
                 const isInherited = diff && diff.PrevWorks != null && !diff.Works && row.Works;
 
                 return (
@@ -437,8 +467,8 @@ export function CoverageFormPage() {
                       </div>
 
                       {row.Works && (
-                        <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border">
-                          <div className="flex-1">
+                        <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border flex-wrap">
+                          <div className="flex-1 min-w-[80px]">
                             <div className="relative">
                               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                               <Input
@@ -462,6 +492,17 @@ export function CoverageFormPage() {
                               </div>
                             )}
                           </div>
+                          {category.toLowerCase().includes("vape") && (
+                            <div className="w-20">
+                              <Input
+                                type="number"
+                                placeholder="Puffs"
+                                value={row.Puffs}
+                                onChange={(e) => updateRow(product.ProductId, "Puffs", e.target.value)}
+                                className="h-8 text-sm text-center"
+                              />
+                            </div>
+                          )}
                           <div className="flex gap-1">
                             <button
                               onClick={() => updateRow(product.ProductId, "Availability", "disponible")}
@@ -490,6 +531,61 @@ export function CoverageFormPage() {
                   </Card>
                 );
               })}
+
+              {/* Otros — productos custom no listados */}
+              {(otherProducts[category] || []).map((op, idx) => (
+                <Card key={`other-${idx}`} className="overflow-hidden border-l-4 border-l-violet-400">
+                  <CardContent className="p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                        <span className="text-sm font-medium text-foreground truncate">{op.name}</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-medium shrink-0">OTRO</span>
+                      </div>
+                      <button onClick={() => setOtherProducts((prev) => ({ ...prev, [category]: (prev[category] || []).filter((_, i) => i !== idx) }))} className="p-1 hover:bg-muted rounded">
+                        <XIcon size={14} className="text-muted-foreground" />
+                      </button>
+                    </div>
+                    <div className="mt-2 pt-2 border-t border-border">
+                      <div className="relative">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                        <Input
+                          type="number"
+                          placeholder="Precio"
+                          value={op.price}
+                          onChange={(e) => setOtherProducts((prev) => ({ ...prev, [category]: (prev[category] || []).map((o, i) => i === idx ? { ...o, price: e.target.value } : o) }))}
+                          className="h-8 text-sm pl-6"
+                        />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+
+              {/* Add "Otro" input */}
+              <div className="flex gap-2 items-center">
+                <Input
+                  placeholder="Agregar otro producto..."
+                  value={newOtherName[category] || ""}
+                  onChange={(e) => setNewOtherName((prev) => ({ ...prev, [category]: e.target.value }))}
+                  className="h-8 text-sm flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (newOtherName[category] || "").trim()) {
+                      setOtherProducts((prev) => ({ ...prev, [category]: [...(prev[category] || []), { name: newOtherName[category].trim(), price: "" }] }));
+                      setNewOtherName((prev) => ({ ...prev, [category]: "" }));
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (!(newOtherName[category] || "").trim()) return;
+                    setOtherProducts((prev) => ({ ...prev, [category]: [...(prev[category] || []), { name: newOtherName[category].trim(), price: "" }] }));
+                    setNewOtherName((prev) => ({ ...prev, [category]: "" }));
+                  }}
+                  className="h-8 px-3 rounded-lg bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 shrink-0"
+                >
+                  + Otro
+                </button>
+              </div>
             </div>}
           </div>
         );

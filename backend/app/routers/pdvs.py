@@ -67,10 +67,11 @@ def _visible_pdv_ids(db: Session, user: UserModel) -> set[int] | None:
             )
             ids.update(r[0] for r in sub_route)
 
-    # Users in the same zone see PDVs in their zone (only for TMs with zone)
-    if user.ZoneId:
+    # Territory managers see all PDVs in their zone
+    if role == "territory_manager" and user.ZoneId:
         zone_pdvs = db.query(PDVModel.PdvId).filter(PDVModel.ZoneId == user.ZoneId).all()
         ids.update(r[0] for r in zone_pdvs)
+    # Vendedores and ejecutivos only see their directly assigned + route PDVs (already added above)
 
     return ids
 
