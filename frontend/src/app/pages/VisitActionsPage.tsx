@@ -200,6 +200,39 @@ export function VisitActionsPage() {
     </div>
   );
 
+  const renderProductMultiSelect = (key: string, label: string) => {
+    const selected: { name: string; qty: number }[] = (formData[key] as { name: string; qty: number }[]) || [];
+    const addProduct = (name: string) => {
+      if (selected.some((s) => s.name === name)) return;
+      setFd(key, [...selected, { name, qty: 1 }]);
+    };
+    const removeProduct = (name: string) => setFd(key, selected.filter((s) => s.name !== name));
+    const updateQty = (name: string, qty: number) => setFd(key, selected.map((s) => s.name === name ? { ...s, qty: Math.max(0, qty) } : s));
+    const available = ownProducts.filter((p) => !selected.some((s) => s.name === p.Name));
+    return (
+      <div>
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{label} *</p>
+        {selected.length > 0 && (
+          <div className="space-y-1.5 mb-2">
+            {selected.map((s) => (
+              <div key={s.name} className="bg-background rounded-xl border border-border px-3 py-2 flex items-center gap-2">
+                <span className="text-sm font-medium text-foreground flex-1 truncate">{s.name}</span>
+                <input type="number" inputMode="numeric" min={0} value={s.qty || ""} placeholder="0" onChange={(e) => updateQty(s.name, parseInt(e.target.value, 10) || 0)} className="w-16 text-center text-sm font-bold border border-border rounded-lg h-8 bg-background" />
+                <button onClick={() => removeProduct(s.name)} className="p-1 text-muted-foreground hover:text-red-500"><X size={14} /></button>
+              </div>
+            ))}
+          </div>
+        )}
+        {available.length > 0 && (
+          <select value="" onChange={(e) => { if (e.target.value) addProduct(e.target.value); }} className="w-full h-10 px-3 border border-border rounded-lg text-sm bg-background">
+            <option value="">+ Agregar producto...</option>
+            {available.map((p) => <option key={p.ProductId} value={p.Name}>{p.Name}</option>)}
+          </select>
+        )}
+      </div>
+    );
+  };
+
   const renderProductSelect = (key: string, label: string) => (
     <div>
       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">{label} *</p>
@@ -391,7 +424,26 @@ export function VisitActionsPage() {
           <p className="text-[11px] text-[#A48242]/80 mt-0.5">{PROMO_TABS.find((t) => t.id === tab)?.desc}</p>
         </div>
 
-        {renderProductSelect("producto", "Producto")}
+        {renderProductMultiSelect("productos", "Productos")}
+
+        {/* Origen del producto */}
+        <div>
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Origen del producto para la promo</p>
+          <div className="flex rounded-lg border border-border overflow-hidden">
+            <button
+              onClick={() => setFd("productoNuestro", "true")}
+              className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${fd("productoNuestro") !== "false" ? "bg-[#A48242] text-white" : "bg-background text-muted-foreground"}`}
+            >
+              Nuestro (Espert)
+            </button>
+            <button
+              onClick={() => setFd("productoNuestro", "false")}
+              className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${fd("productoNuestro") === "false" ? "bg-[#A48242] text-white" : "bg-background text-muted-foreground"}`}
+            >
+              Del kiosco
+            </button>
+          </div>
+        </div>
 
         {tab === "prueba" && (
           <div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Regalo / complemento</p><Input value={fd("regalo")} onChange={(e) => setFd("regalo", e.target.value)} placeholder="Ej: encendedor, cenicero" /></div>
