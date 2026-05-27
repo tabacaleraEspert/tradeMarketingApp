@@ -189,6 +189,15 @@ export function PointOfSaleDetail() {
     setLoadError(null);
     Promise.all([
       fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId)).catch((e) => {
+        // If individual PDV not cached, try to find it in the PDV list caches
+        try {
+          const keys = Object.keys(localStorage).filter((k) => k.startsWith("espert.cache.pdvs_"));
+          for (const k of keys) {
+            const entry = JSON.parse(localStorage.getItem(k)!) as { data: any[] };
+            const found = entry?.data?.find?.((p: any) => p.PdvId === pdvId);
+            if (found) return found;
+          }
+        } catch { /* skip */ }
         setLoadError(
           e instanceof ApiError ? e.message : "No se pudo cargar el PDV"
         );
