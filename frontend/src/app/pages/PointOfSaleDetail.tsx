@@ -38,7 +38,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
-import { fetchWithCache } from "@/lib/offline";
+import { fetchWithCache, executeOrEnqueue } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import type { PdvPhotoRead, Route } from "@/lib/api";
 import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
@@ -481,14 +481,23 @@ export function PointOfSaleDetail() {
     if (!id || !selectedRouteId) return;
     setAssigningRoute(true);
     try {
-      // Get current PDVs in the route to determine sort order
-      const existingPdvs = await routesApi.listPdvs(selectedRouteId);
-      const sortOrder = existingPdvs.length + 1;
-      await routesApi.addPdv(selectedRouteId, { PdvId: Number(id), SortOrder: sortOrder });
+      const pdvId = Number(id);
+      const isTempRoute = selectedRouteId < 0;
+      // Get sort order — try API first, fallback to 999
+      let sortOrder = 999;
+      try { const existing = await routesApi.listPdvs(selectedRouteId); sortOrder = existing.length + 1; } catch { /* offline */ }
+      await executeOrEnqueue({
+        kind: "route_pdv_add",
+        method: "POST",
+        url: `/routes/${selectedRouteId}/pdvs`,
+        body: { PdvId: pdvId, SortOrder: sortOrder, Priority: 3 },
+        label: `Agregar PDV a ruta`,
+        _tempRouteId: isTempRoute ? selectedRouteId : undefined,
+        _tempPdvId: pdvId < 0 ? pdvId : undefined,
+      });
       const routeName = myRoutes.find((r) => r.RouteId === selectedRouteId)?.Name || "ruta";
-      toast.success(`PDV agregado a ${routeName}`);
+      toast.success(navigator.onLine ? `PDV agregado a ${routeName}` : `PDV se agregará a ${routeName} con conexión`);
       setShowAssignRouteModal(false);
-      // Mark as having route immediately — no need to re-check
       setPdvHasRoute(true);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al asignar ruta");
