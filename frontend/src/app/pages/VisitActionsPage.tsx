@@ -178,7 +178,7 @@ export function VisitActionsPage() {
         setActions((prev) => [...prev, { ...actionBody, VisitActionId: -Date.now(), VisitId: visitId } as VisitAction]);
       }
       resetForm();
-      toast.success(isOffline && !hasPhotos
+      toast.success(isOffline && !formHasPhotos
         ? "Acción guardada (sin foto — recordá sacarla después)"
         : "Acción registrada");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Error al guardar acción"); }
