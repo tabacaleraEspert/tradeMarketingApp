@@ -144,6 +144,9 @@ export function Home() {
       for (const rdp of routeDayPdvs) {
         fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
       }
+      // PDV list for search & route creation (by zone for field reps, all for admins)
+      const zoneId = currentUser.zoneId;
+      fetchWithCache(`pdvs_${zoneId ?? "all"}_all`, () => pdvsApi.list(zoneId ? { zone_id: zoneId } : {})).catch(() => {});
       fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
       fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
       fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
