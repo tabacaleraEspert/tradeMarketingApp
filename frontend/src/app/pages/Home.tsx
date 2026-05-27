@@ -139,7 +139,7 @@ export function Home() {
 
   // Pre-fetch data needed for offline visits (low priority, doesn't block UI)
   useEffect(() => {
-    if (!navigator.onLine || routeDayPdvs.length === 0) return;
+    if (!navigator.onLine) return;
     const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn: () => void) => setTimeout(fn, 200);
     schedule(() => {
       for (const rdp of routeDayPdvs) {
@@ -166,6 +166,19 @@ export function Home() {
       // Pre-cache form questions for offline surveys
       fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).then((forms: any[]) => {
         for (const f of forms) fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => {});
+      }).catch(() => {});
+      // Pre-cache user visits (for open visit detection + PDV detail)
+      const uid = Number(currentUser.id);
+      fetchWithCache(`visits_user_${uid}`, () => visitsApi.list({ user_id: uid })).then((visits: any[]) => {
+        // Pre-cache visits and PDV data for any open visit
+        for (const v of visits) {
+          if (v.Status === "OPEN" || v.Status === "IN_PROGRESS") {
+            fetchWithCache(`pdv_${v.PdvId}`, () => pdvsApi.get(v.PdvId)).catch(() => {});
+            fetchWithCache(`visits_pdv_${v.PdvId}`, () => visitsApi.list({ pdv_id: v.PdvId })).catch(() => {});
+            fetchWithCache(`pdv_suppliers_${v.PdvId}`, () => pdvSuppliersApi.list(v.PdvId)).catch(() => {});
+            fetchWithCache(`pdv_categories_${v.PdvId}`, () => pdvProductCategoriesApi.list(v.PdvId)).catch(() => {});
+          }
+        }
       }).catch(() => {});
     });
   }, [routeDayPdvs]);

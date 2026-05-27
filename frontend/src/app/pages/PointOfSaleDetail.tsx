@@ -203,9 +203,9 @@ export function PointOfSaleDetail() {
         );
         return null;
       }),
-      visitsApi.list({ pdv_id: pdvId }).catch(() => []),
-      pdvNotesApi.list(pdvId).catch(() => [] as PdvNote[]),
-      pdvPhotosApi.list(pdvId).catch(() => [] as PdvPhotoRead[]),
+      fetchWithCache(`visits_pdv_${pdvId}`, () => visitsApi.list({ pdv_id: pdvId })).catch(() => []),
+      fetchWithCache(`pdv_notes_${pdvId}`, () => pdvNotesApi.list(pdvId)).catch(() => [] as PdvNote[]),
+      fetchWithCache(`pdv_photos_${pdvId}`, () => pdvPhotosApi.list(pdvId)).catch(() => [] as PdvPhotoRead[]),
     ]).then(async ([p, v, n, photos]) => {
       setPos(p);
       setVisits(v);
@@ -214,7 +214,7 @@ export function PointOfSaleDetail() {
 
       // Check for any open visit by this user (in ANY pdv)
       try {
-        const userVisits = await visitsApi.list({ user_id: Number(currentUser.id) });
+        const userVisits = await fetchWithCache(`visits_user_${currentUser.id}`, () => visitsApi.list({ user_id: Number(currentUser.id) }));
         const openElsewhere = userVisits.find(
           (uv) => (uv.Status === "OPEN" || uv.Status === "IN_PROGRESS") && uv.PdvId !== Number(id)
         );
