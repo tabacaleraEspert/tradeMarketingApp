@@ -137,49 +137,60 @@ export function Home() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refetchHome]);
 
-  // Pre-fetch data needed for offline visits (low priority, doesn't block UI)
+  // Pre-fetch data needed for offline — with progress tracking
+  const [cacheProgress, setCacheProgress] = useState<{ done: number; total: number } | null>(null);
+
   useEffect(() => {
     if (!navigator.onLine) return;
     const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn: () => void) => setTimeout(fn, 200);
-    schedule(() => {
+    schedule(async () => {
+      let done = 0;
+      let total = 0;
+      const track = <T,>(p: Promise<T>): Promise<T> => {
+        total++;
+        setCacheProgress((prev) => ({ done: prev?.done ?? 0, total }));
+        return p.finally(() => {
+          done++;
+          setCacheProgress({ done, total });
+        });
+      };
+
+      // Per-PDV data for today's route
       for (const rdp of routeDayPdvs) {
-        fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
-        // Per-PDV census data
-        fetchWithCache(`pdv_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.list(rdp.PdvId)).catch(() => {});
-        fetchWithCache(`pdv_categories_${rdp.PdvId}`, () => pdvProductCategoriesApi.list(rdp.PdvId)).catch(() => {});
+        track(fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {}));
+        track(fetchWithCache(`pdv_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.list(rdp.PdvId)).catch(() => {}));
+        track(fetchWithCache(`pdv_categories_${rdp.PdvId}`, () => pdvProductCategoriesApi.list(rdp.PdvId)).catch(() => {}));
       }
-      // PDV list for search & route creation (by zone for field reps, all for admins)
+      // Reference data
       const zoneId = currentUser.zoneId;
-      fetchWithCache(`pdvs_${zoneId ?? "all"}_all`, () => pdvsApi.list(zoneId ? { zone_id: zoneId } : {})).catch(() => {});
-      fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
-      fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
-      fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
-      // Reference data for offline PDV creation & census
-      fetchWithCache("channels", () => channelsApi.list()).then((chs: any[]) => {
-        for (const ch of chs) fetchWithCache(`subchannels_${ch.ChannelId}`, () => subchannelsApi.list(ch.ChannelId)).catch(() => {});
-      }).catch(() => {});
-      fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => {});
-      fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => {});
-      fetchWithCache("zones", () => zonesApi.list()).catch(() => {});
-      fetchWithCache("users", () => usersApi.list()).catch(() => {});
-      fetchWithCache("mandatory_activities", () => mandatoryActivitiesApi.list({ active_only: true })).catch(() => {});
-      // Pre-cache form questions for offline surveys
-      fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).then((forms: any[]) => {
-        for (const f of forms) fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => {});
-      }).catch(() => {});
-      // Pre-cache user visits (for open visit detection + PDV detail)
+      track(fetchWithCache(`pdvs_${zoneId ?? "all"}_all`, () => pdvsApi.list(zoneId ? { zone_id: zoneId } : {})).catch(() => {}));
+      track(fetchWithCache("products_all", () => productsApi.list()).catch(() => {}));
+      track(fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {}));
+      track(fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => {}));
+      track(fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => {}));
+      track(fetchWithCache("zones", () => zonesApi.list()).catch(() => {}));
+      track(fetchWithCache("users", () => usersApi.list()).catch(() => {}));
+      track(fetchWithCache("mandatory_activities", () => mandatoryActivitiesApi.list({ active_only: true })).catch(() => {}));
+      // Channels + subchannels
+      track(fetchWithCache("channels", () => channelsApi.list()).then((chs: any[]) => {
+        for (const ch of chs) track(fetchWithCache(`subchannels_${ch.ChannelId}`, () => subchannelsApi.list(ch.ChannelId)).catch(() => {}));
+      }).catch(() => {}));
+      // Forms + questions
+      track(fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).then((forms: any[]) => {
+        for (const f of forms) track(fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => {}));
+      }).catch(() => {}));
+      // User visits + open visit PDV data
       const uid = Number(currentUser.id);
-      fetchWithCache(`visits_user_${uid}`, () => visitsApi.list({ user_id: uid })).then((visits: any[]) => {
-        // Pre-cache visits and PDV data for any open visit
+      track(fetchWithCache(`visits_user_${uid}`, () => visitsApi.list({ user_id: uid })).then((visits: any[]) => {
         for (const v of visits) {
           if (v.Status === "OPEN" || v.Status === "IN_PROGRESS") {
-            fetchWithCache(`pdv_${v.PdvId}`, () => pdvsApi.get(v.PdvId)).catch(() => {});
-            fetchWithCache(`visits_pdv_${v.PdvId}`, () => visitsApi.list({ pdv_id: v.PdvId })).catch(() => {});
-            fetchWithCache(`pdv_suppliers_${v.PdvId}`, () => pdvSuppliersApi.list(v.PdvId)).catch(() => {});
-            fetchWithCache(`pdv_categories_${v.PdvId}`, () => pdvProductCategoriesApi.list(v.PdvId)).catch(() => {});
+            track(fetchWithCache(`pdv_${v.PdvId}`, () => pdvsApi.get(v.PdvId)).catch(() => {}));
+            track(fetchWithCache(`visits_pdv_${v.PdvId}`, () => visitsApi.list({ pdv_id: v.PdvId })).catch(() => {}));
+            track(fetchWithCache(`pdv_suppliers_${v.PdvId}`, () => pdvSuppliersApi.list(v.PdvId)).catch(() => {}));
+            track(fetchWithCache(`pdv_categories_${v.PdvId}`, () => pdvProductCategoriesApi.list(v.PdvId)).catch(() => {}));
           }
         }
-      }).catch(() => {});
+      }).catch(() => {}));
     });
   }, [routeDayPdvs]);
 
@@ -329,6 +340,28 @@ export function Home() {
         )}
         {loadingPdvs && <p className="text-sm text-[#979B9B]">Cargando...</p>}
       </div>
+
+      {/* Offline cache progress bar */}
+      {cacheProgress && cacheProgress.done < cacheProgress.total && (
+        <div className="mx-4 mt-2 mb-2">
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-1">
+            <div className="w-3 h-3 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
+            <span>Preparando datos offline... {cacheProgress.done}/{cacheProgress.total}</span>
+          </div>
+          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[#A48242] rounded-full transition-all duration-300"
+              style={{ width: `${Math.round((cacheProgress.done / cacheProgress.total) * 100)}%` }}
+            />
+          </div>
+        </div>
+      )}
+      {cacheProgress && cacheProgress.done > 0 && cacheProgress.done >= cacheProgress.total && (
+        <div className="mx-4 mt-2 mb-2 flex items-center gap-2 text-[11px] text-green-600">
+          <CheckCircle2 size={14} />
+          <span>Datos offline listos</span>
+        </div>
+      )}
 
       {/* Banner visita abierta global */}
       {globalOpenVisit && (
