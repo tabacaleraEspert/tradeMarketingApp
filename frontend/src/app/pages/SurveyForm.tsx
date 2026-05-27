@@ -288,7 +288,7 @@ export function SurveyForm() {
           kind: "visit_answers",
           method: "POST",
           url: `/visits/${vid}/answers`,
-          body: buildAnswerPayload(),
+          body: { answers: buildAnswerPayload() },
           label: "Respuestas del formulario (borrador)",
           _tempVisitId: isTempVisit ? vid : undefined,
         });
@@ -323,7 +323,7 @@ export function SurveyForm() {
             kind: "visit_answers",
             method: "POST",
             url: `/visits/${vid}/answers`,
-            body: buildAnswerPayload(),
+            body: { answers: buildAnswerPayload() },
             label: "Respuestas del formulario (borrador auto)",
             _tempVisitId: isTempVisit ? vid : undefined,
           });
@@ -350,7 +350,7 @@ export function SurveyForm() {
           kind: "visit_answers",
           method: "POST",
           url: `/visits/${vid}/answers`,
-          body: buildAnswerPayload(),
+          body: { answers: buildAnswerPayload() },
           label: "Respuestas del formulario",
           _tempVisitId: isTempVisit ? vid : undefined,
         });

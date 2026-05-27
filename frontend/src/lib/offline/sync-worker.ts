@@ -120,6 +120,12 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
       // Skip si superó el límite de intentos (queda "muerta" para revisión manual)
       if (op.attempts >= MAX_ATTEMPTS) continue;
 
+      // Skip DELETE operations targeting temp IDs (negative) — resource never existed on server
+      if (op.method === "DELETE" && op.url.match(/\/-\d+/)) {
+        await queue.remove(op.id!);
+        continue;
+      }
+
       // Re-check online (puede haberse cortado a mitad del flush)
       if (!navigator.onLine) break;
 
