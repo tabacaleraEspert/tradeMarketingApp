@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { pdvsApi, visitActionsApi, productsApi, visitPhotosApi } from "@/lib/api";
 import type { VisitAction, Product } from "@/lib/api";
-import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
+import { executeOrEnqueue, fetchWithCache, readCache, writeCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
@@ -60,7 +60,16 @@ export function VisitActionsPage() {
   const flow = useVisitFlow();
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(flow.pdv);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? flow.visitId ?? null);
-  const [actions, setActions] = useState<VisitAction[]>([]);
+  const [actions, setActionsRaw] = useState<VisitAction[]>([]);
+  const setActions: typeof setActionsRaw = (val) => {
+    setActionsRaw((prev) => {
+      const next = typeof val === "function" ? val(prev) : val;
+      // Persist locally so actions survive navigation
+      const vid = visitIdFromState ?? flow.visitId;
+      if (vid) writeCache(`visit_actions_${vid}`, next);
+      return next;
+    });
+  };
   const [ownProducts, setOwnProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeForm, setActiveForm] = useState<string | null>(null);
@@ -93,7 +102,13 @@ export function VisitActionsPage() {
       }
       if (vid) {
         setVisitId(vid);
-        try { setActions(await visitActionsApi.list(vid)); } catch { /* offline: start with empty actions */ }
+        // Restore from local cache first, then try API
+        const localActions = readCache<VisitAction[]>(`visit_actions_${vid}`);
+        if (localActions && localActions.length > 0) {
+          setActionsRaw(localActions);
+        } else {
+          try { setActions(await fetchWithCache(`visit_actions_api_${vid}`, () => visitActionsApi.list(vid))); } catch { /* offline */ }
+        }
       }
     } catch { toast.error("Error al cargar datos. Verificá tu conexión."); }
     finally { setLoading(false); }
