@@ -19,7 +19,7 @@ import {
 } from "@/lib/api";
 import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
 import { useQuery } from "@/lib/api/useQuery";
-import { fetchWithCache } from "@/lib/offline";
+import { fetchWithCache, writeCache } from "@/lib/offline";
 import type { DashboardHomeData } from "@/lib/api/services";
 
 /** Timezone-safe Date → YYYY-MM-DD */
@@ -160,7 +160,12 @@ export function Home() {
         track(fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {}));
         track(fetchWithCache(`pdv_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.list(rdp.PdvId)).catch(() => {}));
         track(fetchWithCache(`pdv_categories_${rdp.PdvId}`, () => pdvProductCategoriesApi.list(rdp.PdvId)).catch(() => {}));
-        track(fetchWithCache(`zone_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.searchZone(rdp.PdvId)).catch(() => {}));
+        // Cache zone suppliers once using first real PDV (all PDVs in zone return same suppliers)
+        if (rdp === routeDayPdvs[0]) {
+          track(fetchWithCache(`zone_suppliers_pdv_${rdp.PdvId}`, () => pdvSuppliersApi.searchZone(rdp.PdvId))
+            .then((data: any) => writeCache("zone_suppliers_all", data))
+            .catch(() => {}));
+        }
       }
       // Reference data
       const zoneId = currentUser.zoneId;

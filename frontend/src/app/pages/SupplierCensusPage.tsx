@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { pdvSuppliersApi, supplierTypesApi, supplierProductTypesApi } from "@/lib/api";
-import { fetchWithCache, executeOrEnqueue } from "@/lib/offline";
+import { fetchWithCache, executeOrEnqueue, readCache, writeCache } from "@/lib/offline";
 import type { PdvSupplier, SupplierType, SupplierProductType } from "@/lib/api/types";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
@@ -71,8 +71,20 @@ export function SupplierCensusPage() {
 
   // Load zone suppliers when form opens
   useEffect(() => {
-    if (showForm && pdvId) {
-      fetchWithCache(`zone_suppliers_${pdvId}`, () => pdvSuppliersApi.searchZone(pdvId)).then(setZoneSuppliers).catch(() => {});
+    if (!showForm || !pdvId) return;
+    if (pdvId > 0) {
+      // Real PDV — fetch zone suppliers and cache by zone
+      fetchWithCache(`zone_suppliers_pdv_${pdvId}`, () => pdvSuppliersApi.searchZone(pdvId))
+        .then((data) => { setZoneSuppliers(data); writeCache("zone_suppliers_all", data); })
+        .catch(() => {
+          // Fallback to global zone cache
+          const cached = readCache<PdvSupplier[]>("zone_suppliers_all");
+          if (cached) setZoneSuppliers(cached);
+        });
+    } else {
+      // Temp PDV (offline) — use global zone supplier cache
+      const cached = readCache<PdvSupplier[]>("zone_suppliers_all");
+      if (cached) setZoneSuppliers(cached);
     }
   }, [showForm, pdvId]);
 
