@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { pdvSuppliersApi, supplierTypesApi, supplierProductTypesApi } from "@/lib/api";
-import { fetchWithCache } from "@/lib/offline";
+import { fetchWithCache, executeOrEnqueue } from "@/lib/offline";
 import type { PdvSupplier, SupplierType, SupplierProductType } from "@/lib/api/types";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
@@ -120,13 +120,34 @@ export function SupplierCensusPage() {
         Products: form.Products.length > 0 ? form.Products : undefined,
       };
       if (editingId) {
-        const updated = await pdvSuppliersApi.update(pdvId, editingId, payload);
-        setSuppliers((prev) => prev.map((s) => (s.PdvSupplierId === editingId ? updated : s)));
-        toast.success("Proveedor actualizado");
+        const result = await executeOrEnqueue({
+          kind: "pdv_supplier_update",
+          method: "PATCH",
+          url: `/pdvs/${pdvId}/suppliers/${editingId}`,
+          body: payload,
+          label: `Actualizar proveedor: ${payload.Name}`,
+          _tempPdvId: pdvId < 0 ? pdvId : undefined,
+        });
+        if (!result.queued && result.data) {
+          setSuppliers((prev) => prev.map((s) => (s.PdvSupplierId === editingId ? result.data as PdvSupplier : s)));
+        }
+        toast.success(result.queued ? "Proveedor guardado. Se sincronizará con conexión." : "Proveedor actualizado");
       } else {
-        const created = await pdvSuppliersApi.create(pdvId, payload);
-        setSuppliers((prev) => [...prev, created]);
-        toast.success("Proveedor agregado");
+        const result = await executeOrEnqueue({
+          kind: "pdv_supplier_create",
+          method: "POST",
+          url: `/pdvs/${pdvId}/suppliers`,
+          body: payload,
+          label: `Nuevo proveedor: ${payload.Name}`,
+          _tempPdvId: pdvId < 0 ? pdvId : undefined,
+        });
+        if (!result.queued && result.data) {
+          setSuppliers((prev) => [...prev, result.data as PdvSupplier]);
+        } else if (result.queued) {
+          // Show locally even though not synced yet
+          setSuppliers((prev) => [...prev, { PdvSupplierId: -(Date.now() % 1000000), PdvId: pdvId, ...payload, Products: payload.Products ?? [], CreatedAt: new Date().toISOString() } as any]);
+        }
+        toast.success(result.queued ? "Proveedor guardado. Se sincronizará con conexión." : "Proveedor agregado");
       }
       resetForm();
     } catch (err) {
