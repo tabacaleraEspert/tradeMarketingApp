@@ -11,7 +11,7 @@ import {
   Navigation, FileText, Megaphone, Package,
 } from "lucide-react";
 import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi } from "@/lib/api";
-import { fetchWithCache } from "@/lib/offline";
+import { fetchWithCache, readCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
 import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
 import type { VisitPhotoRead } from "@/lib/api";
@@ -94,15 +94,15 @@ export function VisitSummaryPage() {
       setVisitId(vid);
 
       const [ans, acts, nws, validation, chks, visit, photos, cov, pop] = await Promise.all([
-        visitsApi.listAnswers(vid).catch(() => []),
-        visitActionsApi.list(vid).catch(() => []),
-        marketNewsApi.list(vid).catch(() => []),
+        fetchWithCache(`visit_answers_${vid}`, () => visitsApi.listAnswers(vid)).catch(() => readCache(`survey_draft_${vid}`) ? Object.entries(readCache<Record<number, unknown>>(`survey_draft_${vid}`)!).map(([qid, val]) => ({ QuestionId: Number(qid), ValueText: String(val) })) : []),
+        fetchWithCache(`visit_actions_api_${vid}`, () => visitActionsApi.list(vid)).then((a) => a.length > 0 ? a : (readCache(`visit_actions_${vid}`) ?? [])).catch(() => readCache(`visit_actions_${vid}`) ?? []),
+        fetchWithCache(`visit_news_${vid}`, () => marketNewsApi.list(vid)).catch(() => []),
         visitsApi.validateClose(vid).catch(() => ({ missing: [], warnings: [] })),
-        visitsApi.listChecks(vid).catch(() => []),
-        visitsApi.get(vid).catch(() => null),
-        visitPhotosApi.list(vid).catch(() => [] as VisitPhotoRead[]),
-        visitCoverageApi.list(vid).catch(() => [] as VisitCoverageItem[]),
-        visitPOPApi.list(vid).catch(() => [] as VisitPOPItem[]),
+        fetchWithCache(`visit_checks_${vid}`, () => visitsApi.listChecks(vid)).catch(() => []),
+        fetchWithCache(`visit_data_${vid}`, () => visitsApi.get(vid)).catch(() => null),
+        fetchWithCache(`visit_photos_${vid}`, () => visitPhotosApi.list(vid)).catch(() => [] as VisitPhotoRead[]),
+        fetchWithCache(`visit_coverage_${vid}`, () => visitCoverageApi.list(vid)).catch(() => [] as VisitCoverageItem[]),
+        fetchWithCache(`visit_pop_${vid}`, () => visitPOPApi.list(vid)).catch(() => [] as VisitPOPItem[]),
       ]);
 
       setAnswers(ans);
