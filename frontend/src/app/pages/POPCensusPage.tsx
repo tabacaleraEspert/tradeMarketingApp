@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
-import { executeOrEnqueue } from "@/lib/offline";
+import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
@@ -78,8 +78,8 @@ export function POPCensusPage() {
     if (!visitId) { setLoading(false); return; }
 
     Promise.all([
-      visitPOPApi.list(visitId).catch(() => []),
-      visitPhotosApi.list(visitId).catch(() => []),
+      fetchWithCache(`visit_pop_${visitId}`, () => visitPOPApi.list(visitId)).catch(() => []),
+      fetchWithCache(`visit_photos_${visitId}`, () => visitPhotosApi.list(visitId)).catch(() => []),
     ]).then(([existing, photos]) => {
       // Always show ALL materials, merging with saved data
       const existingMap = new Map(existing.map((e) => [e.MaterialName, e]));

@@ -180,9 +180,9 @@ export function CoverageFormPage() {
     if (!visitId) return;
     Promise.all([
       flow.products.length > 0 ? Promise.resolve(flow.products) : fetchWithCache("products_all", () => productsApi.list()),
-      visitCoverageApi.diff(visitId).catch(() => []),
-      id ? pdvProductCategoriesApi.list(Number(id)).catch(() => []) : Promise.resolve([]),
-      visitCoverageApi.requirements(visitId).catch(() => null),
+      fetchWithCache(`visit_coverage_diff_${visitId}`, () => visitCoverageApi.diff(visitId)).catch(() => []),
+      id ? fetchWithCache(`pdv_categories_${id}`, () => pdvProductCategoriesApi.list(Number(id))).catch(() => []) : Promise.resolve([]),
+      fetchWithCache(`visit_coverage_reqs_${visitId}`, () => visitCoverageApi.requirements(visitId)).catch(() => null),
     ]).then(([prods, diffData, pdvCats, reqs]) => {
       if (reqs) setCoverageReqs(reqs);
       // Check if THIS visit already has saved coverage data (user filled and came back)

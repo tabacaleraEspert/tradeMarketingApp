@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { pdvSuppliersApi, supplierTypesApi, supplierProductTypesApi } from "@/lib/api";
+import { fetchWithCache } from "@/lib/offline";
 import type { PdvSupplier, SupplierType, SupplierProductType } from "@/lib/api/types";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
@@ -58,9 +59,9 @@ export function SupplierCensusPage() {
     if (!pdvId) return;
     setLoading(true);
     Promise.all([
-      pdvSuppliersApi.list(pdvId).catch(() => []),
-      flow.supplierTypes.length > 0 ? Promise.resolve(flow.supplierTypes) : supplierTypesApi.list().catch(() => []),
-      flow.supplierProductTypes.length > 0 ? Promise.resolve(flow.supplierProductTypes) : supplierProductTypesApi.list().catch(() => []),
+      fetchWithCache(`pdv_suppliers_${pdvId}`, () => pdvSuppliersApi.list(pdvId)).catch(() => []),
+      flow.supplierTypes.length > 0 ? Promise.resolve(flow.supplierTypes) : fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => []),
+      flow.supplierProductTypes.length > 0 ? Promise.resolve(flow.supplierProductTypes) : fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => []),
     ]).then(([s, st, pt]) => {
       setSuppliers(s);
       setSupplierTypes(st);
