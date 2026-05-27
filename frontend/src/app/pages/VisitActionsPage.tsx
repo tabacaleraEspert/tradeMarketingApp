@@ -126,26 +126,48 @@ export function VisitActionsPage() {
         label: `Acción: ${type}`,
         _tempVisitId: isTempVisit ? visitId : undefined,
       });
-      // Queue photo uploads (compressed, deferred — don't block the user)
+      // Queue photo uploads (compressed, deferred — don't block the action save)
       if (formHasPhotos) {
-        const { compressImage } = await import("@/lib/imageCompression");
-        const actionId = !result.queued && result.data ? (result.data as { VisitActionId?: number }).VisitActionId : Date.now();
-        for (const photo of formPhotos) {
-          if (photo.file) {
-            try {
-              const compressed = await compressImage(photo.file);
-              await executeOrEnqueue({
-                kind: "photo_upload",
-                method: "POST",
-                url: `/files/photos/visit/${visitId}`,
-                formParts: [
-                  { name: "file", value: compressed, filename: `action_${actionId}.jpg` },
-                  { name: "photo_type", value: `action_${type}_${actionId}` },
-                ],
-                label: `Foto acción ${type}`,
-                _tempVisitId: isTempVisit ? visitId : undefined,
-              });
-            } catch { /* queued for later */ }
+        try {
+          const { compressImage } = await import("@/lib/imageCompression");
+          const actionId = !result.queued && result.data ? (result.data as { VisitActionId?: number }).VisitActionId : Date.now();
+          for (const photo of formPhotos) {
+            if (photo.file) {
+              try {
+                const compressed = await compressImage(photo.file);
+                await executeOrEnqueue({
+                  kind: "photo_upload",
+                  method: "POST",
+                  url: `/files/photos/visit/${visitId}`,
+                  formParts: [
+                    { name: "file", value: compressed, filename: `action_${actionId}.jpg` },
+                    { name: "photo_type", value: `action_${type}_${actionId}` },
+                  ],
+                  label: `Foto acción ${type}`,
+                  _tempVisitId: isTempVisit ? visitId : undefined,
+                });
+              } catch { /* individual photo failed, skip */ }
+            }
+          }
+        } catch {
+          // compressImage import failed (offline chunk miss) — queue raw photos
+          const actionId = Date.now();
+          for (const photo of formPhotos) {
+            if (photo.file) {
+              try {
+                await executeOrEnqueue({
+                  kind: "photo_upload",
+                  method: "POST",
+                  url: `/files/photos/visit/${visitId}`,
+                  formParts: [
+                    { name: "file", value: photo.file, filename: `action_${actionId}.jpg` },
+                    { name: "photo_type", value: `action_${type}_${actionId}` },
+                  ],
+                  label: `Foto acción ${type}`,
+                  _tempVisitId: isTempVisit ? visitId : undefined,
+                });
+              } catch { /* skip */ }
+            }
           }
         }
       }
