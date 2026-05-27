@@ -13,6 +13,7 @@ import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
   routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
   pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
+  channelsApi, subchannelsApi, supplierTypesApi, supplierProductTypesApi,
   useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
 import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
@@ -146,6 +147,12 @@ export function Home() {
       fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
       fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
       fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
+      // Reference data for offline PDV creation & census
+      fetchWithCache("channels", () => channelsApi.list()).then((chs: any[]) => {
+        for (const ch of chs) fetchWithCache(`subchannels_${ch.ChannelId}`, () => subchannelsApi.list(ch.ChannelId)).catch(() => {});
+      }).catch(() => {});
+      fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => {});
+      fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => {});
     });
   }, [routeDayPdvs]);
 
