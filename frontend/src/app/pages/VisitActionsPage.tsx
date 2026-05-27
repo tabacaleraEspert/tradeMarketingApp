@@ -159,13 +159,25 @@ export function VisitActionsPage() {
       toast.success(isOffline && !hasPhotos
         ? "Acción guardada (sin foto — recordá sacarla después)"
         : "Acción registrada");
-    } catch { toast.error("Error al guardar acción"); }
+    } catch (err) { toast.error(err instanceof Error ? err.message : "Error al guardar acción"); }
     finally { setSaving(false); }
   };
 
   const handleDeleteAction = async (actionId: number) => {
     try {
-      await visitActionsApi.delete(actionId);
+      if (actionId < 0) {
+        // Local-only action (not synced yet) — just remove from UI
+        setActions((prev) => prev.filter((a) => a.VisitActionId !== actionId));
+        toast.success("Acción eliminada");
+        return;
+      }
+      await executeOrEnqueue({
+        kind: "visit_action_update",
+        method: "DELETE",
+        url: `/visits/${visitId}/actions/${actionId}`,
+        label: "Eliminar acción",
+        _tempVisitId: visitId && visitId < 0 ? visitId : undefined,
+      });
       setActions((prev) => prev.filter((a) => a.VisitActionId !== actionId));
       toast.success("Acción eliminada");
     } catch { toast.error("Error al eliminar"); }
