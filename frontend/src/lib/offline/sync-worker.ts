@@ -20,6 +20,7 @@ import { API_BASE_URL } from "@/lib/api/config";
 import { getAccessToken } from "@/lib/api/auth-storage";
 import { queue, subscribeQueueChanges, type QueuedOperation } from "./queue";
 import { saveVisitIdMapping, getAllVisitIdMappings, clearOldMappings } from "./visit-id-map";
+import { savePdvIdMapping, getAllPdvIdMappings, clearOldPdvMappings } from "./pdv-id-map";
 
 
 const MAX_ATTEMPTS = 5;
@@ -103,13 +104,14 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
   let succeeded = 0;
   let failed = 0;
 
-  // Mapa de tempVisitId → realVisitId. Cargamos los persistidos de flushes anteriores
-  // + los que se resuelvan en este flush.
+  // Mapas de tempId → realId. Cargamos los persistidos de flushes anteriores.
   const visitIdMap = await getAllVisitIdMappings().catch(() => new Map<number, number>());
+  const pdvIdMap = await getAllPdvIdMappings().catch(() => new Map<number, number>());
 
   try {
     // Limpiar mapeos viejos (>7 días)
     await clearOldMappings(7).catch(() => {});
+    await clearOldPdvMappings(7).catch(() => {});
     const ops = await queue.list();
     for (const op of ops) {
       // Skip si superó el límite de intentos (queda "muerta" para revisión manual)
@@ -132,6 +134,19 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
         continue;
       }
 
+      // Si esta op depende de un tempPdvId, reemplazar en la URL
+      if (op._tempPdvId && pdvIdMap.has(op._tempPdvId)) {
+        const realId = pdvIdMap.get(op._tempPdvId)!;
+        op.url = op.url.replace(`/${op._tempPdvId}/`, `/${realId}/`);
+        op.url = op.url.replace(`/${op._tempPdvId}`, `/${realId}`);
+        if (op.body && typeof op.body === "object" && (op.body as Record<string, unknown>).PdvId === op._tempPdvId) {
+          (op.body as Record<string, unknown>).PdvId = realId;
+        }
+      } else if (op._tempPdvId && !pdvIdMap.has(op._tempPdvId) && op.kind !== "pdv_create") {
+        // Depende de un pdv_create que todavía no se resolvió. Saltear.
+        continue;
+      }
+
       processed++;
       const result = await executeOperation(op);
 
@@ -145,6 +160,23 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
               // Persistir para que sobreviva entre flushes
               await saveVisitIdMapping(op._tempVisitId, created.VisitId).catch(() => {});
               console.info(`[sync-worker] tempVisitId ${op._tempVisitId} → realId ${created.VisitId} (persistido)`);
+            }
+          } catch { /* noop */ }
+        }
+        // Si fue un pdv_create, extraer el PdvId real de la respuesta
+        if (op.kind === "pdv_create" && op._tempPdvId && result.data) {
+          try {
+            const created = result.data as { PdvId?: number };
+            if (created.PdvId) {
+              pdvIdMap.set(op._tempPdvId, created.PdvId);
+              await savePdvIdMapping(op._tempPdvId, created.PdvId).catch(() => {});
+              console.info(`[sync-worker] tempPdvId ${op._tempPdvId} → realId ${created.PdvId} (persistido)`);
+              // Invalidar cache de PDVs para que se refresquen con el real
+              try {
+                Object.keys(localStorage)
+                  .filter((k) => k.startsWith("espert.cache.pdvs_"))
+                  .forEach((k) => localStorage.removeItem(k));
+              } catch { /* noop */ }
             }
           } catch { /* noop */ }
         }

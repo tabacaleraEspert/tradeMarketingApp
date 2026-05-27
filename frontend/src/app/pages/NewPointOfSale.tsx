@@ -12,7 +12,7 @@ import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, Alert
 import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
-import { executeOrEnqueue } from "@/lib/offline";
+import { executeOrEnqueue, queue } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
@@ -312,8 +312,47 @@ export function NewPointOfSale() {
         }
 
         toast.success("PDV creado correctamente");
-      } else {
-        // Queued for later sync
+      } else if (result.queued) {
+        // Assign temp ID for dependent operations and visibility in search
+        const tempPdvId = -(Date.now() % 1000000);
+        const op = await queue.get(result.queueId);
+        if (op) {
+          op._tempPdvId = tempPdvId;
+          await queue.update(op);
+        }
+        // Queue photos with temp PDV ID
+        if (photos.length > 0) {
+          for (const [i, p] of photos.entries()) {
+            try {
+              const { compressImage } = await import("@/lib/imageCompression");
+              const compressed = await compressImage(p.file);
+              await executeOrEnqueue({
+                kind: "photo_upload",
+                method: "POST",
+                url: `/files/photos/pdv/${tempPdvId}`,
+                formParts: [
+                  { name: "file", value: compressed, filename: `fachada_${i + 1}.jpg` },
+                  { name: "photo_type", value: "fachada" },
+                  { name: "sort_order", value: String(i + 1) },
+                ],
+                label: `Foto PDV ${pdvBody.Name}`,
+                _tempPdvId: tempPdvId,
+              }).catch(() => {});
+            } catch { /* skip */ }
+          }
+        }
+        // Queue notes with temp PDV ID
+        const obs = formData.observations.trim();
+        if (obs) {
+          executeOrEnqueue({
+            kind: "pdv_note_create",
+            method: "POST",
+            url: `/pdvs/${tempPdvId}/notes`,
+            body: { Content: obs, CreatedByUserId: userId },
+            label: "Observación del PDV",
+            _tempPdvId: tempPdvId,
+          }).catch(() => {});
+        }
         toast.success("PDV guardado. Se creará cuando vuelva la conexión.");
       }
 

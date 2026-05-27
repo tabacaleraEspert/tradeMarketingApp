@@ -4,3 +4,4 @@ export { initSyncWorker, flushQueue } from "./sync-worker";
 export { executeOrEnqueue } from "./execute";
 export type { ExecuteRequest, ExecuteResult } from "./execute";
 export { fetchWithCache, readCache, writeCache, clearAllCache } from "./cache";
+export { savePdvIdMapping, getAllPdvIdMappings, clearOldPdvMappings } from "./pdv-id-map";

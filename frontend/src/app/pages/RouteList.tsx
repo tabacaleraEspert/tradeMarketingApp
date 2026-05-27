@@ -6,9 +6,10 @@ import { Input } from "../components/ui/input";
 import {
   MapPin, ArrowLeft, Map, List, Search, ChevronRight, Store, Route as RouteIcon,
 } from "lucide-react";
-import { usePdvs, routesApi, useMyRoutes } from "@/lib/api";
+import { usePdvs, routesApi, useMyRoutes, usePendingPdvs } from "@/lib/api";
 import type { RoutePdv } from "@/lib/api/types";
 import { getCurrentUser } from "../lib/auth";
+import { toast } from "sonner";
 import { useJsApiLoader, GoogleMap, MarkerF, InfoWindowF } from "@react-google-maps/api";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
@@ -26,7 +27,8 @@ export function RouteList() {
   const userId = Number(currentUser.id) || undefined;
   const isFieldRep = ["vendedor", "ejecutivo"].includes((currentUser.role || "").toLowerCase());
   const { data: allPdvs, loading } = usePdvs(isFieldRep ? userZoneId : undefined);
-  const pdvs = allPdvs;
+  const pendingPdvs = usePendingPdvs();
+  const pdvs = useMemo(() => [...pendingPdvs, ...allPdvs], [pendingPdvs, allPdvs]);
 
   // Load route assignments to show route names per PDV
   const { data: myRoutes } = useMyRoutes(userId);
@@ -250,16 +252,25 @@ export function RouteList() {
                 return (
                   <button
                     key={pdv.PdvId}
-                    onClick={() => navigate(`/pos/${pdv.PdvId}`)}
+                    onClick={() => {
+                      if ((pdv as any)._isPendingSync) {
+                        toast.info("Este PDV se sincronizará cuando vuelva la conexión.");
+                        return;
+                      }
+                      navigate(`/pos/${pdv.PdvId}`);
+                    }}
                     className={`w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors ${!pdv.IsActive ? "opacity-60" : ""}`}
                   >
-                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>
-                      <Store size={18} className={pdv.IsActive ? "text-[#A48242]" : "text-rose-500"} />
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${(pdv as any)._isPendingSync ? "bg-amber-500/10" : pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>
+                      <Store size={18} className={(pdv as any)._isPendingSync ? "text-amber-600" : pdv.IsActive ? "text-[#A48242]" : "text-rose-500"} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="font-semibold text-foreground text-sm truncate">{pdv.Name}</p>
-                        {!pdv.IsActive && (
+                        {(pdv as any)._isPendingSync && (
+                          <Badge className="bg-amber-100 text-amber-700 text-[9px] px-1.5 py-0 shrink-0">Pendiente</Badge>
+                        )}
+                        {!pdv.IsActive && !(pdv as any)._isPendingSync && (
                           <Badge className="bg-rose-100 text-rose-700 text-[9px] px-1.5 py-0 shrink-0">Inactivo</Badge>
                         )}
                       </div>

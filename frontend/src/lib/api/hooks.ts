@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { fetchWithCache } from "@/lib/offline";
+import { fetchWithCache, readCache, queue, subscribeQueueChanges } from "@/lib/offline";
 import { api } from "./client";
 import {
   routesApi,
@@ -277,4 +277,76 @@ export function useActiveNotifications(userId?: number) {
     () => fetchWithCache(`notifications_${userId ?? "all"}`, () => notificationsApi.list({ active_only: true, for_user: userId }), 2 * 60 * 60 * 1000),
     [userId]
   );
+}
+
+// ── PDVs pendientes de sync (creados offline) ──
+
+import type { Pdv, Channel } from "./types";
+
+export interface PendingPdv extends Pdv {
+  _isPendingSync: true;
+  _queueId: number;
+}
+
+/** Devuelve PDVs creados offline que aún no se sincronizaron. */
+export function usePendingPdvs(): PendingPdv[] {
+  const [pending, setPending] = useState<PendingPdv[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const ops = await queue.list();
+      const pdvOps = ops.filter((op) => op.kind === "pdv_create");
+      if (pdvOps.length === 0) { setPending([]); return; }
+
+      // Resolve channel names from cache if available
+      const channels = readCache<Channel[]>("channels") ?? [];
+      const chMap = new Map(channels.map((c) => [c.ChannelId, c.Name]));
+
+      const items: PendingPdv[] = pdvOps.map((op) => {
+        const b = (op.body ?? {}) as Record<string, unknown>;
+        return {
+          PdvId: (op._tempPdvId ?? -(op.id ?? 0)) as number,
+          Code: null,
+          Name: (b.Name as string) ?? "PDV pendiente",
+          BusinessName: null,
+          Channel: chMap.get(b.ChannelId as number) ?? null,
+          ChannelId: (b.ChannelId as number) ?? null,
+          SubChannelId: (b.SubChannelId as number) ?? null,
+          ChannelName: chMap.get(b.ChannelId as number) ?? null,
+          SubChannelName: null,
+          Address: (b.Address as string) ?? null,
+          City: null,
+          ZoneId: (b.ZoneId as number) ?? null,
+          DistributorId: null,
+          Lat: (b.Lat as number) ?? null,
+          Lon: (b.Lon as number) ?? null,
+          ContactName: null,
+          ContactPhone: null,
+          OpeningTime: (b.OpeningTime as string) ?? null,
+          ClosingTime: (b.ClosingTime as string) ?? null,
+          VisitDay: null,
+          Contacts: [],
+          Distributors: [],
+          MonthlyVolume: (b.MonthlyVolume as number) ?? null,
+          Category: null,
+          DefaultMaterialExternalId: null,
+          AssignedUserId: null,
+          IsActive: true,
+          InactiveReason: null,
+          ReactivateOn: null,
+          CreatedAt: new Date(op.createdAt).toISOString(),
+          UpdatedAt: new Date(op.createdAt).toISOString(),
+          _isPendingSync: true as const,
+          _queueId: op.id!,
+        };
+      });
+      setPending(items);
+    };
+
+    load();
+    const unsub = subscribeQueueChanges(load);
+    return unsub;
+  }, []);
+
+  return pending;
 }

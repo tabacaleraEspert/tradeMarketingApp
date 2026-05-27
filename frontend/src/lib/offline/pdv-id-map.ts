@@ -1,18 +1,16 @@
 /**
- * Persistencia del mapeo tempVisitId → realVisitId en IndexedDB.
+ * Persistencia del mapeo tempPdvId → realPdvId en IndexedDB.
  *
- * Cuando una visita se crea offline con un ID temporal negativo, el sync worker
- * obtiene el ID real del server al sincronizar. Este mapeo se persiste para que
- * si el flush se interrumpe (se cerró el browser, se cortó la conexión de nuevo),
- * las operaciones dependientes puedan resolverse en el próximo flush.
- *
- * Se usa un object store separado en la misma DB del queue offline.
+ * Misma lógica que visit-id-map.ts pero para PDVs creados offline.
+ * El sync worker guarda el mapeo al sincronizar un pdv_create y lo usa
+ * para resolver URLs de operaciones dependientes (fotos, notas).
  */
 
 const DB_NAME = "espert-offline";
-const DB_VERSION = 3; // v3: agrega pdv_id_map store
-const MAP_STORE = "visit_id_map";
+const DB_VERSION = 3;
+const MAP_STORE = "pdv_id_map";
 const QUEUE_STORE = "operations";
+const VISIT_MAP_STORE = "visit_id_map";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -25,11 +23,11 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(QUEUE_STORE)) {
         db.createObjectStore(QUEUE_STORE, { keyPath: "id", autoIncrement: true });
       }
+      if (!db.objectStoreNames.contains(VISIT_MAP_STORE)) {
+        db.createObjectStore(VISIT_MAP_STORE, { keyPath: "tempId" });
+      }
       if (!db.objectStoreNames.contains(MAP_STORE)) {
         db.createObjectStore(MAP_STORE, { keyPath: "tempId" });
-      }
-      if (!db.objectStoreNames.contains("pdv_id_map")) {
-        db.createObjectStore("pdv_id_map", { keyPath: "tempId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -38,7 +36,7 @@ function openDb(): Promise<IDBDatabase> {
   return dbPromise;
 }
 
-export async function saveVisitIdMapping(tempId: number, realId: number): Promise<void> {
+export async function savePdvIdMapping(tempId: number, realId: number): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MAP_STORE, "readwrite");
@@ -48,17 +46,7 @@ export async function saveVisitIdMapping(tempId: number, realId: number): Promis
   });
 }
 
-export async function getVisitIdMapping(tempId: number): Promise<number | null> {
-  const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(MAP_STORE, "readonly");
-    const req = tx.objectStore(MAP_STORE).get(tempId);
-    req.onsuccess = () => resolve(req.result?.realId ?? null);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function getAllVisitIdMappings(): Promise<Map<number, number>> {
+export async function getAllPdvIdMappings(): Promise<Map<number, number>> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(MAP_STORE, "readonly");
@@ -74,7 +62,7 @@ export async function getAllVisitIdMappings(): Promise<Map<number, number>> {
   });
 }
 
-export async function clearOldMappings(maxAgeDays = 7): Promise<void> {
+export async function clearOldPdvMappings(maxAgeDays = 7): Promise<void> {
   const db = await openDb();
   const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
   return new Promise((resolve, reject) => {

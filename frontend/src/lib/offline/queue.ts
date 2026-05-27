@@ -23,7 +23,7 @@
  */
 
 const DB_NAME = "espert-offline";
-const DB_VERSION = 2; // v2: agrega store "visit_id_map" (ver visit-id-map.ts)
+const DB_VERSION = 3; // v3: agrega store "pdv_id_map" (ver pdv-id-map.ts)
 const STORE = "operations";
 
 export type QueuedKind =
@@ -73,6 +73,12 @@ export interface QueuedOperation {
    * este tempId por el real en el URL antes de ejecutar.
    */
   _tempVisitId?: number;
+  /**
+   * Si esta operación depende de un PDV creado offline, este campo contiene
+   * el tempId (negativo). El sync worker reemplaza este tempId por el real
+   * en el URL antes de ejecutar.
+   */
+  _tempPdvId?: number;
 }
 
 
@@ -92,6 +98,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("visit_id_map")) {
         db.createObjectStore("visit_id_map", { keyPath: "tempId" });
+      }
+      if (!db.objectStoreNames.contains("pdv_id_map")) {
+        db.createObjectStore("pdv_id_map", { keyPath: "tempId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
