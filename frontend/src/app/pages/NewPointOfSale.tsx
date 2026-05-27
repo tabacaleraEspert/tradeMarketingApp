@@ -12,7 +12,7 @@ import { ArrowLeft, MapPin, Camera, Send, Plus, Trash2, Search, Crosshair, Alert
 import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
-import { executeOrEnqueue, queue } from "@/lib/offline";
+import { executeOrEnqueue, queue, writeCache, readCache } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
@@ -353,6 +353,51 @@ export function NewPointOfSale() {
             _tempPdvId: tempPdvId,
           }).catch(() => {});
         }
+        // Cache the PDV locally so all flows (detail, census, route) can find it
+        const channelName = channels.find((c: any) => c.ChannelId === Number(pdvBody.ChannelId))?.Name ?? null;
+        const localPdv = {
+          PdvId: tempPdvId,
+          Code: null,
+          Name: pdvBody.Name,
+          BusinessName: null,
+          Channel: channelName,
+          ChannelId: Number(pdvBody.ChannelId),
+          SubChannelId: pdvBody.SubChannelId ? Number(pdvBody.SubChannelId) : null,
+          ChannelName: channelName,
+          SubChannelName: null,
+          Address: pdvBody.Address ?? null,
+          City: null,
+          ZoneId: pdvBody.ZoneId ?? null,
+          DistributorId: null,
+          Lat: pdvBody.Lat ?? null,
+          Lon: pdvBody.Lon ?? null,
+          ContactName: null,
+          ContactPhone: null,
+          OpeningTime: pdvBody.OpeningTime ?? null,
+          ClosingTime: pdvBody.ClosingTime ?? null,
+          VisitDay: null,
+          Contacts: pdvBody.Contacts ?? [],
+          Distributors: [],
+          MonthlyVolume: pdvBody.MonthlyVolume ?? null,
+          Category: null,
+          DefaultMaterialExternalId: null,
+          AssignedUserId: null,
+          IsActive: true,
+          InactiveReason: null,
+          ReactivateOn: null,
+          CreatedAt: new Date().toISOString(),
+          UpdatedAt: new Date().toISOString(),
+          _isPendingSync: true,
+        };
+        writeCache(`pdv_${tempPdvId}`, localPdv);
+        // Inject into the cached PDV list so usePdvs() finds it
+        const zoneKey = `pdvs_${currentUser.zoneId ?? "all"}_all`;
+        const cachedList = readCache<any[]>(zoneKey);
+        if (cachedList) writeCache(zoneKey, [localPdv, ...cachedList]);
+        const allKey = "pdvs_all_all";
+        const cachedAll = readCache<any[]>(allKey);
+        if (cachedAll) writeCache(allKey, [localPdv, ...cachedAll]);
+
         toast.success("PDV guardado. Se creará cuando vuelva la conexión.");
       }
 

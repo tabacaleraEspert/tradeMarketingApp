@@ -5,3 +5,4 @@ export { executeOrEnqueue } from "./execute";
 export type { ExecuteRequest, ExecuteResult } from "./execute";
 export { fetchWithCache, readCache, writeCache, clearAllCache } from "./cache";
 export { savePdvIdMapping, getAllPdvIdMappings, clearOldPdvMappings } from "./pdv-id-map";
+export { saveRouteIdMapping, getAllRouteIdMappings, clearOldRouteMappings } from "./route-id-map";

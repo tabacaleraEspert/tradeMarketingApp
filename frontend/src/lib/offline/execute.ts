@@ -39,6 +39,8 @@ export interface ExecuteRequest {
   _tempVisitId?: number;
   /** Si esta operación depende de un PDV offline, pasar el tempId aquí */
   _tempPdvId?: number;
+  /** Si esta operación depende de una ruta offline, pasar el tempId aquí */
+  _tempRouteId?: number;
   body?: unknown;
   formParts?: Array<{ name: string; value: Blob | string; filename?: string }>;
   headers?: Record<string, string>;
@@ -69,6 +71,7 @@ export async function executeOrEnqueue<T = unknown>(req: ExecuteRequest): Promis
       label: req.label,
       _tempVisitId: req._tempVisitId,
       _tempPdvId: req._tempPdvId,
+      _tempRouteId: req._tempRouteId,
     });
     return { ok: true, queued: true, queueId };
   }
@@ -116,6 +119,7 @@ export async function executeOrEnqueue<T = unknown>(req: ExecuteRequest): Promis
       label: req.label,
       _tempVisitId: req._tempVisitId,
       _tempPdvId: req._tempPdvId,
+      _tempRouteId: req._tempRouteId,
     });
     return { ok: true, queued: true, queueId };
   }

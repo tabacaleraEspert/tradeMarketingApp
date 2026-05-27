@@ -10,7 +10,7 @@
  */
 
 const DB_NAME = "espert-offline";
-const DB_VERSION = 3; // v3: agrega pdv_id_map store
+const DB_VERSION = 4; // v4: agrega route_id_map store
 const MAP_STORE = "visit_id_map";
 const QUEUE_STORE = "operations";
 
@@ -30,6 +30,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("pdv_id_map")) {
         db.createObjectStore("pdv_id_map", { keyPath: "tempId" });
+      }
+      if (!db.objectStoreNames.contains("route_id_map")) {
+        db.createObjectStore("route_id_map", { keyPath: "tempId" });
       }
     };
     req.onsuccess = () => resolve(req.result);

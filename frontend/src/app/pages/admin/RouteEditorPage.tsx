@@ -40,6 +40,7 @@ import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
+import { executeOrEnqueue, queue, writeCache, readCache } from "@/lib/offline";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -837,78 +838,114 @@ export function RouteEditorPage() {
     setCreating(true);
     try {
       const currentUser = getCurrentUser();
-      const newRoute = await routesApi.create({
+      const routeBody = {
         Name: routeDraft.Name.trim(),
         ZoneId: routeDraft.ZoneId ?? undefined,
         BejermanZone: routeDraft.BejermanZone ?? undefined,
         AssignedUserId: isMyRoute ? Number(currentUser.id) : (routeDraft.AssignedUserId ?? undefined),
         FrequencyType: routeDraft.FrequencyType ?? undefined,
         FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
+      };
+
+      const result = await executeOrEnqueue({
+        kind: "route_create",
+        method: "POST",
+        url: "/routes",
+        body: routeBody,
+        label: `Nueva ruta: ${routeBody.Name}`,
       });
-      // Add draft PDVs
-      for (let i = 0; i < draftPdvIds.length; i++) {
-        try {
-          await routesApi.addPdv(newRoute.RouteId, {
-            PdvId: draftPdvIds[i],
-            SortOrder: i,
-            Priority: 3,
-          });
-        } catch { /* skip */ }
+
+      if (!result.queued && result.data) {
+        // Online: created successfully
+        const newRoute = result.data as { RouteId: number };
+
+        // Add draft PDVs
+        for (let i = 0; i < draftPdvIds.length; i++) {
+          try {
+            await routesApi.addPdv(newRoute.RouteId, {
+              PdvId: draftPdvIds[i],
+              SortOrder: i,
+              Priority: 3,
+            });
+          } catch { /* skip */ }
+        }
+
+        // Auto-generate days if frequency + TM + PDVs are all set
+        const hasFreq = routeDraft.FrequencyType;
+        const hasTM = isMyRoute ? Number(currentUser.id) : routeDraft.AssignedUserId;
+        if (hasFreq && hasTM && draftPdvIds.length > 0) {
+          try {
+            const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
+            const todayStr = todayAR();
+            const parseDate = (s: string) => new Date(s + "T12:00:00");
+            const toStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+            const today = parseDate(todayStr);
+            const startDate = config.startDate ? parseDate(config.startDate) : today;
+            const effectiveStart = startDate >= today ? startDate : today;
+            const endDate = parseDate(todayStr);
+            endDate.setDate(endDate.getDate() + 8 * 7);
+            const dates: string[] = [];
+            const ft = routeDraft.FrequencyType;
+
+            if (ft === "daily") {
+              const d = new Date(effectiveStart);
+              while (d <= endDate) { if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
+            } else if (ft === "weekly" && config.day != null) {
+              const d = new Date(effectiveStart);
+              while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 7); }
+            } else if (ft === "biweekly" && config.day != null) {
+              const d = new Date(effectiveStart);
+              while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
+              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 14); }
+            } else if (ft === "specific_days" && config.days?.length) {
+              const d = new Date(effectiveStart);
+              while (d <= endDate) { if (config.days.includes(d.getDay())) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
+            } else if (ft === "every_x_days" && config.interval) {
+              const d = new Date(startDate);
+              while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
+              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + config.interval); }
+            } else if (ft === "monthly") {
+              const d = new Date(startDate);
+              while (toStr(d) < todayStr) d.setMonth(d.getMonth() + 1);
+              while (d <= endDate) { dates.push(toStr(d)); d.setMonth(d.getMonth() + 1); }
+            }
+
+            for (const dt of dates) {
+              try { await routesApi.createDay(newRoute.RouteId, { WorkDate: dt, AssignedUserId: Number(hasTM) }); } catch { /* skip dups */ }
+            }
+            if (dates.length > 0) toast.success(`${dates.length} días generados`);
+          } catch { /* non-blocking */ }
+        }
+
+        toast.success("Ruta creada");
+        const editPath = isMyRoute
+          ? `/my-routes/${newRoute.RouteId}/edit`
+          : `/admin/routes/${newRoute.RouteId}/edit`;
+        navigate(editPath, { replace: true });
+      } else if (result.queued) {
+        // Offline: assign temp ID and queue dependent operations
+        const tempRouteId = -(Date.now() % 1000000);
+        const op = await queue.get(result.queueId);
+        if (op) {
+          op._tempRouteId = tempRouteId;
+          await queue.update(op);
+        }
+        // Queue PDV additions with temp route ID
+        for (let i = 0; i < draftPdvIds.length; i++) {
+          await executeOrEnqueue({
+            kind: "route_pdv_add",
+            method: "POST",
+            url: `/routes/${tempRouteId}/pdvs`,
+            body: { PdvId: draftPdvIds[i], SortOrder: i, Priority: 3 },
+            label: `Agregar PDV a ruta ${routeBody.Name}`,
+            _tempRouteId: tempRouteId,
+            _tempPdvId: draftPdvIds[i] < 0 ? draftPdvIds[i] : undefined,
+          }).catch(() => {});
+        }
+        toast.success("Ruta guardada. Se creará cuando vuelva la conexión.");
+        navigate(isMyRoute ? "/my-routes" : "/admin/routes", { replace: true });
       }
-
-      // Auto-generate days if frequency + TM + PDVs are all set at creation time
-      const hasFreq = routeDraft.FrequencyType;
-      const hasTM = isMyRoute ? Number(currentUser.id) : routeDraft.AssignedUserId;
-      if (hasFreq && hasTM && draftPdvIds.length > 0) {
-        try {
-          const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
-          const todayStr = todayAR();
-          const parseDate = (s: string) => new Date(s + "T12:00:00");
-          const toStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-          const today = parseDate(todayStr);
-          const startDate = config.startDate ? parseDate(config.startDate) : today;
-          const effectiveStart = startDate >= today ? startDate : today;
-          const endDate = parseDate(todayStr);
-          endDate.setDate(endDate.getDate() + 8 * 7);
-          const dates: string[] = [];
-          const ft = routeDraft.FrequencyType;
-
-          if (ft === "daily") {
-            const d = new Date(effectiveStart);
-            while (d <= endDate) { if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
-          } else if (ft === "weekly" && config.day != null) {
-            const d = new Date(effectiveStart);
-            while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 7); }
-          } else if (ft === "biweekly" && config.day != null) {
-            const d = new Date(effectiveStart);
-            while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 14); }
-          } else if (ft === "specific_days" && config.days?.length) {
-            const d = new Date(effectiveStart);
-            while (d <= endDate) { if (config.days.includes(d.getDay())) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
-          } else if (ft === "every_x_days" && config.interval) {
-            const d = new Date(startDate);
-            while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
-            while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + config.interval); }
-          } else if (ft === "monthly") {
-            const d = new Date(startDate);
-            while (toStr(d) < todayStr) d.setMonth(d.getMonth() + 1);
-            while (d <= endDate) { dates.push(toStr(d)); d.setMonth(d.getMonth() + 1); }
-          }
-
-          for (const dt of dates) {
-            try { await routesApi.createDay(newRoute.RouteId, { WorkDate: dt, AssignedUserId: Number(hasTM) }); } catch { /* skip dups */ }
-          }
-          if (dates.length > 0) toast.success(`${dates.length} días generados`);
-        } catch { /* non-blocking */ }
-      }
-
-      toast.success("Ruta creada");
-      const editPath = isMyRoute
-        ? `/my-routes/${newRoute.RouteId}/edit`
-        : `/admin/routes/${newRoute.RouteId}/edit`;
-      navigate(editPath, { replace: true });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al crear ruta");
     } finally {

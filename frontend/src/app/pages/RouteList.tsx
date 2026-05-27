@@ -252,13 +252,7 @@ export function RouteList() {
                 return (
                   <button
                     key={pdv.PdvId}
-                    onClick={() => {
-                      if ((pdv as any)._isPendingSync) {
-                        toast.info("Este PDV se sincronizará cuando vuelva la conexión.");
-                        return;
-                      }
-                      navigate(`/pos/${pdv.PdvId}`);
-                    }}
+                    onClick={() => navigate(`/pos/${pdv.PdvId}`)}
                     className={`w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/40 active:bg-muted/60 transition-colors ${!pdv.IsActive ? "opacity-60" : ""}`}
                   >
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${(pdv as any)._isPendingSync ? "bg-amber-500/10" : pdv.IsActive ? "bg-[#A48242]/10" : "bg-rose-500/10"}`}>

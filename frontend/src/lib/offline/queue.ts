@@ -23,7 +23,7 @@
  */
 
 const DB_NAME = "espert-offline";
-const DB_VERSION = 3; // v3: agrega store "pdv_id_map" (ver pdv-id-map.ts)
+const DB_VERSION = 4; // v4: agrega store "route_id_map"
 const STORE = "operations";
 
 export type QueuedKind =
@@ -40,7 +40,9 @@ export type QueuedKind =
   | "pdv_categories"
   | "photo_upload"
   | "pdv_create"
-  | "pdv_note_create";
+  | "pdv_note_create"
+  | "route_create"
+  | "route_pdv_add";
 
 export interface QueuedOperation {
   /** Auto-incremental, asignado por IDB */
@@ -79,6 +81,8 @@ export interface QueuedOperation {
    * en el URL antes de ejecutar.
    */
   _tempPdvId?: number;
+  /** Igual que _tempPdvId pero para rutas creadas offline. */
+  _tempRouteId?: number;
 }
 
 
@@ -101,6 +105,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("pdv_id_map")) {
         db.createObjectStore("pdv_id_map", { keyPath: "tempId" });
+      }
+      if (!db.objectStoreNames.contains("route_id_map")) {
+        db.createObjectStore("route_id_map", { keyPath: "tempId" });
       }
     };
     req.onsuccess = () => resolve(req.result);

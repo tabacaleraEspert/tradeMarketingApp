@@ -21,6 +21,7 @@ import { getAccessToken } from "@/lib/api/auth-storage";
 import { queue, subscribeQueueChanges, type QueuedOperation } from "./queue";
 import { saveVisitIdMapping, getAllVisitIdMappings, clearOldMappings } from "./visit-id-map";
 import { savePdvIdMapping, getAllPdvIdMappings, clearOldPdvMappings } from "./pdv-id-map";
+import { saveRouteIdMapping, getAllRouteIdMappings, clearOldRouteMappings } from "./route-id-map";
 
 
 const MAX_ATTEMPTS = 5;
@@ -107,11 +108,13 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
   // Mapas de tempId → realId. Cargamos los persistidos de flushes anteriores.
   const visitIdMap = await getAllVisitIdMappings().catch(() => new Map<number, number>());
   const pdvIdMap = await getAllPdvIdMappings().catch(() => new Map<number, number>());
+  const routeIdMap = await getAllRouteIdMappings().catch(() => new Map<number, number>());
 
   try {
     // Limpiar mapeos viejos (>7 días)
     await clearOldMappings(7).catch(() => {});
     await clearOldPdvMappings(7).catch(() => {});
+    await clearOldRouteMappings(7).catch(() => {});
     const ops = await queue.list();
     for (const op of ops) {
       // Skip si superó el límite de intentos (queda "muerta" para revisión manual)
@@ -147,6 +150,18 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
         continue;
       }
 
+      // Si esta op depende de un tempRouteId, reemplazar en la URL
+      if (op._tempRouteId && routeIdMap.has(op._tempRouteId)) {
+        const realId = routeIdMap.get(op._tempRouteId)!;
+        op.url = op.url.replace(`/${op._tempRouteId}/`, `/${realId}/`);
+        op.url = op.url.replace(`/${op._tempRouteId}`, `/${realId}`);
+        if (op.body && typeof op.body === "object" && (op.body as Record<string, unknown>).RouteId === op._tempRouteId) {
+          (op.body as Record<string, unknown>).RouteId = realId;
+        }
+      } else if (op._tempRouteId && !routeIdMap.has(op._tempRouteId) && op.kind !== "route_create") {
+        continue;
+      }
+
       processed++;
       const result = await executeOperation(op);
 
@@ -171,12 +186,24 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
               pdvIdMap.set(op._tempPdvId, created.PdvId);
               await savePdvIdMapping(op._tempPdvId, created.PdvId).catch(() => {});
               console.info(`[sync-worker] tempPdvId ${op._tempPdvId} → realId ${created.PdvId} (persistido)`);
-              // Invalidar cache de PDVs para que se refresquen con el real
+              // Limpiar cache del PDV temporal + invalidar listas
               try {
+                localStorage.removeItem(`espert.cache.pdv_${op._tempPdvId}`);
                 Object.keys(localStorage)
                   .filter((k) => k.startsWith("espert.cache.pdvs_"))
                   .forEach((k) => localStorage.removeItem(k));
               } catch { /* noop */ }
+            }
+          } catch { /* noop */ }
+        }
+        // Si fue un route_create, extraer el RouteId real
+        if (op.kind === "route_create" && op._tempRouteId && result.data) {
+          try {
+            const created = result.data as { RouteId?: number };
+            if (created.RouteId) {
+              routeIdMap.set(op._tempRouteId, created.RouteId);
+              await saveRouteIdMapping(op._tempRouteId, created.RouteId).catch(() => {});
+              console.info(`[sync-worker] tempRouteId ${op._tempRouteId} → realId ${created.RouteId} (persistido)`);
             }
           } catch { /* noop */ }
         }
