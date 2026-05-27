@@ -25,7 +25,8 @@ import {
 import { RouteCalendar } from "../components/RouteCalendar";
 import { Input } from "../components/ui/input";
 import { Button } from "../components/ui/button";
-import { useMyRoutes, routesApi, pdvsApi } from "@/lib/api";
+import { useMyRoutes, routesApi, pdvsApi, usePendingRoutes } from "@/lib/api";
+import { toast } from "sonner";
 import { api } from "@/lib/api/client";
 import { fetchWithCache } from "@/lib/offline";
 import type { Pdv, RoutePdv } from "@/lib/api";
@@ -87,6 +88,7 @@ export function MyRoutesPage() {
   const userId = Number(currentUser.id) || undefined;
 
   const { data: myRoutes, loading } = useMyRoutes(userId);
+  const pendingRoutes = usePendingRoutes();
   const [enrichedRoutes, setEnrichedRoutes] = useState<RouteWithPdvs[]>([]);
   const [enriching, setEnriching] = useState(false);
   const [viewMode, setViewMode] = useState<"list" | "map">("list");
@@ -658,13 +660,19 @@ export function MyRoutesPage() {
         )}
 
         {/* === LIST VIEW === */}
-        {!loading && !enriching && enrichedRoutes.length > 0 && viewMode === "list" && (
+        {!loading && !enriching && (enrichedRoutes.length > 0 || pendingRoutes.length > 0) && viewMode === "list" && (
           <div className="space-y-3">
-            {enrichedRoutes.map((route) => (
+            {[...pendingRoutes as any[], ...enrichedRoutes].map((route) => (
               <Card
                 key={route.routeId}
                 className="cursor-pointer hover:shadow-md transition-shadow overflow-hidden"
-                onClick={() => navigate(`/my-routes/${route.routeId}/edit`)}
+                onClick={() => {
+                  if ((route as any)._isPendingSync) {
+                    toast.info("Esta ruta se sincronizará cuando vuelva la conexión.");
+                    return;
+                  }
+                  navigate(`/my-routes/${route.routeId}/edit`);
+                }}
               >
                 {/* Color stripe */}
                 <div className="h-1" style={{ background: route.color }} />
@@ -673,6 +681,11 @@ export function MyRoutesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <h3 className="font-bold text-foreground truncate">{route.name}</h3>
+                        {(route as any)._isPendingSync && (
+                          <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
+                            Pendiente
+                          </Badge>
+                        )}
                         {route.nextDay === new Date().toISOString().split("T")[0] && (
                           <Badge className="bg-[#A48242] text-white border-0 text-[10px] px-1.5 py-0">
                             Hoy

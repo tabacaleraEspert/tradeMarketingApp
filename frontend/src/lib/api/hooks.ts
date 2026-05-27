@@ -350,3 +350,60 @@ export function usePendingPdvs(): PendingPdv[] {
 
   return pending;
 }
+
+// ── Rutas pendientes de sync (creadas offline) ──
+
+export interface PendingRoute {
+  routeId: number;
+  name: string;
+  pdvCount: number;
+  bejermanZone: string | null;
+  frequencyType: string | null;
+  estimatedMinutes: number | null;
+  isOptimized: boolean;
+  nextDay: string | null;
+  pdvs: [];
+  routePdvs: [];
+  color: string;
+  _isPendingSync: true;
+  _queueId: number;
+}
+
+/** Devuelve rutas creadas offline que aún no se sincronizaron. */
+export function usePendingRoutes(): PendingRoute[] {
+  const [pending, setPending] = useState<PendingRoute[]>([]);
+
+  useEffect(() => {
+    const load = async () => {
+      const ops = await queue.list();
+      const routeOps = ops.filter((op) => op.kind === "route_create");
+      if (routeOps.length === 0) { setPending([]); return; }
+
+      const items: PendingRoute[] = routeOps.map((op, i) => {
+        const b = (op.body ?? {}) as Record<string, unknown>;
+        return {
+          routeId: (op._tempRouteId ?? -(op.id ?? 0)) as number,
+          name: (b.Name as string) ?? "Ruta pendiente",
+          pdvCount: 0,
+          bejermanZone: (b.BejermanZone as string) ?? null,
+          frequencyType: (b.FrequencyType as string) ?? null,
+          estimatedMinutes: null,
+          isOptimized: false,
+          nextDay: null,
+          pdvs: [],
+          routePdvs: [],
+          color: "#D97706",
+          _isPendingSync: true as const,
+          _queueId: op.id!,
+        };
+      });
+      setPending(items);
+    };
+
+    load();
+    const unsub = subscribeQueueChanges(load);
+    return unsub;
+  }, []);
+
+  return pending;
+}
