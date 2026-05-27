@@ -196,7 +196,7 @@ export function VisitActionsPage() {
       await executeOrEnqueue({
         kind: "visit_action_update",
         method: "DELETE",
-        url: `/visits/${visitId}/actions/${actionId}`,
+        url: `/visits/actions/${actionId}`,
         label: "Eliminar acción",
         _tempVisitId: visitId && visitId < 0 ? visitId : undefined,
       });
