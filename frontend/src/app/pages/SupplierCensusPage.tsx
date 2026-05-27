@@ -72,7 +72,7 @@ export function SupplierCensusPage() {
   // Load zone suppliers when form opens
   useEffect(() => {
     if (showForm && pdvId) {
-      pdvSuppliersApi.searchZone(pdvId).then(setZoneSuppliers).catch(() => {});
+      fetchWithCache(`zone_suppliers_${pdvId}`, () => pdvSuppliersApi.searchZone(pdvId)).then(setZoneSuppliers).catch(() => {});
     }
   }, [showForm, pdvId]);
 

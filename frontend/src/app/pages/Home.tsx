@@ -160,6 +160,7 @@ export function Home() {
         track(fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {}));
         track(fetchWithCache(`pdv_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.list(rdp.PdvId)).catch(() => {}));
         track(fetchWithCache(`pdv_categories_${rdp.PdvId}`, () => pdvProductCategoriesApi.list(rdp.PdvId)).catch(() => {}));
+        track(fetchWithCache(`zone_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.searchZone(rdp.PdvId)).catch(() => {}));
       }
       // Reference data
       const zoneId = currentUser.zoneId;
