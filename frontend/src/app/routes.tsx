@@ -84,11 +84,13 @@ class LazyErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
           <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-xl">!</div>
           <p className="text-sm text-muted-foreground">
             {isChunkError
-              ? "No se pudo cargar esta pantalla. Verificá tu conexión."
+              ? navigator.onLine
+                ? "Hubo un error de carga. Recargando..."
+                : "Pantalla no disponible offline. Volvé a cargarla con conexión."
               : "Ocurrió un error inesperado."}
           </p>
           <button
-            onClick={() => this.setState({ error: null })}
+            onClick={() => isChunkError ? window.location.reload() : this.setState({ error: null })}
             className="px-4 py-2 bg-[#A48242] text-white rounded-lg text-sm font-semibold"
           >
             Reintentar
