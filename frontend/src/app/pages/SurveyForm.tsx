@@ -19,7 +19,7 @@ import {
   visitsApi,
 } from "@/lib/api";
 import type { Form, FormQuestion, FormOption } from "@/lib/api";
-import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
+import { executeOrEnqueue, fetchWithCache, readCache, writeCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { toast } from "sonner";
@@ -144,18 +144,25 @@ export function SurveyForm() {
       // Load existing answers if revisiting
       const vid = visitIdFromState ?? null;
       if (vid) {
-        try {
-          const existingAnswers = await visitsApi.listAnswers(vid);
-          const restored: Record<number, string | number | boolean | string[] | Record<string, number | null>> = {};
-          for (const ans of existingAnswers) {
-            if (ans.ValueJson) {
-              try { restored[ans.QuestionId] = JSON.parse(ans.ValueJson); } catch { /* skip */ }
-            } else if (ans.ValueBool !== null) restored[ans.QuestionId] = ans.ValueBool;
-            else if (ans.ValueNumber !== null) restored[ans.QuestionId] = ans.ValueNumber;
-            else if (ans.ValueText !== null) restored[ans.QuestionId] = ans.ValueText;
-          }
-          if (Object.keys(restored).length > 0) setAnswers(restored);
-        } catch { /* no saved answers yet — offline is OK, user can fill fresh */ }
+        // First check local draft (saved when user navigates away)
+        const localDraftKey = `survey_draft_${vid}`;
+        const localDraft = readCache<Record<number, unknown>>(localDraftKey);
+        if (localDraft && Object.keys(localDraft).length > 0) {
+          setAnswers(localDraft as Record<number, string | number | boolean | string[] | Record<string, number | null>>);
+        } else {
+          try {
+            const existingAnswers = await fetchWithCache(`visit_answers_${vid}`, () => visitsApi.listAnswers(vid));
+            const restored: Record<number, string | number | boolean | string[] | Record<string, number | null>> = {};
+            for (const ans of existingAnswers) {
+              if (ans.ValueJson) {
+                try { restored[ans.QuestionId] = JSON.parse(ans.ValueJson); } catch { /* skip */ }
+              } else if (ans.ValueBool !== null) restored[ans.QuestionId] = ans.ValueBool;
+              else if (ans.ValueNumber !== null) restored[ans.QuestionId] = ans.ValueNumber;
+              else if (ans.ValueText !== null) restored[ans.QuestionId] = ans.ValueText;
+            }
+            if (Object.keys(restored).length > 0) setAnswers(restored);
+          } catch { /* no saved answers yet — offline is OK, user can fill fresh */ }
+        }
       }
     } catch (e) {
       // If forms couldn't load even from cache, show error but don't navigate away
@@ -273,6 +280,7 @@ export function SurveyForm() {
   const handleSaveDraft = async () => {
     const vid = visitId ?? visitIdFromState;
     if (!vid) { toast.error("No hay visita activa"); return; }
+    writeCache(`survey_draft_${vid}`, answers);
     const isTempVisit = vid < 0;
     try {
       if (isTempVisit || !navigator.onLine) {
@@ -293,11 +301,15 @@ export function SurveyForm() {
     } catch { toast.error("Error al guardar borrador"); }
   };
 
-  // Autosave draft every 30 seconds
+  // Save answers to localStorage on every change (instant local persistence)
   const answersChangedSinceLastSave = useRef(false);
   useEffect(() => {
     answersChangedSinceLastSave.current = Object.keys(answers).length > 0;
-  }, [answers]);
+    const vid = visitId ?? visitIdFromState;
+    if (vid && Object.keys(answers).length > 0) {
+      writeCache(`survey_draft_${vid}`, answers);
+    }
+  }, [answers, visitId, visitIdFromState]);
 
   useEffect(() => {
     const interval = setInterval(async () => {
@@ -329,6 +341,8 @@ export function SurveyForm() {
   const handleSubmit = async () => {
     const vid = visitId ?? visitIdFromState;
     if (!vid) { toast.error("No hay visita activa"); return; }
+    // Save answers locally so they survive navigation back
+    writeCache(`survey_draft_${vid}`, answers);
     const isTempVisit = vid < 0;
     try {
       if (isTempVisit || !navigator.onLine) {
