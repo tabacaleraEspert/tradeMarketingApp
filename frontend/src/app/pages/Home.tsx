@@ -14,7 +14,7 @@ import {
   routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
   pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
   channelsApi, subchannelsApi, supplierTypesApi, supplierProductTypesApi, zonesApi,
-  usersApi, mandatoryActivitiesApi,
+  usersApi, mandatoryActivitiesApi, pdvSuppliersApi, pdvProductCategoriesApi,
   useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
 import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
@@ -144,6 +144,9 @@ export function Home() {
     schedule(() => {
       for (const rdp of routeDayPdvs) {
         fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
+        // Per-PDV census data
+        fetchWithCache(`pdv_suppliers_${rdp.PdvId}`, () => pdvSuppliersApi.list(rdp.PdvId)).catch(() => {});
+        fetchWithCache(`pdv_categories_${rdp.PdvId}`, () => pdvProductCategoriesApi.list(rdp.PdvId)).catch(() => {});
       }
       // PDV list for search & route creation (by zone for field reps, all for admins)
       const zoneId = currentUser.zoneId;
