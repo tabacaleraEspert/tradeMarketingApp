@@ -13,6 +13,7 @@ import { pdvsApi, visitActionsApi, productsApi, visitPhotosApi } from "@/lib/api
 import type { VisitAction, Product } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 import { toast } from "sonner";
@@ -56,8 +57,9 @@ export function VisitActionsPage() {
   const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
   const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
-  const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
-  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
+  const flow = useVisitFlow();
+  const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(flow.pdv);
+  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? flow.visitId ?? null);
   const [actions, setActions] = useState<VisitAction[]>([]);
   const [ownProducts, setOwnProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,11 +77,11 @@ export function VisitActionsPage() {
     setLoading(true);
     try {
       const [p, products] = await Promise.all([
-        fetchWithCache(`pdv_${id}`, () => pdvsApi.get(Number(id))),
-        fetchWithCache("products_active", () => productsApi.list({ active_only: true })),
+        flow.pdv ? Promise.resolve(flow.pdv) : fetchWithCache(`pdv_${id}`, () => pdvsApi.get(Number(id))),
+        flow.productsActive.length > 0 ? Promise.resolve(flow.productsActive) : fetchWithCache("products_active", () => productsApi.list({ active_only: true })),
       ]);
       setPdv(p);
-      setOwnProducts(products.filter((pr) => pr.IsOwn));
+      setOwnProducts(products.filter((pr: any) => pr.IsOwn));
 
       let vid = visitIdFromState;
       if (!vid) {
@@ -296,15 +298,16 @@ export function VisitActionsPage() {
               ))}
             </div>
           )}
-          <button onClick={() => setShowEmptyBrands(!showEmptyBrands)} className="w-full bg-background rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-            <ChevronDown size={12} className={showEmptyBrands ? "rotate-180" : ""} /> {showEmptyBrands ? "Ocultar" : "Ver"} otras marcas ({emptyProducts.length})
+          <button onClick={() => setShowEmptyBrands(!showEmptyBrands)} className="w-full bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 rounded-xl border border-green-200 dark:border-green-800 px-4 py-3 text-xs font-semibold text-green-700 dark:text-green-400 flex items-center justify-between transition-all hover:shadow-sm">
+            <span className="flex items-center gap-2"><Package size={13} className="text-green-500" /> {showEmptyBrands ? "Ocultar" : "Ver otras"} marcas ({emptyProducts.length})</span>
+            <ChevronDown size={14} className={`transition-transform duration-200 ${showEmptyBrands ? "rotate-180" : ""}`} />
           </button>
           {showEmptyBrands && (
-            <div className="mt-1.5 space-y-1 bg-background rounded-xl border border-border divide-y divide-border overflow-hidden">
-              {emptyProducts.map((p) => (
-                <div key={p.ProductId} className="px-3 py-2 flex items-center justify-between">
-                  <span className="text-xs text-muted-foreground truncate">{p.Name}</span>
-                  <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: step })} className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center"><Plus size={12} /></button>
+            <div className="mt-2 bg-background rounded-xl border border-border overflow-hidden shadow-sm">
+              {emptyProducts.map((p, i) => (
+                <div key={p.ProductId} className={`px-4 py-2.5 flex items-center justify-between ${i !== emptyProducts.length - 1 ? "border-b border-border" : ""}`}>
+                  <span className="text-sm text-foreground/80 truncate">{p.Name}</span>
+                  <button onClick={() => setFd("cantidades", { ...cantidades, [p.Name]: step })} className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/40 text-green-600 dark:text-green-400 flex items-center justify-center hover:bg-green-200 dark:hover:bg-green-900/60 transition-colors"><Plus size={14} strokeWidth={2.5} /></button>
                 </div>
               ))}
             </div>
@@ -345,22 +348,23 @@ export function VisitActionsPage() {
                 ))}
               </div>
             )}
-            <button onClick={() => setShowEntregadosBrands(!showEntregadosBrands)} className="w-full bg-background rounded-xl border border-border px-3 py-2.5 text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
-              <ChevronDown size={12} className={showEntregadosBrands ? "rotate-180" : ""} /> {showEntregadosBrands ? "Ocultar" : "Ver"} marcas disponibles ({emptyEntregados.length})
+            <button onClick={() => setShowEntregadosBrands(!showEntregadosBrands)} className="w-full bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-950/30 dark:to-yellow-950/30 rounded-xl border border-[#C9A962]/40 px-4 py-3 text-xs font-semibold text-[#A48242] flex items-center justify-between transition-all hover:shadow-sm">
+              <span className="flex items-center gap-2"><Package size={13} className="text-[#C9A962]" /> {showEntregadosBrands ? "Ocultar" : "Ver"} marcas disponibles ({emptyEntregados.length})</span>
+              <ChevronDown size={14} className={`transition-transform duration-200 ${showEntregadosBrands ? "rotate-180" : ""}`} />
             </button>
             {showEntregadosBrands && (
-              <div className="mt-1.5 space-y-1 bg-background rounded-xl border border-border divide-y divide-border overflow-hidden">
-                {emptyEntregados.map((p) => (
-                  <div key={p.ProductId} className="px-3 py-2 flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground truncate">{p.Name}</span>
+              <div className="mt-2 bg-background rounded-xl border border-border overflow-hidden shadow-sm">
+                {emptyEntregados.map((p, i) => (
+                  <div key={p.ProductId} className={`px-4 py-2.5 flex items-center justify-between ${i !== emptyEntregados.length - 1 ? "border-b border-border" : ""}`}>
+                    <span className="text-sm text-foreground/80 truncate">{p.Name}</span>
                     <button
                       onClick={() => {
                         if (totalEntregados >= llenos) return;
                         setFd("entregados", { ...entregados, [p.Name]: 1 });
                       }}
                       disabled={totalEntregados >= llenos}
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center ${totalEntregados >= llenos ? "bg-muted text-muted-foreground" : "bg-muted"}`}
-                    ><Plus size={12} /></button>
+                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-colors ${totalEntregados >= llenos ? "bg-muted text-muted-foreground/40" : "bg-amber-100 dark:bg-amber-900/40 text-[#A48242] hover:bg-amber-200 dark:hover:bg-amber-900/60"}`}
+                    ><Plus size={14} strokeWidth={2.5} /></button>
                   </div>
                 ))}
               </div>

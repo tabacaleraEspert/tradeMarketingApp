@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { pdvSuppliersApi, supplierTypesApi, supplierProductTypesApi } from "@/lib/api";
 import type { PdvSupplier, SupplierType, SupplierProductType } from "@/lib/api/types";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 
 interface SupplierForm {
   Name: string;
@@ -33,7 +34,9 @@ export function SupplierCensusPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
-  const { routeDayId, visitId } = locState;
+  const flow = useVisitFlow();
+  const routeDayId = locState.routeDayId ?? flow.routeDayId;
+  const visitId = locState.visitId ?? flow.visitId;
 
   const [suppliers, setSuppliers] = useState<PdvSupplier[]>([]);
   const [supplierTypes, setSupplierTypes] = useState<SupplierType[]>([]);
@@ -56,8 +59,8 @@ export function SupplierCensusPage() {
     setLoading(true);
     Promise.all([
       pdvSuppliersApi.list(pdvId).catch(() => []),
-      supplierTypesApi.list().catch(() => []),
-      supplierProductTypesApi.list().catch(() => []),
+      flow.supplierTypes.length > 0 ? Promise.resolve(flow.supplierTypes) : supplierTypesApi.list().catch(() => []),
+      flow.supplierProductTypes.length > 0 ? Promise.resolve(flow.supplierProductTypes) : supplierProductTypesApi.list().catch(() => []),
     ]).then(([s, st, pt]) => {
       setSuppliers(s);
       setSupplierTypes(st);

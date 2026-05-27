@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 
 const POP_COMPANIES = ["Espert", "Massalin", "BAT", "TABSA", "Otra"];
@@ -61,8 +62,9 @@ export function POPCensusPage() {
   const location = useLocation();
   const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
   const recovered = useVisitStep(Number(id) || undefined, "pop", locState);
+  const flow = useVisitFlow();
   const routeDayId = locState.routeDayId ?? recovered.routeDayId;
-  const visitId = locState.visitId ?? recovered.visitId;
+  const visitId = locState.visitId ?? recovered.visitId ?? flow.visitId;
 
   const [rows, setRows] = useState<POPRow[]>([]);
   const [loading, setLoading] = useState(true);

@@ -21,6 +21,7 @@ import {
 import type { Form, FormQuestion, FormOption } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { toast } from "sonner";
 
 interface QuestionWithOptions extends FormQuestion {
@@ -48,8 +49,9 @@ export function SurveyForm() {
   const routeDayId = locState?.routeDayId ?? recovered.routeDayId;
   const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
-  const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(null);
-  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
+  const flow = useVisitFlow();
+  const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(flow.pdv);
+  const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? flow.visitId ?? null);
   const [forms, setForms] = useState<Form[]>([]);
   const [focoFormIds, setFocoFormIds] = useState<Set<number>>(new Set());
   const [formQuestions, setFormQuestions] = useState<Record<number, QuestionWithOptions[]>>({});
@@ -94,20 +96,21 @@ export function SurveyForm() {
     setLoading(true);
     try {
       const pdvId = Number(id);
-      const p = await fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId));
+      const p = flow.pdv ?? await fetchWithCache(`pdv_${pdvId}`, () => pdvsApi.get(pdvId));
       setPdv(p);
 
-      if (!visitIdFromState) {
+      const effectiveVisitId = visitIdFromState ?? flow.visitId;
+      if (!effectiveVisitId) {
         try {
           const openVisits = await visitsApi.list({ pdv_id: pdvId, status: "OPEN" });
           if (openVisits.length > 0) setVisitId(openVisits[0].VisitId);
         } catch { /* offline: visitId should come from state/recovery */ }
       } else {
-        setVisitId(visitIdFromState);
+        setVisitId(effectiveVisitId);
       }
 
-      // Load ALL active forms (cached)
-      const allForms = await fetchWithCache("forms_active", () => formsApi.list({ limit: 200 }));
+      // Load ALL active forms (from context or cache)
+      const allForms = flow.forms.length > 0 ? flow.forms : await fetchWithCache("forms_active", () => formsApi.list({ limit: 200 }));
       const activeForms = allForms.filter((f) => f.IsActive);
       setForms(activeForms);
       if (activeForms.length > 0) setActiveTab((prev) => (prev ? prev : String(activeForms[0].FormId)));

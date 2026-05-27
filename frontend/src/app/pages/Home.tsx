@@ -8,15 +8,25 @@ import {
   TrendingUp, Calendar, Route, ChevronRight, Target, Star, Zap,
   ArrowRight, Store, Navigation, Locate, Loader2, X,
 } from "lucide-react";
-import { usePdvs } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
-  useRouteDayPdvsForDate, useIncidentsWithPdvNames, useActiveNotifications,
-  useUserMonthlyStats, routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
-  visitsApi, pdvsApi, productsApi, formsApi,
+  routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
+  pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
+  useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
+import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
+import { useQuery } from "@/lib/api/useQuery";
 import { fetchWithCache } from "@/lib/offline";
+import type { DashboardHomeData } from "@/lib/api/services";
+
+/** Timezone-safe Date → YYYY-MM-DD */
+function dateToYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 export function Home() {
   const navigate = useNavigate();
@@ -26,48 +36,57 @@ export function Home() {
 
   const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
 
-  // Detect any open/in-progress visit globally (not just today's route)
-  const [globalOpenVisit, setGlobalOpenVisit] = useState<{ VisitId: number; PdvId: number; PdvName: string } | null>(null);
-  useEffect(() => {
-    const userId = Number(currentUser.id);
-    if (!userId) return;
-    visitsApi.list({ user_id: userId, status: "OPEN" }).then(async (visits) => {
-      const inProgress = visits[0] || null;
-      if (!inProgress) {
-        const ip = await visitsApi.list({ user_id: userId, status: "IN_PROGRESS" }).catch(() => []);
-        if (ip[0]) {
-          try {
-            const pdv = await pdvsApi.get(ip[0].PdvId);
-            setGlobalOpenVisit({ VisitId: ip[0].VisitId, PdvId: ip[0].PdvId, PdvName: pdv.Name });
-          } catch {
-            // PDV not accessible (403) or offline — skip orphan visit
-            setGlobalOpenVisit(null);
-          }
-        } else { setGlobalOpenVisit(null); }
-        return;
-      }
-      try {
-        const pdv = await pdvsApi.get(inProgress.PdvId);
-        setGlobalOpenVisit({ VisitId: inProgress.VisitId, PdvId: inProgress.PdvId, PdvName: pdv.Name });
-      } catch {
-        // PDV not accessible (403) or offline — skip orphan visit
-        setGlobalOpenVisit(null);
-      }
-    }).catch(() => {});
-  }, [currentUser.id]);
+  // ── Aggregated API call with fallback to legacy individual calls ──
+  const dateStr = dateToYMD(selectedDate);
   const userIdForFilter = isAdmin ? undefined : Number(currentUser.id) || undefined;
 
-  const { data: routeDayPdvs, loading: loadingPdvs, refetch: refetchPdvs } = useRouteDayPdvsForDate(selectedDate, userIdForFilter);
+  const fetchHomeData = async (): Promise<DashboardHomeData> => {
+    try {
+      return await dashboardApi.home(dateStr);
+    } catch {
+      // Fallback: /dashboard/home not deployed yet — use individual calls
+      const [rdpData, monthlyData] = await Promise.all([
+        fetchRouteDayPdvsForDate(selectedDate, userIdForFilter),
+        fetchWithCache(`monthly_stats_${currentUser.id}`, () =>
+          import("@/lib/api/services").then((m) => m.usersApi.getMonthlyStats(Number(currentUser.id))),
+          2 * 60 * 60 * 1000,
+        ).catch(() => ({ visits: 0, compliance: 0, new_pdvs: 0 })),
+      ]);
+      // Detect open visit
+      let openVisit: DashboardHomeData["openVisit"] = null;
+      try {
+        const userId = Number(currentUser.id);
+        const open = await visitsApi.list({ user_id: userId, status: "OPEN" });
+        const ip = open[0] || (await visitsApi.list({ user_id: userId, status: "IN_PROGRESS" }).catch(() => []))[0];
+        if (ip) {
+          const pdv = await pdvsApi.get(ip.PdvId).catch(() => null);
+          if (pdv) openVisit = { VisitId: ip.VisitId, PdvId: ip.PdvId, PdvName: pdv.Name, Status: ip.Status };
+        }
+      } catch { /* offline */ }
+      return { routeDayPdvs: rdpData, openVisit, monthlyStats: monthlyData, alertCount: 0 };
+    }
+  };
+
+  const { data: homeData, loading: loadingPdvs, refetch: refetchHome } = useQuery(
+    `dashboard_home_${dateStr}`,
+    fetchHomeData,
+    { ttlMs: 4 * 60 * 60 * 1000 },
+  );
+
+  const routeDayPdvs = homeData?.routeDayPdvs ?? [];
+  const globalOpenVisit = homeData?.openVisit ?? null;
+  const monthlyStats = homeData?.monthlyStats ?? null;
+
+  // Incidents & notifications still fetched separately (they have their own cache + are used in alerts list)
   const { data: incidents } = useIncidentsWithPdvNames();
   const { data: notifications } = useActiveNotifications(Number(currentUser.id) || undefined);
-  const { data: monthlyStats } = useUserMonthlyStats(Number(currentUser.id) || undefined);
-  const { data: allPdvs } = usePdvs();
 
-  // Nearby kiosk modal
+  // ── Nearby kiosk modal — PDVs loaded on demand, not on mount ──
   const [nearbyOpen, setNearbyOpen] = useState(false);
   const [nearbyLoading, setNearbyLoading] = useState(false);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [nearbySearch, setNearbySearch] = useState("");
+  const [nearbyPdvList, setNearbyPdvList] = useState<any[]>([]);
 
   const distanceMetersBetween = useCallback((lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371000;
@@ -82,50 +101,53 @@ export function Home() {
     setNearbyOpen(true);
     setNearbyLoading(true);
     setNearbySearch("");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => { setUserCoords({ lat: pos.coords.latitude, lon: pos.coords.longitude }); setNearbyLoading(false); },
-      () => { setNearbyLoading(false); },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
+    // Fetch PDVs on demand (deferred from mount)
+    const pdvPromise = fetchWithCache("pdvs_all_all", () => pdvsApi.list({}));
+    const geoPromise = new Promise<{ lat: number; lon: number }>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        reject,
+        { enableHighAccuracy: true, timeout: 10000 },
+      );
+    });
+    Promise.all([pdvPromise, geoPromise])
+      .then(([pdvs, coords]) => {
+        setUserCoords(coords);
+        setNearbyPdvList(pdvs);
+        setNearbyLoading(false);
+      })
+      .catch(() => setNearbyLoading(false));
   }, []);
 
   const nearbyPdvs = useMemo(() => {
-    if (!userCoords || allPdvs.length === 0) return [];
-    return allPdvs
-      .filter((p) => p.Lat != null && p.Lon != null && p.IsActive)
-      .map((p) => ({ ...p, distance: distanceMetersBetween(userCoords.lat, userCoords.lon, p.Lat!, p.Lon!) }))
-      .sort((a, b) => a.distance - b.distance)
-      .filter((p) => !nearbySearch || p.Name.toLowerCase().includes(nearbySearch.toLowerCase()) || (p.Address || "").toLowerCase().includes(nearbySearch.toLowerCase()));
-  }, [userCoords, allPdvs, nearbySearch, distanceMetersBetween]);
+    if (!userCoords || nearbyPdvList.length === 0) return [];
+    return nearbyPdvList
+      .filter((p: any) => p.Lat != null && p.Lon != null && p.IsActive)
+      .map((p: any) => ({ ...p, distance: distanceMetersBetween(userCoords.lat, userCoords.lon, p.Lat!, p.Lon!) }))
+      .sort((a: any, b: any) => a.distance - b.distance)
+      .filter((p: any) => !nearbySearch || p.Name.toLowerCase().includes(nearbySearch.toLowerCase()) || (p.Address || "").toLowerCase().includes(nearbySearch.toLowerCase()));
+  }, [userCoords, nearbyPdvList, nearbySearch, distanceMetersBetween]);
 
-  // Refetch route data when user comes back to this page (e.g. after editing route frequency)
+  // Refetch when user comes back to this page
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === "visible") refetchPdvs(); };
+    const onVisible = () => { if (document.visibilityState === "visible") refetchHome(); };
     document.addEventListener("visibilitychange", onVisible);
-    // Also refetch on window focus (covers tab switching and in-app navigation)
-    window.addEventListener("focus", refetchPdvs);
-    return () => { document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refetchPdvs); };
-  }, [refetchPdvs]);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [refetchHome]);
 
-  // Pre-fetch all data needed for offline visits when Home loads with connection
+  // Pre-fetch data needed for offline visits (low priority, doesn't block UI)
   useEffect(() => {
     if (!navigator.onLine || routeDayPdvs.length === 0) return;
-    // Cache each PDV detail in background
-    for (const rdp of routeDayPdvs) {
-      fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
-    }
-    // Cache products and forms (needed for visit steps)
-    fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
-    fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
-    fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
+    const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn: () => void) => setTimeout(fn, 200);
+    schedule(() => {
+      for (const rdp of routeDayPdvs) {
+        fetchWithCache(`pdv_${rdp.PdvId}`, () => pdvsApi.get(rdp.PdvId)).catch(() => {});
+      }
+      fetchWithCache("products_all", () => productsApi.list()).catch(() => {});
+      fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {});
+      fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).catch(() => {});
+    });
   }, [routeDayPdvs]);
-
-  // Refetch when coming back to Home (visibility change or navigation)
-  useEffect(() => {
-    const handleFocus = () => { refetchPdvs(); };
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-  }, [refetchPdvs]);
 
   const allPointsOfSale = useMemo(() => routeDayPdvs.map(routeDayPdvToPointOfSaleUI), [routeDayPdvs]);
   const alerts = useMemo(() => [...incidents.map(incidentToAlertUI), ...notifications.map(notificationToAlertUI)], [incidents, notifications]);

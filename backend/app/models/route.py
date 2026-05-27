@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -51,6 +51,9 @@ class RoutePdv(Base):
 
 class RouteDay(Base):
     __tablename__ = "RouteDay"
+    __table_args__ = (
+        Index("ix_routeday_workdate_assigneduserid", "WorkDate", "AssignedUserId"),
+    )
 
     RouteDayId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     RouteId = Column(Integer, ForeignKey("Route.RouteId", ondelete="CASCADE"), nullable=False, index=True)

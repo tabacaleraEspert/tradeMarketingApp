@@ -374,19 +374,19 @@ def _carry_over_backlog(visit: VisitModel, db: Session):
         .all()
     )
 
+    # Batch-load existing mandatory activity IDs for this visit to avoid N+1
+    existing_ma_ids = set(
+        row[0] for row in
+        db.query(VisitActionModel.MandatoryActivityId)
+        .filter(
+            VisitActionModel.VisitId == visit.VisitId,
+            VisitActionModel.MandatoryActivityId.isnot(None),
+        ).all()
+    )
+
     for ba in backlog_actions:
-        # Check we haven't already created this mandatory activity
-        if ba.MandatoryActivityId:
-            existing = (
-                db.query(VisitActionModel)
-                .filter(
-                    VisitActionModel.VisitId == visit.VisitId,
-                    VisitActionModel.MandatoryActivityId == ba.MandatoryActivityId,
-                )
-                .first()
-            )
-            if existing:
-                continue
+        if ba.MandatoryActivityId and ba.MandatoryActivityId in existing_ma_ids:
+            continue
 
         action = VisitActionModel(
             VisitId=visit.VisitId,

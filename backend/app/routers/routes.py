@@ -177,35 +177,50 @@ def today_overview(db: Session = Depends(get_db)):
 @router.get("/map-overview", dependencies=[Depends(get_current_user)])
 def routes_map_overview(db: Session = Depends(get_db)):
     """All routes with their PDV coordinates for map visualization."""
-    routes = db.query(RouteModel).filter(RouteModel.IsActive== True).all()
+    routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+    if not routes:
+        return {"routes": [], "unrouted": []}
+
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
 
-    all_routed_pdv_ids: set[int] = set()
-    route_list = []
-    for r in routes:
-        route_pdvs = (
-            db.query(RoutePdvModel)
-            .filter(RoutePdvModel.RouteId == r.RouteId)
-            .order_by(RoutePdvModel.SortOrder)
-            .all()
-        )
-        pdv_ids = [rp.PdvId for rp in route_pdvs]
-        all_routed_pdv_ids.update(pdv_ids)
-        if not pdv_ids:
-            continue
-        pdvs = db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()
+    route_ids = [r.RouteId for r in routes]
+
+    # Batch-load all RoutePdv rows for active routes (1 query instead of N)
+    all_route_pdvs = (
+        db.query(RoutePdvModel)
+        .filter(RoutePdvModel.RouteId.in_(route_ids))
+        .order_by(RoutePdvModel.RouteId, RoutePdvModel.SortOrder)
+        .all()
+    )
+    # Group by RouteId
+    route_pdvs_map: dict[int, list] = {}
+    all_pdv_ids: set[int] = set()
+    for rp in all_route_pdvs:
+        route_pdvs_map.setdefault(rp.RouteId, []).append(rp)
+        all_pdv_ids.add(rp.PdvId)
+
+    # Batch-load all referenced PDVs (1 query instead of N)
+    pdv_map: dict[int, object] = {}
+    if all_pdv_ids:
+        pdvs = db.query(PDVModel).filter(PDVModel.PdvId.in_(all_pdv_ids)).all()
         pdv_map = {p.PdvId: p for p in pdvs}
 
-        # Assigned user
-        assigned_user_id = getattr(r, "AssignedUserId", None)
-        assigned_user_name = None
-        if assigned_user_id:
-            user = db.query(UserModel).filter(UserModel.UserId == assigned_user_id).first()
-            if user:
-                assigned_user_name = user.DisplayName
+    # Batch-load all assigned users (1 query instead of N)
+    user_ids = {r.AssignedUserId for r in routes if r.AssignedUserId}
+    user_name_map: dict[int, str] = {}
+    if user_ids:
+        users = db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()
+        user_name_map = {u.UserId: u.DisplayName for u in users}
+
+    all_routed_pdv_ids = all_pdv_ids
+    route_list = []
+    for r in routes:
+        rp_list = route_pdvs_map.get(r.RouteId, [])
+        if not rp_list:
+            continue
 
         pdv_list = []
-        for rp in route_pdvs:
+        for rp in rp_list:
             p = pdv_map.get(rp.PdvId)
             if not p:
                 continue
@@ -222,7 +237,7 @@ def routes_map_overview(db: Session = Depends(get_db)):
         route_list.append({
             "routeId": r.RouteId,
             "name": r.Name,
-            "assignedUserName": assigned_user_name,
+            "assignedUserName": user_name_map.get(r.AssignedUserId) if r.AssignedUserId else None,
             "bejermanZone": getattr(r, "BejermanZone", None),
             "frequencyType": getattr(r, "FrequencyType", None),
             "frequencyConfig": getattr(r, "FrequencyConfig", None),

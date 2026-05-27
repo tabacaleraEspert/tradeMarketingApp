@@ -512,7 +512,7 @@ export function RouteEditorPage() {
     }
   };
 
-  /** Auto-generate route days from frequency config */
+  /** Auto-generate route days from frequency config. Deletes future planned days first. */
   const handleGenerateDays = async (weeksAhead: number = 8) => {
     if (!id || !routeDraft?.FrequencyType || !route?.AssignedUserId) return;
     setSaving(true);
@@ -536,8 +536,24 @@ export function RouteEditorPage() {
       const endDate = parseDate(todayStr);
       endDate.setDate(endDate.getDate() + weeksAhead * 7);
 
-      // Existing dates to avoid duplicates
-      const existingDates = new Set(routeDays.map((d) => d.WorkDate.split("T")[0]));
+      // Delete future planned days (>= today) to regenerate cleanly
+      const freshDays = await routesApi.listDays(id);
+      const futurePlanned = freshDays.filter((d) =>
+        d.WorkDate.split("T")[0] >= todayStr && d.Status === "PLANNED"
+      );
+      for (const fd of futurePlanned) {
+        try { await routesApi.deleteDay(fd.RouteDayId); } catch { /* skip */ }
+      }
+      // Update local state after deletion
+      const deletedIds = new Set(futurePlanned.map((d) => d.RouteDayId));
+      setRouteDays((prev) => prev.filter((d) => !deletedIds.has(d.RouteDayId)));
+
+      // Existing dates = only past/non-planned (not deleted)
+      const existingDates = new Set(
+        freshDays
+          .filter((d) => d.Status !== "PLANNED" || d.WorkDate.split("T")[0] < todayStr)
+          .map((d) => d.WorkDate.split("T")[0])
+      );
 
       // Start from startDate or today, whichever is later (INCLUSIVE)
       const effectiveStart = startDate >= today ? startDate : parseDate(todayStr);
@@ -782,12 +798,8 @@ export function RouteEditorPage() {
 
       if (frequencyChanged) {
         if (routeDraft.FrequencyType && updated.AssignedUserId && routePdvs.length > 0) {
-          // Frequency set → reload and regenerate days
-          const freshDays = await routesApi.listDays(id);
-          setRouteDays(freshDays);
-          if (freshDays.length === 0 || frequencyChanged) {
-            await handleGenerateDays(8);
-          }
+          // Frequency set → regenerate days (handleGenerateDays fetches fresh, deletes old, creates new)
+          await handleGenerateDays(8);
         } else if (!routeDraft.FrequencyType) {
           // Frequency cleared → backend deleted future days, refresh local list
           const freshDays = await routesApi.listDays(id);

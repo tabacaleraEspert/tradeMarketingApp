@@ -1,10 +1,13 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, Numeric, Date
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, Numeric, Date
 from sqlalchemy.sql import func
 from ..database import Base
 
 
 class PDV(Base):
     __tablename__ = "PDV"
+    __table_args__ = (
+        Index("ix_pdv_assigneduserid_isactive", "AssignedUserId", "IsActive"),
+    )
 
     PdvId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     Code = Column(String(50), unique=True, nullable=True)

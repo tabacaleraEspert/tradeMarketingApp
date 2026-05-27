@@ -12,8 +12,20 @@ export default defineConfig({
     allowedHosts: true,
     proxy: {
       '/api-proxy': {
-        target: 'http://localhost:8001',
+        target: 'https://espert-trade-api.azurewebsites.net',
         changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api-proxy/, ''),
+      },
+    },
+  },
+  preview: {
+    port: 5174,
+    proxy: {
+      '/api-proxy': {
+        target: 'https://espert-trade-api.azurewebsites.net',
+        changeOrigin: true,
+        secure: true,
         rewrite: (path) => path.replace(/^\/api-proxy/, ''),
       },
     },
@@ -53,6 +65,19 @@ export default defineConfig({
               expiration: { maxEntries: 300, maxAgeSeconds: 30 * 24 * 60 * 60 },
             },
           },
+          {
+            // Cache API GET calls — NetworkFirst so offline serves cached data
+            // Excludes /auth/ endpoints (tokens must not be cached in SW)
+            urlPattern: /^https:\/\/espert-trade-api\.azurewebsites\.net\/(?!auth\/).*/i,
+            handler: 'NetworkFirst',
+            method: 'GET',
+            options: {
+              cacheName: 'api-data',
+              expiration: { maxEntries: 150, maxAgeSeconds: 24 * 60 * 60 },
+              networkTimeoutSeconds: 5,
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
         ],
       },
       manifest: false, // We already have a manual manifest.json in public/
@@ -73,6 +98,12 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: ['@sentry/react'],
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router'],
+          'vendor-charts': ['recharts'],
+        },
+      },
     },
   },
 })

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, memo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -24,6 +24,7 @@ import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { productsApi, visitCoverageApi, pdvProductCategoriesApi, ApiError } from "@/lib/api";
 import type { Product, CoverageDiff } from "@/lib/api/types";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 
 interface CoverageRow {
   ProductId: number;
@@ -33,14 +34,131 @@ interface CoverageRow {
   Puffs: string;
 }
 
+interface ProductRowProps {
+  product: Product;
+  row: CoverageRow;
+  diff: CoverageDiff | undefined;
+  category: string;
+  onUpdate: (pid: number, field: keyof CoverageRow, value: string | boolean) => void;
+}
+
+const ProductRowMemo = memo(function ProductRow({ product, row, diff, category, onUpdate }: ProductRowProps) {
+  const priceChanged = diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
+  const newProduct = diff && diff.PrevWorks === null;
+  const lostProduct = diff && diff.PrevWorks === true && !row.Works;
+  const isInherited = diff && diff.PrevWorks != null && !diff.Works && row.Works;
+
+  return (
+    <Card
+      className={`overflow-hidden transition-all ${
+        product.IsOwn ? "border-l-4 border-l-[#A48242]" : ""
+      } ${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""} ${isInherited ? "bg-amber-50/40 border-amber-200/60" : ""}`}
+    >
+      <CardContent className="p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="text-sm font-medium text-foreground truncate">{product.Name}</span>
+              {product.IsOwn && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold flex-shrink-0">
+                  ESPERT
+                </span>
+              )}
+              {isInherited && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium flex-shrink-0">
+                  Visita ant.
+                </span>
+              )}
+            </div>
+            {product.Manufacturer && (
+              <p className="text-[11px] text-muted-foreground">{product.Manufacturer}</p>
+            )}
+          </div>
+          <Switch
+            checked={row.Works}
+            onCheckedChange={(v) => onUpdate(product.ProductId, "Works", v)}
+          />
+        </div>
+
+        {row.Works && (
+          <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border flex-wrap">
+            <div className="flex-1 min-w-[80px]">
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                <Input
+                  type="number"
+                  placeholder="Precio"
+                  value={row.Price}
+                  onChange={(e) => onUpdate(product.ProductId, "Price", e.target.value)}
+                  className="h-8 text-sm pl-6"
+                />
+              </div>
+              {priceChanged && diff?.PrevPrice != null && (
+                <div className="flex items-center gap-1 mt-1">
+                  {Number(row.Price) > Number(diff.PrevPrice) ? (
+                    <TrendingUp size={12} className="text-red-500" />
+                  ) : (
+                    <TrendingDown size={12} className="text-green-500" />
+                  )}
+                  <span className="text-[10px] text-muted-foreground">
+                    Antes: ${Number(diff.PrevPrice).toLocaleString()}
+                  </span>
+                </div>
+              )}
+            </div>
+            {category.toLowerCase().includes("vape") && (
+              <div className="w-20">
+                <Input
+                  type="number"
+                  placeholder="Puffs"
+                  value={row.Puffs}
+                  onChange={(e) => onUpdate(product.ProductId, "Puffs", e.target.value)}
+                  className="h-8 text-sm text-center"
+                />
+              </div>
+            )}
+            <div className="flex gap-1">
+              <button
+                onClick={() => onUpdate(product.ProductId, "Availability", "disponible")}
+                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                  row.Availability === "disponible"
+                    ? "bg-green-100 text-green-800 ring-1 ring-green-300"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                Disp.
+              </button>
+              <button
+                onClick={() => onUpdate(product.ProductId, "Availability", "quiebre")}
+                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
+                  row.Availability === "quiebre"
+                    ? "bg-red-100 text-red-700 ring-1 ring-red-300"
+                    : "bg-muted text-muted-foreground"
+                }`}
+              >
+                Quiebre
+              </button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}, (prev, next) =>
+  prev.product.ProductId === next.product.ProductId &&
+  prev.row === next.row &&
+  prev.diff === next.diff
+);
+
 export function CoverageFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
   const recovered = useVisitStep(Number(id) || undefined, "coverage", locState);
+  const flow = useVisitFlow();
   const routeDayId = locState.routeDayId ?? recovered.routeDayId;
-  const visitId = locState.visitId ?? recovered.visitId;
+  const visitId = locState.visitId ?? recovered.visitId ?? flow.visitId;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [rows, setRows] = useState<Record<number, CoverageRow>>({});
@@ -61,7 +179,7 @@ export function CoverageFormPage() {
   useEffect(() => {
     if (!visitId) return;
     Promise.all([
-      fetchWithCache("products_all", () => productsApi.list()),
+      flow.products.length > 0 ? Promise.resolve(flow.products) : fetchWithCache("products_all", () => productsApi.list()),
       visitCoverageApi.diff(visitId).catch(() => []),
       id ? pdvProductCategoriesApi.list(Number(id)).catch(() => []) : Promise.resolve([]),
       visitCoverageApi.requirements(visitId).catch(() => null),
@@ -193,12 +311,12 @@ export function CoverageFormPage() {
     return groups;
   }, [filteredProducts]);
 
-  const updateRow = (pid: number, field: keyof CoverageRow, value: string | boolean) => {
+  const updateRow = useCallback((pid: number, field: keyof CoverageRow, value: string | boolean) => {
     setRows((prev) => ({
       ...prev,
       [pid]: { ...prev[pid], [field]: value },
     }));
-  };
+  }, []);
 
   const getDiff = (pid: number) => diffs.find((d) => d.ProductId === pid);
 
@@ -427,108 +545,15 @@ export function CoverageFormPage() {
               {prods.map((product) => {
                 const row = rows[product.ProductId];
                 if (!row) return null;
-                const diff = getDiff(product.ProductId);
-                const priceChanged = diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
-                const newProduct = diff && diff.PrevWorks === null;
-                const lostProduct = diff && diff.PrevWorks === true && !row.Works;
-                const isInherited = diff && diff.PrevWorks != null && !diff.Works && row.Works;
-
                 return (
-                  <Card
+                  <ProductRowMemo
                     key={product.ProductId}
-                    className={`overflow-hidden transition-all ${
-                      product.IsOwn ? "border-l-4 border-l-[#A48242]" : ""
-                    } ${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""} ${isInherited ? "bg-amber-50/40 border-amber-200/60" : ""}`}
-                  >
-                    <CardContent className="p-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-sm font-medium text-foreground truncate">{product.Name}</span>
-                            {product.IsOwn && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold flex-shrink-0">
-                                ESPERT
-                              </span>
-                            )}
-                            {isInherited && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium flex-shrink-0">
-                                Visita ant.
-                              </span>
-                            )}
-                          </div>
-                          {product.Manufacturer && (
-                            <p className="text-[11px] text-muted-foreground">{product.Manufacturer}</p>
-                          )}
-                        </div>
-                        <Switch
-                          checked={row.Works}
-                          onCheckedChange={(v) => updateRow(product.ProductId, "Works", v)}
-                        />
-                      </div>
-
-                      {row.Works && (
-                        <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border flex-wrap">
-                          <div className="flex-1 min-w-[80px]">
-                            <div className="relative">
-                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-                              <Input
-                                type="number"
-                                placeholder="Precio"
-                                value={row.Price}
-                                onChange={(e) => updateRow(product.ProductId, "Price", e.target.value)}
-                                className="h-8 text-sm pl-6"
-                              />
-                            </div>
-                            {priceChanged && diff?.PrevPrice != null && (
-                              <div className="flex items-center gap-1 mt-1">
-                                {Number(row.Price) > Number(diff.PrevPrice) ? (
-                                  <TrendingUp size={12} className="text-red-500" />
-                                ) : (
-                                  <TrendingDown size={12} className="text-green-500" />
-                                )}
-                                <span className="text-[10px] text-muted-foreground">
-                                  Antes: ${Number(diff.PrevPrice).toLocaleString()}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                          {category.toLowerCase().includes("vape") && (
-                            <div className="w-20">
-                              <Input
-                                type="number"
-                                placeholder="Puffs"
-                                value={row.Puffs}
-                                onChange={(e) => updateRow(product.ProductId, "Puffs", e.target.value)}
-                                className="h-8 text-sm text-center"
-                              />
-                            </div>
-                          )}
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => updateRow(product.ProductId, "Availability", "disponible")}
-                              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                                row.Availability === "disponible"
-                                  ? "bg-green-100 text-green-800 ring-1 ring-green-300"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              Disp.
-                            </button>
-                            <button
-                              onClick={() => updateRow(product.ProductId, "Availability", "quiebre")}
-                              className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                                row.Availability === "quiebre"
-                                  ? "bg-red-100 text-red-700 ring-1 ring-red-300"
-                                  : "bg-muted text-muted-foreground"
-                              }`}
-                            >
-                              Quiebre
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
+                    product={product}
+                    row={row}
+                    diff={getDiff(product.ProductId)}
+                    category={category}
+                    onUpdate={updateRow}
+                  />
                 );
               })}
 

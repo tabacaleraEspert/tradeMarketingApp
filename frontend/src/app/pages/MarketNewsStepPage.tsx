@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { executeOrEnqueue } from "@/lib/offline";
 import { marketNewsApi, visitPhotosApi, ApiError } from "@/lib/api";
 import type { MarketNews } from "@/lib/api/types";
@@ -42,8 +43,9 @@ export function MarketNewsStepPage() {
   const location = useLocation();
   const locState = (location.state as { routeDayId?: number; visitId?: number }) || {};
   const recovered = useVisitStep(Number(id) || undefined, "market-news", locState);
+  const flow = useVisitFlow();
   const routeDayId = locState.routeDayId ?? recovered.routeDayId;
-  const visitId = locState.visitId ?? recovered.visitId;
+  const visitId = locState.visitId ?? recovered.visitId ?? flow.visitId;
   const currentUser = getCurrentUser();
 
   const [drafts, setDrafts] = useState<NewsDraft[]>([]);

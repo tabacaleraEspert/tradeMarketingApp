@@ -1,5 +1,17 @@
 import { api } from "./client";
 
+// --- Dashboard (aggregated Home endpoint) ---
+export interface DashboardHomeData {
+  routeDayPdvs: any[];
+  openVisit: { VisitId: number; PdvId: number; PdvName: string; Status: string } | null;
+  monthlyStats: { visits: number; compliance: number; new_pdvs: number };
+  alertCount: number;
+}
+
+export const dashboardApi = {
+  home: (date: string) => api.get<DashboardHomeData>("/dashboard/home", { date }),
+};
+
 // --- Auth ---
 export interface LoginResponse {
   UserId: number;

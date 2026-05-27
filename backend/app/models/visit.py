@@ -1,10 +1,14 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Numeric
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Numeric
 from sqlalchemy.sql import func
 from ..database import Base
 
 
 class Visit(Base):
     __tablename__ = "Visit"
+    __table_args__ = (
+        Index("ix_visit_userid_status", "UserId", "Status"),
+        Index("ix_visit_pdvid_status", "PdvId", "Status"),
+    )
 
     VisitId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     PdvId = Column(Integer, ForeignKey("PDV.PdvId"), nullable=False, index=True)

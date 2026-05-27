@@ -1,32 +1,35 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, Component, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router";
 import { Login } from "./pages/Login";
 import { Home } from "./pages/Home";
 import { Layout } from "./components/Layout";
 import { getCurrentUser } from "./lib/auth";
+import { VisitFlowProvider } from "@/lib/VisitFlowContext";
 
-// Vendor pages — lazy loaded
+// ── Critical trade rep pages — eager loaded for offline support ──
+import { PointOfSaleDetail } from "./pages/PointOfSaleDetail";
+import { CheckIn } from "./pages/CheckIn";
+import { SurveyForm } from "./pages/SurveyForm";
+import { CoverageFormPage } from "./pages/CoverageFormPage";
+import { POPCensusPage } from "./pages/POPCensusPage";
+import { SupplierCensusPage } from "./pages/SupplierCensusPage";
+import { VisitActionsPage } from "./pages/VisitActionsPage";
+import { MarketNewsStepPage } from "./pages/MarketNewsStepPage";
+import { VisitSummaryPage } from "./pages/VisitSummaryPage";
+import { EndOfDayPage } from "./pages/EndOfDayPage";
+import { PhotoCapture } from "./pages/PhotoCapture";
+import { Sync } from "./pages/Sync";
+
+// ── Other vendor pages — lazy loaded ──
 const RouteList = lazy(() => import("./pages/RouteList").then(m => ({ default: m.RouteList })));
 const RouteFocoPage = lazy(() => import("./pages/RouteFocoPage").then(m => ({ default: m.RouteFocoPage })));
-const PointOfSaleDetail = lazy(() => import("./pages/PointOfSaleDetail").then(m => ({ default: m.PointOfSaleDetail })));
-const CheckIn = lazy(() => import("./pages/CheckIn").then(m => ({ default: m.CheckIn })));
-const SurveyForm = lazy(() => import("./pages/SurveyForm").then(m => ({ default: m.SurveyForm })));
-const PhotoCapture = lazy(() => import("./pages/PhotoCapture").then(m => ({ default: m.PhotoCapture })));
 const NewPointOfSale = lazy(() => import("./pages/NewPointOfSale").then(m => ({ default: m.NewPointOfSale })));
 const History = lazy(() => import("./pages/History").then(m => ({ default: m.History })));
 const Alerts = lazy(() => import("./pages/Alerts").then(m => ({ default: m.Alerts })));
-const Sync = lazy(() => import("./pages/Sync").then(m => ({ default: m.Sync })));
 const Profile = lazy(() => import("./pages/Profile").then(m => ({ default: m.Profile })));
 const MyRoutesPage = lazy(() => import("./pages/MyRoutesPage").then(m => ({ default: m.MyRoutesPage })));
 const MyRouteEditorPage = lazy(() => import("./pages/MyRouteEditorPage").then(m => ({ default: m.MyRouteEditorPage })));
 const RouteGeneratorPage = lazy(() => import("./pages/RouteGeneratorPage").then(m => ({ default: m.RouteGeneratorPage })));
-const CoverageFormPage = lazy(() => import("./pages/CoverageFormPage").then(m => ({ default: m.CoverageFormPage })));
-const POPCensusPage = lazy(() => import("./pages/POPCensusPage").then(m => ({ default: m.POPCensusPage })));
-const SupplierCensusPage = lazy(() => import("./pages/SupplierCensusPage").then(m => ({ default: m.SupplierCensusPage })));
-const VisitActionsPage = lazy(() => import("./pages/VisitActionsPage").then(m => ({ default: m.VisitActionsPage })));
-const VisitSummaryPage = lazy(() => import("./pages/VisitSummaryPage").then(m => ({ default: m.VisitSummaryPage })));
-const MarketNewsStepPage = lazy(() => import("./pages/MarketNewsStepPage").then(m => ({ default: m.MarketNewsStepPage })));
-const EndOfDayPage = lazy(() => import("./pages/EndOfDayPage").then(m => ({ default: m.EndOfDayPage })));
 
 // Admin pages — lazy loaded (only admins need these)
 const AdminLayout = lazy(() => import("./components/AdminLayout").then(m => ({ default: m.AdminLayout })));
@@ -51,8 +54,58 @@ function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
 }
 
+/** Catches lazy-load failures (offline / chunk missing) and offers retry. */
+class LazyErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidMount() {
+    // Auto-retry when connection comes back
+    window.addEventListener("online", this.handleOnline);
+  }
+
+  componentWillUnmount() {
+    window.removeEventListener("online", this.handleOnline);
+  }
+
+  handleOnline = () => {
+    if (this.state.error) this.setState({ error: null });
+  };
+
+  render() {
+    if (this.state.error) {
+      const isChunkError = this.state.error.message?.includes("dynamically imported module") ||
+        this.state.error.message?.includes("Failed to fetch");
+      return (
+        <div className="flex flex-col items-center justify-center h-64 px-6 text-center gap-4">
+          <div className="w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 text-xl">!</div>
+          <p className="text-sm text-muted-foreground">
+            {isChunkError
+              ? "No se pudo cargar esta pantalla. Verificá tu conexión."
+              : "Ocurrió un error inesperado."}
+          </p>
+          <button
+            onClick={() => this.setState({ error: null })}
+            className="px-4 py-2 bg-[#A48242] text-white rounded-lg text-sm font-semibold"
+          >
+            Reintentar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function SuspenseWrap({ children }: { children: React.ReactNode }) {
-  return <Suspense fallback={<LazyFallback />}>{children}</Suspense>;
+  return (
+    <LazyErrorBoundary>
+      <Suspense fallback={<LazyFallback />}>{children}</Suspense>
+    </LazyErrorBoundary>
+  );
 }
 
 function AdminGuard() {
@@ -81,21 +134,28 @@ export const router = createBrowserRouter([
       { path: "my-routes/:routeId", element: <SuspenseWrap><MyRouteEditorPage /></SuspenseWrap> },
       { path: "my-routes/:routeId/edit", element: <SuspenseWrap><RouteEditorPage /></SuspenseWrap> },
       { path: "search-pdv", element: <SuspenseWrap><RouteList /></SuspenseWrap> },
-      { path: "pos/:id", element: <SuspenseWrap><PointOfSaleDetail /></SuspenseWrap> },
-      { path: "pos/:id/checkin", element: <SuspenseWrap><CheckIn /></SuspenseWrap> },
-      { path: "pos/:id/survey", element: <SuspenseWrap><SurveyForm /></SuspenseWrap> },
-      { path: "pos/:id/coverage", element: <SuspenseWrap><CoverageFormPage /></SuspenseWrap> },
-      { path: "pos/:id/pop", element: <SuspenseWrap><POPCensusPage /></SuspenseWrap> },
-      { path: "pos/:id/suppliers", element: <SuspenseWrap><SupplierCensusPage /></SuspenseWrap> },
-      { path: "pos/:id/actions", element: <SuspenseWrap><VisitActionsPage /></SuspenseWrap> },
-      { path: "pos/:id/market-news", element: <SuspenseWrap><MarketNewsStepPage /></SuspenseWrap> },
-      { path: "pos/:id/photos", element: <SuspenseWrap><PhotoCapture /></SuspenseWrap> },
-      { path: "pos/:id/summary", element: <SuspenseWrap><VisitSummaryPage /></SuspenseWrap> },
+      { path: "pos/:id", element: <PointOfSaleDetail /> },
+      { path: "pos/:id/checkin", element: <CheckIn /> },
+      // Census flow — shared VisitFlowContext pre-loads PDV, products, forms once
+      {
+        path: "pos/:id",
+        Component: VisitFlowProvider,
+        children: [
+          { path: "survey", element: <SurveyForm /> },
+          { path: "coverage", element: <CoverageFormPage /> },
+          { path: "pop", element: <POPCensusPage /> },
+          { path: "suppliers", element: <SupplierCensusPage /> },
+          { path: "actions", element: <VisitActionsPage /> },
+          { path: "market-news", element: <MarketNewsStepPage /> },
+        ],
+      },
+      { path: "pos/:id/photos", element: <PhotoCapture /> },
+      { path: "pos/:id/summary", element: <VisitSummaryPage /> },
       { path: "pos/:id/history", element: <SuspenseWrap><History /></SuspenseWrap> },
       { path: "new-pos", element: <SuspenseWrap><NewPointOfSale /></SuspenseWrap> },
-      { path: "end-of-day", element: <SuspenseWrap><EndOfDayPage /></SuspenseWrap> },
+      { path: "end-of-day", element: <EndOfDayPage /> },
       { path: "alerts", element: <SuspenseWrap><Alerts /></SuspenseWrap> },
-      { path: "sync", element: <SuspenseWrap><Sync /></SuspenseWrap> },
+      { path: "sync", element: <Sync /> },
       { path: "profile", element: <SuspenseWrap><Profile /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],

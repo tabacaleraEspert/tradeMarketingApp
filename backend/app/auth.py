@@ -86,12 +86,26 @@ def decode_token(token: str) -> dict[str, Any]:
 # Dependencies
 # ======================================================================
 def get_user_role(db: Session, user_id: int) -> str:
-    """Resuelve el nombre del rol del usuario (o 'vendedor' por default)."""
+    """Resuelve el nombre del rol del usuario (o 'vendedor' por default).
+
+    Cachea el resultado en el objeto Session (request-scoped) para evitar
+    queries repetidas dentro del mismo request.
+    """
+    cache: dict[int, str] = getattr(db, "_role_cache", None)  # type: ignore[assignment]
+    if cache is None:
+        cache = {}
+        db._role_cache = cache  # type: ignore[attr-defined]
+    if user_id in cache:
+        return cache[user_id]
+
     ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).first()
     if not ur:
+        cache[user_id] = "vendedor"
         return "vendedor"
     r = db.query(RoleModel).filter(RoleModel.RoleId == ur.RoleId).first()
-    return r.Name if r else "vendedor"
+    role = r.Name if r else "vendedor"
+    cache[user_id] = role
+    return role
 
 
 def get_current_user(
