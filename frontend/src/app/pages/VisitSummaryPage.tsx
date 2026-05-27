@@ -10,7 +10,8 @@ import {
   Camera, Zap, Newspaper, LogOut, ChevronRight, Clock, MapPin,
   Navigation, FileText, Megaphone, Package,
 } from "lucide-react";
-import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi } from "@/lib/api";
+import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi, pdvSuppliersApi } from "@/lib/api";
+import { Truck } from "lucide-react";
 import { fetchWithCache, readCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
 import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
@@ -28,13 +29,14 @@ interface StepData {
   icon: React.ElementType;
   status: "completed" | "partial" | "pending";
   detail: string;
-  type: "relevamiento" | "cobertura" | "pop" | "acciones" | "fotos" | "novedades";
+  type: "relevamiento" | "cobertura" | "pop" | "proveedores" | "acciones" | "fotos" | "novedades";
 }
 
 const STEP_ROUTES: Record<StepData["type"], string> = {
   relevamiento: "survey",
   cobertura: "coverage",
   pop: "pop",
+  proveedores: "suppliers",
   acciones: "actions",
   fotos: "photos",
   novedades: "market-news",
@@ -74,6 +76,7 @@ export function VisitSummaryPage() {
   const [visitData, setVisitData] = useState<any>(null);
   const [coverageItems, setCoverageItems] = useState<VisitCoverageItem[]>([]);
   const [popItems, setPopItems] = useState<VisitPOPItem[]>([]);
+  const [suppliers, setSuppliers] = useState<any[]>([]);
   const [productMap, setProductMap] = useState<Record<number, Product>>({});
 
   const loadData = useCallback(async () => {
@@ -113,6 +116,8 @@ export function VisitSummaryPage() {
       setVisitPhotos(photos);
       setCoverageItems(cov);
       setPopItems(pop);
+
+      // (suppliers already loaded above in status steps)
 
       // Load product names for coverage
       if (cov.length > 0) {
@@ -165,6 +170,15 @@ export function VisitSummaryPage() {
         label: "Censo POP", icon: Megaphone as any, type: "pop" as any,
         status: pop.length > 0 ? "completed" : "pending",
         detail: pop.length > 0 ? `${popPresent} presentes` : "Sin completar",
+      });
+
+      // Proveedores
+      const supps = await fetchWithCache(`pdv_suppliers_${id}`, () => pdvSuppliersApi.list(Number(id))).catch(() => []);
+      setSuppliers(supps);
+      statusSteps.push({
+        label: "Censo Proveedores", icon: Truck as any, type: "proveedores" as any,
+        status: supps.length > 0 ? "completed" : "pending",
+        detail: supps.length > 0 ? `${supps.length} registrados` : "Sin proveedores",
       });
 
       // Acciones
