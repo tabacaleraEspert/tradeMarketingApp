@@ -166,7 +166,7 @@ export function useZones() {
 
 /** Hook para rutas */
 export function useRoutes() {
-  return useApiList(() => routesApi.list());
+  return useApiList(() => fetchWithCache("routes_all", () => routesApi.list()));
 }
 
 /** Hook para rutas asignadas al TM Rep actual (no las que creó, las que tiene a cargo) */
@@ -196,7 +196,7 @@ export function useSubChannels(channelId: number | null | undefined) {
 
 /** Hook para usuarios */
 export function useUsers() {
-  return useApiList(() => usersApi.list());
+  return useApiList(() => fetchWithCache("users", () => usersApi.list()));
 }
 
 /** Hook para estadísticas mensuales del usuario */
@@ -225,7 +225,7 @@ export function useUserMonthlyStats(userId: number | undefined) {
 
 /** Hook para distribuidores */
 export function useDistributors() {
-  return useApiList(() => distributorsApi.list());
+  return useApiList(() => fetchWithCache("distributors", () => distributorsApi.list()));
 }
 
 /** Hook para formularios */

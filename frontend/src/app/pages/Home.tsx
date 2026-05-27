@@ -14,6 +14,7 @@ import {
   routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
   pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
   channelsApi, subchannelsApi, supplierTypesApi, supplierProductTypesApi, zonesApi,
+  usersApi, mandatoryActivitiesApi,
   useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
 import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
@@ -157,6 +158,8 @@ export function Home() {
       fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => {});
       fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => {});
       fetchWithCache("zones", () => zonesApi.list()).catch(() => {});
+      fetchWithCache("users", () => usersApi.list()).catch(() => {});
+      fetchWithCache("mandatory_activities", () => mandatoryActivitiesApi.list({ active_only: true })).catch(() => {});
       // Pre-cache form questions for offline surveys
       fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).then((forms: any[]) => {
         for (const f of forms) fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => {});

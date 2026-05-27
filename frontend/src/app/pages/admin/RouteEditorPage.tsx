@@ -40,7 +40,7 @@ import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
-import { executeOrEnqueue, queue, writeCache, readCache } from "@/lib/offline";
+import { executeOrEnqueue, queue, writeCache, readCache, fetchWithCache } from "@/lib/offline";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -171,7 +171,7 @@ export function RouteEditorPage() {
   const { data: forms } = useForms();
   const { data: users } = useUsers();
   const { data: allActivities, refetch: refetchActivities } = useApiList(
-    () => mandatoryActivitiesApi.list({ active_only: true })
+    () => fetchWithCache("mandatory_activities", () => mandatoryActivitiesApi.list({ active_only: true }))
   );
 
   const { isLoaded: mapsLoaded } = useJsApiLoader({
