@@ -8,6 +8,7 @@ class Visit(Base):
     __table_args__ = (
         Index("ix_visit_userid_status", "UserId", "Status"),
         Index("ix_visit_pdvid_status", "PdvId", "Status"),
+        Index("ix_visit_userid_openedat", "UserId", "OpenedAt"),
     )
 
     VisitId = Column(Integer, primary_key=True, index=True, autoincrement=True)

@@ -17,7 +17,7 @@
  */
 
 import { API_BASE_URL } from "@/lib/api/config";
-import { getAccessToken } from "@/lib/api/auth-storage";
+import { getAccessToken, getRefreshToken, saveTokens, isAccessTokenExpired } from "@/lib/api/auth-storage";
 import { queue, subscribeQueueChanges, type QueuedOperation } from "./queue";
 import { saveVisitIdMapping, getAllVisitIdMappings, clearOldMappings } from "./visit-id-map";
 import { savePdvIdMapping, getAllPdvIdMappings, clearOldPdvMappings } from "./pdv-id-map";
@@ -32,10 +32,41 @@ let listenersAttached = false;
 
 
 // ============================================================================
+// Token refresh para el sync worker
+// ============================================================================
+async function ensureFreshToken(): Promise<string | null> {
+  if (!isAccessTokenExpired()) {
+    return getAccessToken();
+  }
+  const refresh = getRefreshToken();
+  if (!refresh) return null;
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) return null;
+    const data: { access_token: string; expires_in: number } = await res.json();
+    saveTokens({
+      accessToken: data.access_token,
+      refreshToken: refresh,
+      expiresInSeconds: data.expires_in,
+    });
+    console.info("[sync-worker] access token refreshed successfully");
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
+
+// ============================================================================
 // Ejecución de una operación
 // ============================================================================
 async function executeOperation(op: QueuedOperation): Promise<{ ok: true; data?: unknown } | { ok: false; status: number; message: string }> {
-  const token = getAccessToken();
+  const token = await ensureFreshToken();
   const headers: Record<string, string> = {
     ...(op.headers ?? {}),
   };
@@ -225,9 +256,36 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
         failed++;
         // Si volvió a fallar la red, probablemente no tiene sentido seguir intentando ahora
         break;
+      } else if (result.status === 401) {
+        // Token expiró durante el flush — intentar refresh y reintentar esta op una vez
+        const freshToken = await ensureFreshToken();
+        if (freshToken) {
+          const retry = await executeOperation(op);
+          if (retry.ok) {
+            await queue.remove(op.id!);
+            succeeded++;
+          } else {
+            await queue.update({
+              ...op,
+              attempts: op.attempts + 1,
+              lastAttemptAt: Date.now(),
+              lastError: `HTTP ${retry.ok ? 200 : (retry as { status: number }).status}: retry after refresh failed`,
+            });
+            failed++;
+          }
+        } else {
+          // No se pudo refrescar — no tiene sentido seguir, el usuario tiene que re-loguear
+          console.warn("[sync-worker] token refresh failed, stopping flush");
+          await queue.update({
+            ...op,
+            lastAttemptAt: Date.now(),
+            lastError: "Token expirado, requiere re-login",
+          });
+          failed++;
+          break;
+        }
       } else if (result.status >= 400 && result.status < 500) {
-        // Error de cliente. Reintentar no va a arreglarlo, pero le damos algunos
-        // intentos por si fue un transient (ej: 401 que se resuelve después de un refresh)
+        // Error de cliente (400, 403, 404, 409, 422). Reintentar no va a arreglarlo.
         const newAttempts = op.attempts + 1;
         await queue.update({
           ...op,

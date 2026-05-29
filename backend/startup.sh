@@ -11,9 +11,11 @@ else
 fi
 
 # 2. Levantar el server con Gunicorn + Uvicorn workers
-echo "→ Arrancando Gunicorn (2 workers)..."
+# Workers = (2 x CPU cores) + 1.  B1=1core→2w, B2=2cores→4w
+WORKERS=${GUNICORN_WORKERS:-4}
+echo "→ Arrancando Gunicorn ($WORKERS workers)..."
 exec gunicorn \
-  -w 2 \
+  -w "$WORKERS" \
   -k uvicorn.workers.UvicornWorker \
   app.main:app \
   --bind 0.0.0.0:8000 \
