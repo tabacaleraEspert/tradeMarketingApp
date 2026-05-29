@@ -157,7 +157,7 @@ export function CheckIn() {
   const generateTempVisitId = () => -(Date.now() % 1000000);
 
   const handleCheckIn = async () => {
-    if (!id || !pdv) return;
+    if (!id || !pdv || saving) return;
     setSaving(true);
     try {
       let visitId: number;

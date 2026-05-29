@@ -70,10 +70,16 @@ def list_visits(
         q = q.filter(VisitModel.Status == status)
     if date_from:
         from datetime import datetime as _dt
-        q = q.filter(VisitModel.OpenedAt >= _dt.fromisoformat(date_from))
+        try:
+            q = q.filter(VisitModel.OpenedAt >= _dt.fromisoformat(date_from))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_from inválido: {date_from}")
     if date_to:
         from datetime import datetime as _dt2, timedelta as _td
-        end = _dt2.fromisoformat(date_to) + _td(days=1)
+        try:
+            end = _dt2.fromisoformat(date_to) + _td(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_to inválido: {date_to}")
         q = q.filter(VisitModel.OpenedAt < end)
     visits = q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
 
@@ -236,12 +242,14 @@ def create_visit(
         )
 
     # 3. No permitir crear una visita nueva si el usuario ya tiene CUALQUIER visita OPEN/IN_PROGRESS
+    # with_for_update() locks the row to prevent race conditions from double-tap
     open_visit = (
         db.query(VisitModel)
         .filter(
             VisitModel.UserId == data.UserId,
             VisitModel.Status.in_(["OPEN", "IN_PROGRESS"]),
         )
+        .with_for_update(skip_locked=True)
         .first()
     )
     if open_visit:
@@ -806,7 +814,10 @@ def upsert_form_times(visit_id: int, data: dict, db: Session = Depends(get_db)):
     items = data.get("form_times", [])
     for item in items:
         fid = item.get("FormId")
-        seconds = int(item.get("ElapsedSeconds", 0))
+        try:
+            seconds = int(item.get("ElapsedSeconds", 0))
+        except (ValueError, TypeError):
+            continue
         if not fid or seconds <= 0:
             continue
         row = (

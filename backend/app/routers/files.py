@@ -253,11 +253,12 @@ def delete_visit_photo(
         storage.delete(f.BlobKey)
 
     db.delete(vp)
-    # Si el File no está referenciado por otras VisitPhoto (no debería, es 1-1), borrarlo también
+    db.flush()
+    # Después del flush, vp ya no está en la sesión — contar las referencias restantes
     other_refs = (
         db.query(VisitPhotoModel).filter(VisitPhotoModel.FileId == file_id).count()
     )
-    if other_refs <= 1 and f:
+    if other_refs == 0 and f:
         db.delete(f)
     db.commit()
     return None

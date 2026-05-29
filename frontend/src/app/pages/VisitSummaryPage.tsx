@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useParams, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
@@ -66,6 +66,7 @@ export function VisitSummaryPage() {
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   // Detail modal
+  const closingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [detailModal, setDetailModal] = useState<string | null>(null);
   const [answers, setAnswers] = useState<VisitAnswer[]>([]);
   const [questions, setQuestions] = useState<FormQuestion[]>([]);
@@ -217,6 +218,9 @@ export function VisitSummaryPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // Cleanup navigation timer on unmount
+  useEffect(() => () => { if (closingTimerRef.current) clearTimeout(closingTimerRef.current); }, []);
+
   const handleClose = async () => {
     if (!visitId) return;
     setClosing(true);
@@ -306,7 +310,7 @@ export function VisitSummaryPage() {
             });
           }
           // Navegar después de un delay para que se vea el toast
-          setTimeout(() => {
+          closingTimerRef.current = setTimeout(() => {
             navigate(`/pos/${nextPdv.pdv.PdvId}`, {
               state: { routeDayId: nextPdv.RouteDayId, completedPdvId: currentPdvId, fromNextButton: true },
             });
