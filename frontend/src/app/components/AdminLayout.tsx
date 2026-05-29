@@ -18,6 +18,7 @@ import {
   Eye,
   Shield,
   Truck,
+  Gift,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -78,6 +79,7 @@ export function AdminLayout() {
     { path: "/admin/forms", icon: ClipboardList, label: "Plantillas de Visita" },
     { path: "/admin/notifications", icon: Bell, label: "Notificaciones" },
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
+    { path: "/admin/product-deliveries", icon: Gift, label: "Entregas" },
     { path: "/admin/visit-data", icon: Eye, label: "Censos y Respuestas" },
     { path: "/admin/users", icon: Users, label: "Usuarios" },
     { path: "/admin/audit", icon: Shield, label: "Auditoría" },
