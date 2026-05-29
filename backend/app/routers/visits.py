@@ -346,7 +346,7 @@ def _create_mandatory_actions(visit: VisitModel, db: Session):
             ActionType=t.ActionType,
             Description=t.Description,
             DetailsJson=t.DetailsJson,
-            PhotoRequired=t.PhotoRequired,
+            PhotoRequired=False,
             IsMandatory=True,
             MandatoryActivityId=t.MandatoryActivityId,
             Status="PENDING",
@@ -401,7 +401,7 @@ def _carry_over_backlog(visit: VisitModel, db: Session):
             ActionType=ba.ActionType,
             Description=f"[BACKLOG] {ba.Description or ''}".strip(),
             DetailsJson=ba.DetailsJson,
-            PhotoRequired=ba.PhotoRequired,
+            PhotoRequired=False,
             IsMandatory=True,
             MandatoryActivityId=ba.MandatoryActivityId,
             Status="PENDING",
@@ -695,18 +695,7 @@ def validate_visit_close(visit_id: int, db: Session = Depends(get_db)):
     if pop_count == 0:
         missing.append({"label": "Censo de materiales POP no completado (paso 11)"})
 
-    # Check execution actions have photos
-    actions_without_photo = (
-        db.query(VisitActionModel)
-        .filter(
-            VisitActionModel.VisitId == visit_id,
-            VisitActionModel.PhotoRequired == True,
-            VisitActionModel.PhotoTaken == False,
-        )
-        .all()
-    )
-    for a in actions_without_photo:
-        missing.append({"actionId": a.VisitActionId, "label": f"Foto pendiente: {a.ActionType}"})
+    # Photos are optional — no longer block visit close
 
     return {
         "valid": len(missing) == 0,

@@ -6,7 +6,7 @@ class VisitActionBase(BaseModel):
     ActionType: str          # cobertura, pop, canje_sueltos, promo, otra
     Description: str | None = None
     DetailsJson: str | None = None
-    PhotoRequired: bool = True
+    PhotoRequired: bool = False
     PhotoTaken: bool = False
 
 

@@ -121,8 +121,6 @@ export function VisitActionsPage() {
   const handleSaveAction = async (type: string, description: string, details: Record<string, unknown>) => {
     if (!visitId) return;
     const isOffline = !navigator.onLine;
-    // Photos required when online, optional when offline (will be uploaded later)
-    if (!formHasPhotos && !isOffline) { toast.error("Foto obligatoria"); return; }
     setSaving(true);
     try {
       const isTempVisit = visitId < 0;
@@ -130,7 +128,7 @@ export function VisitActionsPage() {
         ActionType: type,
         Description: description,
         DetailsJson: JSON.stringify(details),
-        PhotoRequired: true,
+        PhotoRequired: false,
         PhotoTaken: formHasPhotos,
       };
       const result = await executeOrEnqueue({

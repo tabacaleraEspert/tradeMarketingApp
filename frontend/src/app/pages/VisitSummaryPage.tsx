@@ -184,23 +184,21 @@ export function VisitSummaryPage() {
 
       // Acciones
       if (acts.length > 0) {
-        const noPhoto = acts.filter((a: VisitAction) => a.PhotoRequired && !a.PhotoTaken);
         statusSteps.push({
           label: "Acciones de Ejecución", icon: Zap, type: "acciones",
-          status: noPhoto.length === 0 ? "completed" : "partial",
-          detail: noPhoto.length === 0 ? `${acts.length} ejecutadas` : `${noPhoto.length} sin foto`,
+          status: "completed",
+          detail: `${acts.length} ejecutadas`,
         });
       } else {
         statusSteps.push({ label: "Acciones de Ejecución", icon: Zap, type: "acciones", status: "pending", detail: "Sin acciones" });
       }
 
-      // Fotos
-      const photosReq = acts.filter((a: VisitAction) => a.PhotoRequired).length;
+      // Fotos (optional)
       const photosDone = acts.filter((a: VisitAction) => a.PhotoTaken).length;
       statusSteps.push({
         label: "Evidencia Fotográfica", icon: Camera, type: "fotos",
-        status: photosReq === 0 || photosDone === photosReq ? "completed" : photosDone > 0 ? "partial" : "pending",
-        detail: photosReq === 0 ? "Sin fotos requeridas" : `${photosDone}/${photosReq} fotos`,
+        status: photosDone > 0 ? "completed" : "pending",
+        detail: photosDone > 0 ? `${photosDone} fotos` : "Sin fotos (opcional)",
       });
 
       // Novedades
