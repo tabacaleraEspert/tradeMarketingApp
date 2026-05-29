@@ -218,10 +218,10 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
     )
 
 
-@router.get("", response_model=list[Pdv])
+@router.get("")
 def list_pdvs(
     skip: int = 0,
-    limit: int = Query(default=500, le=1000),
+    limit: int = Query(default=50, le=200),
     zone_id: int | None = None,
     distributor_id: int | None = None,
     current_user: UserModel = Depends(get_current_user),
@@ -246,8 +246,10 @@ def list_pdvs(
         q = q.filter(
             PDVModel.PdvId.in_(pdv_ids_with_dist) | (PDVModel.DistributorId == distributor_id)
         )
+    total = q.count()
     pdvs = q.order_by(PDVModel.PdvId).offset(skip).limit(limit).all()
-    return _pdvs_to_response_batch(pdvs, db)
+    items = _pdvs_to_response_batch(pdvs, db)
+    return {"items": items, "total": total, "skip": skip, "limit": limit}
 
 
 @router.get("/{pdv_id}", response_model=Pdv)

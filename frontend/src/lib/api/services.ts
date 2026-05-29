@@ -359,13 +359,49 @@ export interface PdvCreateData {
   IsActive?: boolean;
 }
 
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
+}
+
+const PDV_PAGE_SIZE = 50;
+
 export const pdvsApi = {
-  list: (params?: {
+  /** Fetches all PDVs matching filters, auto-paginating in chunks of 50. */
+  list: async (params?: {
     skip?: number;
     limit?: number;
     zone_id?: number;
     distributor_id?: number;
-  }) => api.get<Pdv[]>("/pdvs", params),
+  }): Promise<Pdv[]> => {
+    const { zone_id, distributor_id } = params ?? {};
+    const first = await api.get<PaginatedResponse<Pdv>>("/pdvs", {
+      skip: 0, limit: PDV_PAGE_SIZE, zone_id, distributor_id,
+    });
+    const all: Pdv[] = [...first.items];
+    // Fetch remaining pages in parallel
+    if (first.total > PDV_PAGE_SIZE) {
+      const remaining = Math.ceil((first.total - PDV_PAGE_SIZE) / PDV_PAGE_SIZE);
+      const pages = await Promise.all(
+        Array.from({ length: remaining }, (_, i) =>
+          api.get<PaginatedResponse<Pdv>>("/pdvs", {
+            skip: (i + 1) * PDV_PAGE_SIZE, limit: PDV_PAGE_SIZE, zone_id, distributor_id,
+          })
+        )
+      );
+      for (const page of pages) all.push(...page.items);
+    }
+    return all;
+  },
+  /** Fetches a single page (for UIs that want explicit pagination). */
+  listPage: (params: {
+    skip?: number;
+    limit?: number;
+    zone_id?: number;
+    distributor_id?: number;
+  }) => api.get<PaginatedResponse<Pdv>>("/pdvs", params),
   get: (id: number) => api.get<Pdv>(`/pdvs/${id}`),
   create: (data: PdvCreateData) => api.post<Pdv>("/pdvs", data),
   update: (id: number, data: Partial<PdvCreateData> & { Contacts?: { ContactName: string; ContactPhone?: string; ContactRole?: string; DecisionPower?: string; Birthday?: string }[] }) =>
