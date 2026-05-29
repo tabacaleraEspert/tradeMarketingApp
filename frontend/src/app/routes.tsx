@@ -49,6 +49,7 @@ const VisitDataExplorer = lazy(() => import("./pages/admin/VisitDataExplorer").t
 const PlantDashboard = lazy(() => import("./pages/plant/PlantDashboard").then(m => ({ default: m.PlantDashboard })));
 const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m => ({ default: m.AuditTimeline })));
 const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
+const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").then(m => ({ default: m.ProductDeliveries })));
 
 function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
@@ -181,6 +182,7 @@ export const router = createBrowserRouter([
       { path: "visit-data", element: <SuspenseWrap><VisitDataExplorer /></SuspenseWrap> },
       { path: "users", element: <SuspenseWrap><UserManagement /></SuspenseWrap> },
       { path: "audit", element: <SuspenseWrap><AuditTimeline /></SuspenseWrap> },
+      { path: "product-deliveries", element: <SuspenseWrap><ProductDeliveries /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },

@@ -6,7 +6,7 @@ import { Button } from "../../components/ui/button";
 import {
   Users, MapPin, CheckCircle2, AlertCircle, Clock, Camera, TrendingUp,
   TrendingDown, Target, Navigation, BarChart3, Award, Zap, Eye, ArrowRight,
-  AlertTriangle, Store,
+  AlertTriangle, Store, Package,
 } from "lucide-react";
 import {
   useUsers, usePdvs, useApiList, routesApi, visitsApi, incidentsApi, reportsApi, notificationsApi,
@@ -87,10 +87,16 @@ export function AdminDashboard() {
             {new Date().toLocaleDateString("es-AR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           </p>
         </div>
-        <Button variant="outline" onClick={() => navigate("/admin/reports")} className="gap-2">
-          <BarChart3 size={16} />
-          Reportes
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate("/admin/product-deliveries")} className="gap-2">
+            <Package size={16} />
+            Entregas
+          </Button>
+          <Button variant="outline" onClick={() => navigate("/admin/reports")} className="gap-2">
+            <BarChart3 size={16} />
+            Reportes
+          </Button>
+        </div>
       </div>
 
       {/* === TODAY'S FIELD STATUS === */}

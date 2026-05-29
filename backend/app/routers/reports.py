@@ -20,6 +20,10 @@ from ..models.product import Product as ProductModel
 from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
 from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
 from ..models.supplier_type import SupplierType as SupplierTypeModel
+from ..models.visit_action import VisitAction as VisitActionModel
+from ..hierarchy import get_visible_user_ids
+from ..auth import get_user_role
+import json as _json
 
 router = APIRouter(prefix="/reports", tags=["Reportes"], dependencies=[Depends(get_current_user)])
 
@@ -1290,3 +1294,85 @@ def pdv_analytics(db: Session = Depends(get_db)):
         "byZone": [{"zone": k, "count": v} for k, v in sorted(by_zone.items(), key=lambda x: -x[1])],
         "byCategory": [{"category": k, "count": v} for k, v in sorted(by_category.items(), key=lambda x: -x[1])],
     }
+
+
+# ── Product deliveries report (canje, promo, juego actions) ──────────
+
+_DELIVERY_ACTION_TYPES = {"canje_sueltos", "promo", "juego"}
+
+
+@router.get("/product-deliveries")
+def product_deliveries(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Actions that involve product delivery (canje, promo, juego), filtered by hierarchy."""
+    role = get_user_role(db, current_user.UserId)
+    visible = get_visible_user_ids(db, current_user, role)
+
+    q = (
+        db.query(
+            VisitActionModel,
+            VisitModel.OpenedAt,
+            UserModel.DisplayName.label("UserName"),
+            UserModel.Email.label("UserEmail"),
+            PDVModel.Name.label("PdvName"),
+            PDVModel.Address.label("PdvAddress"),
+            ZoneModel.Name.label("ZoneName"),
+        )
+        .join(VisitModel, VisitActionModel.VisitId == VisitModel.VisitId)
+        .join(UserModel, VisitModel.UserId == UserModel.UserId)
+        .join(PDVModel, VisitModel.PdvId == PDVModel.PdvId)
+        .outerjoin(ZoneModel, PDVModel.ZoneId == ZoneModel.ZoneId)
+        .filter(VisitActionModel.ActionType.in_(_DELIVERY_ACTION_TYPES))
+    )
+
+    # Hierarchy filter
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
+    if user_id is not None:
+        q = q.filter(VisitModel.UserId == user_id)
+
+    # Date filter
+    if date_from:
+        try:
+            q = q.filter(VisitModel.OpenedAt >= datetime.fromisoformat(date_from))
+        except ValueError:
+            pass
+    if date_to:
+        try:
+            end = datetime.fromisoformat(date_to) + timedelta(days=1)
+            q = q.filter(VisitModel.OpenedAt < end)
+        except ValueError:
+            pass
+
+    q = q.order_by(VisitModel.OpenedAt.desc())
+    rows = q.all()
+
+    result = []
+    for action, opened_at, user_name, user_email, pdv_name, pdv_address, zone_name in rows:
+        details = {}
+        if action.DetailsJson:
+            try:
+                details = _json.loads(action.DetailsJson)
+            except _json.JSONDecodeError:
+                details = {}
+
+        result.append({
+            "VisitActionId": action.VisitActionId,
+            "VisitId": action.VisitId,
+            "Date": opened_at.isoformat() if opened_at else None,
+            "UserName": user_name,
+            "UserEmail": user_email,
+            "PdvName": pdv_name,
+            "PdvAddress": pdv_address or "",
+            "ZoneName": zone_name or "",
+            "ActionType": action.ActionType,
+            "Description": action.Description or "",
+            "Details": details,
+        })
+
+    return result
