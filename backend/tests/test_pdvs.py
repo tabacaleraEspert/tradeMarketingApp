@@ -189,17 +189,20 @@ class TestGetPdv:
 # ---------------------------------------------------------------------------
 
 class TestListPdvs:
-    def test_list_pdvs_returns_list(self, client, channel):
+    def test_list_pdvs_returns_paginated(self, client, channel):
         _make_pdv(client, channel["ChannelId"])
         resp = client.get("/pdvs")
         assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
+        data = resp.json()
+        assert "items" in data
+        assert "total" in data
+        assert isinstance(data["items"], list)
 
     def test_list_pdvs_filter_by_zone(self, client, channel, zone):
         _make_pdv(client, channel["ChannelId"], ZoneId=zone["ZoneId"])
         resp = client.get("/pdvs", params={"zone_id": zone["ZoneId"]})
         assert resp.status_code == 200
-        for pdv in resp.json():
+        for pdv in resp.json()["items"]:
             assert pdv["ZoneId"] == zone["ZoneId"]
 
     def test_list_pdvs_pagination_limit(self, client, channel):
@@ -207,7 +210,7 @@ class TestListPdvs:
             _make_pdv(client, channel["ChannelId"])
         resp = client.get("/pdvs", params={"limit": 2, "skip": 0})
         assert resp.status_code == 200
-        assert len(resp.json()) <= 2
+        assert len(resp.json()["items"]) <= 2
 
     def test_list_pdvs_requires_auth(self, client):
         resp = client.get("/pdvs", headers={"Authorization": ""})
