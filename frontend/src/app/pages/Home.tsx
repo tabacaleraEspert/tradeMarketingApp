@@ -137,11 +137,17 @@ export function Home() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refetchHome]);
 
-  // Pre-fetch data needed for offline — with progress tracking
+  // Pre-fetch data needed for offline — once per session, not on every navigation
   const [cacheProgress, setCacheProgress] = useState<{ done: number; total: number } | null>(null);
+  const CACHE_SESSION_KEY = "espert.offline_cached_today";
 
-  useEffect(() => {
-    if (!navigator.onLine) return;
+  const runOfflinePreCache = useCallback(() => {
+    if (!navigator.onLine || routeDayPdvs.length === 0) return;
+
+    // Mark as running so we don't re-trigger
+    sessionStorage.setItem(CACHE_SESSION_KEY, dateStr);
+    setCacheProgress({ done: 0, total: 0 });
+
     const schedule = typeof requestIdleCallback === "function" ? requestIdleCallback : (fn: () => void) => setTimeout(fn, 200);
     schedule(async () => {
       let done = 0;
@@ -198,7 +204,14 @@ export function Home() {
         }
       }).catch(() => {}));
     });
-  }, [routeDayPdvs]);
+  }, [routeDayPdvs, dateStr, currentUser.id, currentUser.zoneId]);
+
+  // Auto-run precache once per session (or when date changes)
+  useEffect(() => {
+    const cached = sessionStorage.getItem(CACHE_SESSION_KEY);
+    if (cached === dateStr) return; // already cached for today
+    if (routeDayPdvs.length > 0) runOfflinePreCache();
+  }, [routeDayPdvs, dateStr, runOfflinePreCache]);
 
   const allPointsOfSale = useMemo(() => routeDayPdvs.map(routeDayPdvToPointOfSaleUI), [routeDayPdvs]);
   const alerts = useMemo(() => [...incidents.map(incidentToAlertUI), ...notifications.map(notificationToAlertUI)], [incidents, notifications]);
@@ -347,28 +360,6 @@ export function Home() {
         {loadingPdvs && <p className="text-sm text-[#979B9B]">Cargando...</p>}
       </div>
 
-      {/* Offline cache progress bar */}
-      {cacheProgress && cacheProgress.done < cacheProgress.total && (
-        <div className="mx-4 mt-2 mb-2">
-          <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-1">
-            <div className="w-3 h-3 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
-            <span>Preparando datos offline... {cacheProgress.done}/{cacheProgress.total}</span>
-          </div>
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-[#A48242] rounded-full transition-all duration-300"
-              style={{ width: `${Math.round((cacheProgress.done / cacheProgress.total) * 100)}%` }}
-            />
-          </div>
-        </div>
-      )}
-      {cacheProgress && cacheProgress.done > 0 && cacheProgress.done >= cacheProgress.total && (
-        <div className="mx-4 mt-2 mb-2 flex items-center gap-2 text-[11px] text-green-600">
-          <CheckCircle2 size={14} />
-          <span>Datos offline listos</span>
-        </div>
-      )}
-
       {/* Banner visita abierta global */}
       {globalOpenVisit && (
         <div className="mx-4 -mt-3 mb-2 relative z-10">
@@ -446,6 +437,32 @@ export function Home() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Offline cache progress — below next visit card */}
+        {cacheProgress && cacheProgress.done < cacheProgress.total && (
+          <div className="py-1.5">
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mb-1">
+              <div className="w-3 h-3 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
+              <span>Preparando datos offline... {cacheProgress.done}/{cacheProgress.total}</span>
+            </div>
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-[#A48242] rounded-full transition-all duration-300"
+                style={{ width: `${Math.round((cacheProgress.done / cacheProgress.total) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {cacheProgress && cacheProgress.done > 0 && cacheProgress.done >= cacheProgress.total && (
+          <button
+            onClick={() => { sessionStorage.removeItem(CACHE_SESSION_KEY); runOfflinePreCache(); }}
+            className="flex items-center gap-2 text-[11px] text-green-600 py-1"
+          >
+            <CheckCircle2 size={14} />
+            <span>Datos offline listos</span>
+            <span className="text-muted-foreground ml-1">(tocar para recargar)</span>
+          </button>
         )}
 
         {/* All done */}
