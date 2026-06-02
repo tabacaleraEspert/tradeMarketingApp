@@ -445,6 +445,14 @@ def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
         db.query(VisitLooseModel).filter(VisitLooseModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitPOPModel).filter(VisitPOPModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitFormTimeModel).filter(VisitFormTimeModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        # Break external references to these visits (prod FKs are strict, not SET NULL)
+        db.query(PdvNoteModel).filter(PdvNoteModel.VisitId.in_(visit_ids)).update(
+            {PdvNoteModel.VisitId: None}, synchronize_session=False
+        )
+        db.query(IncidentModel).filter(IncidentModel.VisitId.in_(visit_ids)).update(
+            {IncidentModel.VisitId: None}, synchronize_session=False
+        )
+        db.query(MarketNewsModel).filter(MarketNewsModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitModel).filter(VisitModel.PdvId == pdv_id).delete(synchronize_session=False)
     # Delete PDV-related data
     db.query(PdvDistributorModel).filter(PdvDistributorModel.PdvId == pdv_id).delete()
