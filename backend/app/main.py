@@ -180,7 +180,9 @@ def _build_login_response(user: UserModel, db: Session) -> LoginResponse:
 def login(data: LoginRequest, db: Session = Depends(get_db)):
     import bcrypt
 
-    user = db.query(UserModel).filter(UserModel.Email == data.email).first()
+    user = db.query(UserModel).filter(
+        (UserModel.Email == data.email) | (UserModel.DNI == data.email)
+    ).first()
     if not user:
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
     if not user.PasswordHash:
