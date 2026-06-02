@@ -278,6 +278,37 @@ export function Home() {
           <div>
             <p className="text-[#A48242] text-[10px] font-semibold tracking-widest uppercase">ESPERT</p>
             <h1 className="text-lg font-bold mt-0.5">{greeting()}, {currentUser.name.split(" ")[0]}</h1>
+            {/* Badge offline-ready: feedback persistente al usuario sobre si los
+                datos están cacheados para operar sin conexión. */}
+            {(() => {
+              const isCaching = cacheProgress && cacheProgress.total > 0 && cacheProgress.done < cacheProgress.total;
+              const cachedToday = sessionStorage.getItem(CACHE_SESSION_KEY) === dateStr;
+              const isReady = cacheProgress
+                ? cacheProgress.total > 0 && cacheProgress.done >= cacheProgress.total
+                : cachedToday;
+              if (isCaching) {
+                return (
+                  <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-amber-300/90">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Cargando offline {cacheProgress!.done}/{cacheProgress!.total}
+                  </span>
+                );
+              }
+              if (isReady) {
+                return (
+                  <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-green-300/90">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                    Offline listo
+                  </span>
+                );
+              }
+              return (
+                <span className="inline-flex items-center gap-1 mt-1 text-[10px] text-[#979B9B]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-white/30" />
+                  Sin datos offline
+                </span>
+              );
+            })()}
           </div>
           <div className="flex items-center gap-1.5">
             {!isToday && (
