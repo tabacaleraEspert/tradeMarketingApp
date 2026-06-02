@@ -257,6 +257,24 @@ export function NewPointOfSale() {
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       };
 
+      // Dedup defensivo: si por cualquier motivo (double-submit, quirk de iOS,
+      // race del submittingRef) ya hay un pdv_create idéntico encolado en los
+      // últimos 30s, no encolamos otro. Esto evita que se creen 2 PDVs.
+      try {
+        const recent = (await queue.list()).filter((op) =>
+          op.kind === "pdv_create"
+          && Date.now() - op.createdAt < 30000
+          && (op.body as any)?.Name === pdvBody.Name
+          && (op.body as any)?.Address === pdvBody.Address
+          && (op.body as any)?.ZoneId === pdvBody.ZoneId
+        );
+        if (recent.length > 0) {
+          toast.info("Ese PDV ya está pendiente de sincronizar");
+          navigate("/");
+          return;
+        }
+      } catch { /* si falla la lectura, seguimos */ }
+
       const result = await executeOrEnqueue({
         kind: "pdv_create",
         method: "POST",
