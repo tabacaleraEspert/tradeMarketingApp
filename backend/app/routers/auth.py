@@ -37,8 +37,10 @@ class LoginResponse(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    print(f"[LOGIN] Intento con email: {data.email!r}")
-    user = db.query(UserModel).filter(UserModel.Email == data.email).first()
+    print(f"[LOGIN] Intento con email/DNI: {data.email!r}")
+    user = db.query(UserModel).filter(
+        (UserModel.Email == data.email) | (UserModel.DNI == data.email)
+    ).first()
     if not user:
         print(f"[LOGIN] Usuario no encontrado")
         raise HTTPException(status_code=401, detail="Credenciales inválidas")

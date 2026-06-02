@@ -84,11 +84,11 @@ export function Login() {
       <div className="w-full max-w-md bg-[#1A1A18] rounded-xl shadow-2xl p-6 border border-white/5">
         <form onSubmit={handleLogin} className="space-y-5">
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-[#979B9B]">Usuario / Email</Label>
+            <Label htmlFor="email" className="text-[#979B9B]">DNI / Email</Label>
             <Input
               id="email"
               type="text"
-              placeholder="Ingrese su email"
+              placeholder="Ingrese su DNI o email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="h-12 bg-[#252520] border-white/10 text-white placeholder:text-[#53565A] focus:border-[#A48242] focus:ring-[#A48242]/20"

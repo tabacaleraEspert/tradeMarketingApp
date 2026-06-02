@@ -9,6 +9,7 @@ class User(Base):
 
     UserId = Column(Integer, primary_key=True, index=True, autoincrement=True)
     Email = Column(String(256), unique=True, nullable=False)
+    DNI = Column(String(20), unique=True, nullable=True, index=True)
     PasswordHash = Column(String(256), nullable=True)  # bcrypt hash
     DisplayName = Column(String(120), nullable=False)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True)
