@@ -270,8 +270,10 @@ def get_pdv(
     return _pdv_to_response(pdv, db)
 
 
-@router.post("", response_model=Pdv, status_code=201)
+@router.post("", status_code=201)
 def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Nota: sin response_model porque devolvemos un dict que puede incluir
+    # `_warning` (campo extra que no está en Pdv). El response_model lo filtraría.
     code = data.Code or f"PDV-{uuid.uuid4().hex[:12].upper()}"
     channel = db.query(Channel).filter(Channel.ChannelId == data.ChannelId).first()
     if not channel:
@@ -346,7 +348,7 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
             db.add(pc)
     db.commit()
     db.refresh(pdv)
-    resp = _pdv_to_response(pdv, db)
+    resp = _pdv_to_response(pdv, db).model_dump(mode="json")
     if duplicate_warning:
         resp["_warning"] = duplicate_warning
     return resp
