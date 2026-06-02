@@ -17,9 +17,9 @@
   <!-- Top shine -->
   <rect x="20" y="8" width="152" height="60" rx="30" fill="url(#shine192)"/>
   <!-- Main TM text (centered) -->
-  <text x="96" y="112" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="70" fill="url(#gold192)" letter-spacing="4">TM</text>
+  <text x="96" y="94" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="70" fill="url(#gold192)" letter-spacing="4">TM</text>
   <!-- ESPERT text -->
-  <text x="96" y="144" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="18" fill="#C9A962" letter-spacing="8">ESPERT</text>
+  <text x="96" y="126" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="18" fill="#C9A962" letter-spacing="8">ESPERT</text>
   <!-- Trade Marketing subtitle -->
-  <text x="96" y="164" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="10" fill="#979B9B" letter-spacing="3">TRADE MARKETING</text>
+  <text x="96" y="146" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="10" fill="#979B9B" letter-spacing="3">TRADE MARKETING</text>
 </svg>

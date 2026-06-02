@@ -23,9 +23,9 @@
   <!-- Top shine effect -->
   <ellipse cx="256" cy="60" rx="200" ry="80" fill="url(#shine512)"/>
   <!-- Main TM text with glow (centered) -->
-  <text x="256" y="300" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="188" fill="url(#gold512)" letter-spacing="10" filter="url(#glow)">TM</text>
+  <text x="256" y="258" text-anchor="middle" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="188" fill="url(#gold512)" letter-spacing="10" filter="url(#glow)">TM</text>
   <!-- ESPERT text -->
-  <text x="256" y="380" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="48" fill="#C9A962" letter-spacing="16">ESPERT</text>
+  <text x="256" y="338" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="48" fill="#C9A962" letter-spacing="16">ESPERT</text>
   <!-- Trade Marketing subtitle -->
-  <text x="256" y="428" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="24" fill="#979B9B" letter-spacing="6">TRADE MARKETING</text>
+  <text x="256" y="386" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="400" font-size="24" fill="#979B9B" letter-spacing="6">TRADE MARKETING</text>
 </svg>
