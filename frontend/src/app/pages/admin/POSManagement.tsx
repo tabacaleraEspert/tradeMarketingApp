@@ -223,6 +223,21 @@ export function POSManagement() {
     return map;
   }, [allMapData]);
 
+  // Build lookup from PDV.AssignedUserId → DisplayName. Esta es la fuente
+  // de verdad para "Trade Marketer" en este screen (lo que setea el dropdown
+  // del card). El endpoint /reports/pdv-map devuelve assignedUserName basado en
+  // RouteDay (route-scheduling), que es semántica distinta y se desfasa si
+  // el PDV no está asignado a una ruta — eso causaba el bug del filtro vacío.
+  const tmNameByPdvId = useMemo(() => {
+    const userById = new Map(users.map((u) => [u.UserId, u.DisplayName]));
+    const m = new Map<number, string>();
+    for (const p of pdvs) {
+      const name = p.AssignedUserId ? userById.get(p.AssignedUserId) : undefined;
+      m.set(p.PdvId, name ?? "Sin asignar");
+    }
+    return m;
+  }, [pdvs, users]);
+
   // Unique trade marketers from enriched data
   const tradeMarketers = useMemo(() => {
     return users
@@ -258,12 +273,14 @@ export function POSManagement() {
   const matchesAdvancedFilters = (pdvId: number, pdvDistributorIds?: number[]) => {
     const enriched = enrichedLookup.get(pdvId);
 
-    // Trade marketer filter
+    // Trade marketer filter — usa PDV.AssignedUserId (consistente con el
+    // dropdown del card), no la asignación route-based del endpoint.
     if (selectedTradeMarketer !== "all") {
+      const tmName = tmNameByPdvId.get(pdvId) ?? "Sin asignar";
       if (selectedTradeMarketer === "unassigned") {
-        if (enriched?.assignedUserName && enriched.assignedUserName !== "Sin asignar") return false;
+        if (tmName !== "Sin asignar") return false;
       } else {
-        if (enriched?.assignedUserName !== selectedTradeMarketer) return false;
+        if (tmName !== selectedTradeMarketer) return false;
       }
     }
 
@@ -331,13 +348,14 @@ export function POSManagement() {
         (p.address && p.address.toLowerCase().includes(searchTerm.toLowerCase()));
       const matchesChannel = selectedChannel === "all" || p.channel === selectedChannel;
 
-      // Trade marketer
+      // Trade marketer — usa PDV.AssignedUserId (consistente con el dropdown)
       let matchesTM = true;
       if (selectedTradeMarketer !== "all") {
+        const tmName = tmNameByPdvId.get(p.pdvId) ?? "Sin asignar";
         if (selectedTradeMarketer === "unassigned") {
-          matchesTM = !p.assignedUserName || p.assignedUserName === "Sin asignar";
+          matchesTM = tmName === "Sin asignar";
         } else {
-          matchesTM = p.assignedUserName === selectedTradeMarketer;
+          matchesTM = tmName === selectedTradeMarketer;
         }
       }
 
@@ -384,7 +402,7 @@ export function POSManagement() {
 
       return matchesSearch && matchesChannel && matchesTM && matchesDays && matchesLoc && matchesFreq && matchesRoute;
     });
-  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency, selectedRouteFilter]);
+  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency, selectedRouteFilter, tmNameByPdvId]);
 
   const pdvsWithCoords = useMemo(() => mapData.filter((p: any) => p.hasCoords), [mapData]);
   const pdvsWithoutCoords = useMemo(() => mapData.filter((p: any) => !p.hasCoords), [mapData]);
@@ -413,12 +431,15 @@ export function POSManagement() {
           status: (p.IsActive ? "active" : "inactive") as POSData["status"],
           compliance: 0,
           lastVisit: enriched?.lastVisit || "-",
-          tradeMarketer: enriched?.assignedUserName || "Sin asignar",
+          // tradeMarketer ahora viene de PDV.AssignedUserId, no del enriched
+          // route-based. Esto evita que la card muestre "Sin asignar" en rojo
+          // cuando hay TM asignado pero el PDV no está en una ruta.
+          tradeMarketer: tmNameByPdvId.get(p.PdvId) ?? "Sin asignar",
           visitCount: enriched?.visitCount ?? 0,
           hasCoords: enriched?.hasCoords ?? false,
         };
       }),
-    [pdvs, zoneMap, distributorMap, enrichedLookup]
+    [pdvs, zoneMap, distributorMap, enrichedLookup, tmNameByPdvId]
   );
 
   const channelFilterOptions = useMemo(
