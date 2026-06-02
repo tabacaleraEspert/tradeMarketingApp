@@ -557,6 +557,11 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
     # Manually delete children (MSSQL may not enforce CASCADE reliably via ORM)
     day_ids = [d.RouteDayId for d in db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()]
     if day_ids:
+        # SET NULL on Visits that reference these RouteDays (FK constraint)
+        from ..models.visit import Visit as VisitModel
+        db.query(VisitModel).filter(VisitModel.RouteDayId.in_(day_ids)).update(
+            {VisitModel.RouteDayId: None}, synchronize_session=False
+        )
         db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
     db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).delete(synchronize_session=False)
     db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).delete(synchronize_session=False)
