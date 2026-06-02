@@ -1,8 +1,18 @@
 import { defineConfig } from 'vite'
 import path from 'path'
+import { execSync } from 'child_process'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+
+// Build identity: short git SHA + UTC build timestamp. Inyectados como string
+// literal en compile-time. Si git no está disponible (caso raro), caen a "dev".
+function safeExec(cmd: string, fallback: string): string {
+  try { return execSync(cmd, { stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim(); }
+  catch { return fallback; }
+}
+const BUILD_SHA = process.env.GITHUB_SHA?.slice(0, 7) ?? safeExec('git rev-parse --short HEAD', 'dev');
+const BUILD_TIME = new Date().toISOString();
 
 export default defineConfig({
   server: {
@@ -83,6 +93,11 @@ export default defineConfig({
       manifest: false, // We already have a manual manifest.json in public/
     }),
   ],
+  define: {
+    __BUILD_SHA__: JSON.stringify(BUILD_SHA),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
+
   resolve: {
     alias: {
       // Alias @ to the src directory

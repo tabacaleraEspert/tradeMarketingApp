@@ -284,6 +284,12 @@ export function Profile() {
             <div className="text-center text-sm text-muted-foreground">
               <p className="font-semibold text-foreground mb-1">Trade Marketing App</p>
               <p>Versión 2.1.0</p>
+              <p
+                className="mt-1 text-[10px] font-mono opacity-60 select-all"
+                title="Hacer click largo para copiar"
+              >
+                build {__BUILD_SHA__} · {new Date(__BUILD_TIME__).toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" })}
+              </p>
               <p className="mt-2">© 2026 Todos los derechos reservados</p>
             </div>
           </CardContent>
