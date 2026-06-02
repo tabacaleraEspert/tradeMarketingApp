@@ -260,6 +260,7 @@ export function VisitSummaryPage() {
       // 3. Si dejó una nota para la próxima visita, crear PdvNote (offline-tolerant)
       if (reminderForNext.trim() && id) {
         const currentUser = getCurrentUser();
+        const pdvIdNum = Number(id);
         try {
           await executeOrEnqueue({
             kind: "pdv_note_create",
@@ -271,6 +272,10 @@ export function VisitSummaryPage() {
               VisitId: visitId,
             },
             label: "Nota para próxima visita",
+            // Si el PDV o la visita fueron creados offline (ids negativos), el sync
+            // worker tiene que reescribir la URL y body.VisitId al resolverse.
+            _tempPdvId: pdvIdNum < 0 ? pdvIdNum : undefined,
+            _tempVisitId: isTempVisit ? visitId : undefined,
           });
         } catch {
           // No es bloqueante

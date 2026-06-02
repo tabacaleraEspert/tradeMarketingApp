@@ -175,18 +175,22 @@ export function CheckIn() {
       } else {
         // Offline: generar tempId y encolar la creación para sincronizar después
         visitId = generateTempVisitId();
+        const pdvIdNum = Number(id);
         await executeOrEnqueue({
           kind: "visit_create",
           method: "POST",
           url: "/visits",
           body: {
-            PdvId: Number(id),
+            PdvId: pdvIdNum,
             UserId: Number(currentUser.id),
             RouteDayId: routeDayId ?? undefined,
             Status: "OPEN",
           },
           label: `Check-in en ${pdv.Name}`,
           _tempVisitId: visitId,
+          // Si el PDV fue creado offline (id negativo), el sync worker tiene que
+          // reescribir body.PdvId al resolverse el pdv_create primero.
+          _tempPdvId: pdvIdNum < 0 ? pdvIdNum : undefined,
         });
         toast.success("Check-in guardado. Se sincronizará cuando vuelva la conexión.");
       }

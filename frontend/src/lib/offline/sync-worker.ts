@@ -121,6 +121,44 @@ async function executeOperation(op: QueuedOperation): Promise<{ ok: true; data?:
 
 
 // ============================================================================
+// Fallback de reescritura de tempIds (red de seguridad)
+// ============================================================================
+/**
+ * Reescribe en URL/body cualquier tempId negativo presente en `map`, aún si
+ * la op no trae el flag _tempXxxId correspondiente. Útil para:
+ *   - Ops viejas en la queue encoladas antes de propagar el flag (bug histórico).
+ *   - Errores de dev que olvidan setear el flag al encolar.
+ *
+ * Por qué es seguro: sólo reemplaza si el ID negativo aparece en el map, que
+ * sólo se llena tras un xxx_create exitoso con tempId. No hay ambigüedad.
+ */
+function applyTempIdFallback(
+  op: QueuedOperation,
+  map: Map<number, number>,
+  bodyField: "PdvId" | "VisitId" | "RouteId"
+): void {
+  if (map.size === 0) return;
+  for (const [tempId, realId] of map) {
+    // URL: matchear /-123 seguido de / o fin de string, no /-1234
+    const urlPattern = new RegExp(`/${tempId}(?=/|$)`, "g");
+    const beforeUrl = op.url;
+    op.url = op.url.replace(urlPattern, `/${realId}`);
+    if (beforeUrl !== op.url) {
+      console.info(`[sync-worker] fallback rewrite: ${beforeUrl} → ${op.url} (${bodyField} ${tempId}→${realId})`);
+    }
+    // Body: matchear campo exacto con valor === tempId
+    if (op.body && typeof op.body === "object") {
+      const body = op.body as Record<string, unknown>;
+      if (body[bodyField] === tempId) {
+        body[bodyField] = realId;
+        console.info(`[sync-worker] fallback body rewrite: ${bodyField} ${tempId}→${realId} (op ${op.id})`);
+      }
+    }
+  }
+}
+
+
+// ============================================================================
 // Flush de toda la queue
 // ============================================================================
 export async function flushQueue(): Promise<{ processed: number; succeeded: number; failed: number }> {
@@ -198,6 +236,14 @@ export async function flushQueue(): Promise<{ processed: number; succeeded: numb
       } else if (op._tempRouteId && !routeIdMap.has(op._tempRouteId) && op.kind !== "route_create") {
         continue;
       }
+
+      // Defensive fallback: aún si la op no propagó los flags _tempXxxId
+      // explícitamente (bug histórico, código viejo), reescribir cualquier ID
+      // negativo que ya esté resuelto en los maps. Usamos boundary explícito
+      // para no matchear /-123 dentro de /-1234.
+      applyTempIdFallback(op, pdvIdMap, "PdvId");
+      applyTempIdFallback(op, visitIdMap, "VisitId");
+      applyTempIdFallback(op, routeIdMap, "RouteId");
 
       processed++;
       const result = await executeOperation(op);

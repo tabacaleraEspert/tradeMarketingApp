@@ -386,6 +386,9 @@ export function CoverageFormPage() {
           url: `/pdvs/${id}/product-categories`,
           body: { categories: categoryItems },
           label: "Categorías del PDV",
+          // Si el PDV fue creado offline (id negativo), el sync worker reescribe
+          // la URL cuando se resuelve el pdv_create.
+          _tempPdvId: Number(id) < 0 ? Number(id) : undefined,
         }).catch(() => {}) : Promise.resolve(),
       ]);
       toast.success("Cobertura guardada");
