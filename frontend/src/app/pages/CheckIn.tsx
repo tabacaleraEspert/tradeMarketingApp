@@ -10,7 +10,7 @@ import { Modal } from "../components/ui/modal";
 import { pdvsApi, visitsApi, incidentsApi, pdvNotesApi, ApiError } from "@/lib/api";
 import { fetchWithCache } from "@/lib/offline";
 import type { Incident, PdvNote } from "@/lib/api";
-import { executeOrEnqueue } from "@/lib/offline";
+import { executeOrEnqueue, markVisitClosedLocally } from "@/lib/offline";
 import { saveVisitContext } from "@/lib/useVisitAutoSave";
 import { QuickContactsModal } from "../components/QuickContactsModal";
 import { getCurrentUser } from "../lib/auth";
@@ -253,6 +253,17 @@ export function CheckIn() {
         label: `Cierre de visita en ${pdv?.Name ?? "PDV"}`,
         _tempVisitId: isTempVisit ? currentVisitId : undefined,
       });
+
+      // Optimistic close: marca la visita como CLOSED en cache local para
+      // desbloquear `globalOpenVisit` y permitir iniciar la próxima visita
+      // sin esperar al sync.
+      try {
+        const uid = Number(currentUser.id);
+        const pdvIdNum = Number(id);
+        if (uid && pdvIdNum) {
+          markVisitClosedLocally(currentVisitId, pdvIdNum, uid);
+        }
+      } catch { /* noop */ }
 
       // Registrar el GPS check-out también (best effort)
       if (userCoords) {

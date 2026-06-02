@@ -16,7 +16,7 @@ import { fetchWithCache, readCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
 import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
 import type { VisitPhotoRead } from "@/lib/api";
-import { executeOrEnqueue } from "@/lib/offline";
+import { executeOrEnqueue, markVisitClosedLocally } from "@/lib/offline";
 import { useVisitStep, clearVisitContext } from "@/lib/useVisitAutoSave";
 import { getCurrentUser } from "../lib/auth";
 import { formatTime24 } from "../lib/dateUtils";
@@ -253,6 +253,18 @@ export function VisitSummaryPage() {
         label: "Cierre de visita",
         _tempVisitId: isTempVisit ? visitId : undefined,
       });
+
+      // Optimistic close en cache local: sin esto, el Home sigue mostrando
+      // `globalOpenVisit` con esta visita y bloquea iniciar la próxima visita
+      // hasta que el sync llegue al server.
+      try {
+        const cu = getCurrentUser();
+        const uid = Number(cu.id);
+        const pdvIdNum = Number(id);
+        if (uid && pdvIdNum) {
+          markVisitClosedLocally(visitId, pdvIdNum, uid);
+        }
+      } catch { /* noop */ }
 
       // Clear visit draft/context from localStorage
       clearVisitContext();
