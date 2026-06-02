@@ -1,5 +1,6 @@
 import { saveTokens, clearTokens, getAccessToken } from "@/lib/api/auth-storage";
 import type { LoginResponse } from "@/lib/api";
+import { clearAllOfflineState } from "@/lib/offline/queue";
 
 export interface StoredUser {
   id: string;
@@ -38,13 +39,21 @@ export function getCurrentUser(): StoredUser {
 
 /** Guarda la sesión completa (token + user) tras un login exitoso. */
 export function persistSession(login: LoginResponse): void {
+  const previous = getStoredUser();
+  const newUserId = String(login.UserId);
+  // Si en este browser entra un usuario distinto al anterior, descartar el
+  // estado offline (queue + id_maps). Esas operaciones pertenecen al user
+  // anterior y no se pueden enviar correctamente con el token del nuevo.
+  if (previous && previous.id !== newUserId) {
+    clearAllOfflineState().catch(() => { /* no bloquear el login */ });
+  }
   saveTokens({
     accessToken: login.access_token,
     refreshToken: login.refresh_token,
     expiresInSeconds: login.expires_in,
   });
   const user: StoredUser = {
-    id: String(login.UserId),
+    id: newUserId,
     name: login.DisplayName,
     email: login.Email,
     zone: login.ZoneName || (login.ZoneId ? `Zona #${login.ZoneId}` : "-"),

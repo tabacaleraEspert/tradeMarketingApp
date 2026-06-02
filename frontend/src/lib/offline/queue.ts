@@ -182,6 +182,25 @@ export const queue = {
   },
 };
 
+/**
+ * Limpia TODO el estado offline del navegador: operaciones encoladas + mapeos
+ * tempId→realId (visit/pdv/route). Se usa al detectar cambio de usuario en el
+ * mismo browser, para no heredar pendientes del usuario anterior.
+ */
+export async function clearAllOfflineState(): Promise<void> {
+  const db = await openDb();
+  const stores = [STORE, "visit_id_map", "pdv_id_map", "route_id_map"];
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(stores, "readwrite");
+    for (const name of stores) {
+      transaction.objectStore(name).clear();
+    }
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+  notifyListeners();
+}
+
 
 // ============================================================================
 // Listeners (para que la UI reaccione a cambios en la queue)
