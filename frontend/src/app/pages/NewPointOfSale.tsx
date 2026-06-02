@@ -398,6 +398,51 @@ export function NewPointOfSale() {
         const cachedAll = readCache<any[]>(allKey);
         if (cachedAll) writeCache(allKey, [localPdv, ...cachedAll]);
 
+        // Si el usuario eligió una ruta foco, encolar el route_pdv_add con
+        // _tempPdvId para que el sync worker reescriba el PdvId al resolverse
+        // el pdv_create. Sin esto, offline + ruta seleccionada quedaba en
+        // silencio: el PDV se creaba pero nunca se asociaba a la ruta.
+        if (selectedRouteId) {
+          executeOrEnqueue({
+            kind: "route_pdv_add",
+            method: "POST",
+            url: `/routes/${selectedRouteId}/pdvs`,
+            body: { PdvId: tempPdvId, SortOrder: 999, Priority: 3 },
+            label: `Agregar a ruta`,
+            _tempPdvId: tempPdvId,
+          }).catch(() => {});
+
+          // Optimistic insert al caché route_day_{today}_{userId} para que el
+          // usuario vea el PDV en su ruta del día sin esperar al sync.
+          try {
+            const today = new Date();
+            const y = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, "0");
+            const d = String(today.getDate()).padStart(2, "0");
+            const dateStr = `${y}-${m}-${d}`;
+            const route = myRoutes.find((r: any) => r.RouteId === Number(selectedRouteId));
+            for (const userKey of [userId, undefined]) {
+              const cacheKey = `route_day_${dateStr}_${userKey ?? "all"}`;
+              const existing = readCache<any[]>(cacheKey);
+              if (existing) {
+                writeCache(cacheKey, [
+                  ...existing,
+                  {
+                    RouteDayId: null,
+                    PdvId: tempPdvId,
+                    PlannedOrder: 999,
+                    ExecutionStatus: "PENDING",
+                    Priority: 3,
+                    pdv: localPdv,
+                    routeName: route?.Name ?? "Mi ruta",
+                    routeId: Number(selectedRouteId),
+                  },
+                ]);
+              }
+            }
+          } catch { /* noop */ }
+        }
+
         toast.success("PDV guardado. Se creará cuando vuelva la conexión.");
       }
 
