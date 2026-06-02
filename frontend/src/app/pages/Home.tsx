@@ -386,7 +386,10 @@ export function Home() {
       )}
 
       {/* Content */}
-      <div className="px-4 -mt-3 space-y-3">
+      {/* -mt-3 hace que la primera card "asome" debajo del header negro redondeado.
+          Sólo aplica si hay una nextPdv card (diseñada para ese efecto); si no,
+          el primer item es un botón plano que quedaría superpuesto al header. */}
+      <div className={`px-4 space-y-3 ${nextPdv ? "-mt-3" : "mt-3"}`}>
 
         {/* === NEXT STEP CARD === */}
         {nextPdv && (
