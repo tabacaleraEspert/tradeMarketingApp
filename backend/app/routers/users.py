@@ -14,7 +14,7 @@ from ..storage import storage, compute_sha256
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=10)).decode()
 router = APIRouter(prefix="/users", tags=["Usuarios"])
 
 

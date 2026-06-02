@@ -246,7 +246,7 @@ def change_password(
     if bcrypt.checkpw(data.new_password.encode(), current_user.PasswordHash.encode()):
         raise HTTPException(status_code=400, detail="La nueva contraseña debe ser diferente a la actual")
 
-    current_user.PasswordHash = bcrypt.hashpw(data.new_password.encode(), bcrypt.gensalt()).decode()
+    current_user.PasswordHash = bcrypt.hashpw(data.new_password.encode(), bcrypt.gensalt(rounds=10)).decode()
     current_user.MustChangePassword = False
     db.commit()
     return {"ok": True}
