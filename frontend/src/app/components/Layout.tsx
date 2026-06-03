@@ -19,8 +19,18 @@ export function Layout() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background pt-[env(safe-area-inset-top)]">
-      {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      {/* Main Content.
+          isolation/contain/translateZ: workaround para ghosting de Chromium
+          en Android — en algunos devices con bugs de driver GPU, el scroll
+          container dejaba fantasmas de cards/secciones tras repintes en
+          Home y PDV detail. Forzamos una capa GPU dedicada para el contenido
+          y stacking context aislado para que el painter recicle la capa
+          correctamente.
+          contain: layout paint (sin "size" para no romper flex/altura). */}
+      <main
+        className="flex-1 overflow-auto"
+        style={{ isolation: "isolate", contain: "layout paint", transform: "translateZ(0)" }}
+      >
         <div className="max-w-lg mx-auto">
           <Outlet />
         </div>
