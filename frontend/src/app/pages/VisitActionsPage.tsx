@@ -191,9 +191,7 @@ export function VisitActionsPage() {
         setActions((prev) => [...prev, { ...actionBody, VisitActionId: -Date.now(), VisitId: visitId } as VisitAction]);
       }
       resetForm();
-      toast.success(isOffline && !formHasPhotos
-        ? "Acción guardada (sin foto — recordá sacarla después)"
-        : "Acción registrada");
+      toast.success("Acción registrada");
     } catch (err) { toast.error(err instanceof Error ? err.message : "Error al guardar acción"); }
     finally { setSaving(false); }
   };
@@ -230,9 +228,10 @@ export function VisitActionsPage() {
   const totalPhotos = actions.filter((a) => a.PhotoTaken).length;
 
   // ── Sub-form renderers ──
-  const renderPhotoSection = (label: string) => (
+  const renderPhotoSection = (label: string, hint?: string) => (
     <div className="space-y-2">
       <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider flex items-center gap-1"><Camera size={10} /> {label}</p>
+      {hint && <p className="text-[11px] text-muted-foreground">{hint}</p>}
       {formPhotos.length > 0 && (
         <div className="flex gap-1.5 flex-wrap">
           {formPhotos.map((p, i) => (
@@ -244,7 +243,7 @@ export function VisitActionsPage() {
         </div>
       )}
       <Button type="button" variant="outline" size="sm" onClick={takePhoto} className="w-full gap-1.5">
-        <Camera size={14} /> {formPhotos.length === 0 ? "Tomar foto (obligatoria)" : "Agregar otra foto"}
+        <Camera size={14} /> {formPhotos.length === 0 ? "Tomar foto (opcional)" : "Agregar otra foto"}
       </Button>
     </div>
   );
@@ -419,7 +418,7 @@ export function VisitActionsPage() {
           </div>
         )}
 
-        {renderPhotoSection("Foto de evidencia")}
+        {renderPhotoSection("Foto de evidencia", "Sacale foto a los productos sueltos que retiraste y al canje entregado.")}
       </div>
     );
   };
@@ -455,7 +454,7 @@ export function VisitActionsPage() {
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Ubicación en el PDV</p>
           <Input value={fd("ubicacion")} onChange={(e) => setFd("ubicacion", e.target.value)} placeholder="Ej: Mostrador principal, Ventana lateral" />
         </div>
-        {renderPhotoSection("Foto del material colocado")}
+        {renderPhotoSection("Foto del material colocado", "Mostrá el POP ya colocado en su ubicación final dentro del PDV.")}
       </div>
     );
   };
@@ -519,7 +518,7 @@ export function VisitActionsPage() {
           </div>
         )}
         <div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Cantidad utilizada</p><Input type="number" value={fd("cantidad")} onChange={(e) => setFd("cantidad", e.target.value)} placeholder="0" /></div>
-        {renderPhotoSection("Foto de la promoción")}
+        {renderPhotoSection("Foto de la promoción", "Capturá el cartel o material que comunica la promo activa.")}
       </div>
     );
   };
@@ -557,7 +556,7 @@ export function VisitActionsPage() {
       </div>
       <div><p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Cantidad de premios</p><Input type="number" value={fd("cantidad")} onChange={(e) => setFd("cantidad", e.target.value)} placeholder="0" /></div>
       {renderProductSelect("marcaPremio", "Marca del premio")}
-      {renderPhotoSection("Foto de la activación")}
+      {renderPhotoSection("Foto de la activación", "Mostrá el juego en acción o el momento de la entrega del premio.")}
     </div>
   );
 
@@ -584,7 +583,7 @@ export function VisitActionsPage() {
         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Descripción *</p>
         <textarea value={fd("descripcion")} onChange={(e) => setFd("descripcion", e.target.value)} rows={4} placeholder="Describí la acción realizada..." className="w-full px-3 py-2 border border-border rounded-lg text-sm resize-none" />
       </div>
-      {renderPhotoSection("Foto de evidencia")}
+      {renderPhotoSection("Foto de evidencia", "Capturá lo que respalde la acción descrita.")}
     </div>
   );
 
@@ -636,8 +635,8 @@ export function VisitActionsPage() {
           {activeForm === "otra" && renderOtraForm()}
         </div>
         <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] z-20">
-          <Button onClick={handleSave} disabled={saving || formPhotos.length === 0} className={`w-full h-11 font-semibold ${formPhotos.length === 0 ? "bg-muted text-muted-foreground" : "bg-[#A48242] hover:bg-[#8B6E38] text-white"}`}>
-            {saving ? "Guardando..." : formPhotos.length === 0 ? "Foto obligatoria" : "Guardar acción"}
+          <Button onClick={handleSave} disabled={saving} className="w-full h-11 font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white">
+            {saving ? "Guardando..." : "Guardar acción"}
           </Button>
         </div>
       </div>

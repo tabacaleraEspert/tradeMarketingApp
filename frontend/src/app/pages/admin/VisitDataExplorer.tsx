@@ -1,19 +1,21 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
 import { Input } from "../../components/ui/input";
 import { Modal } from "../../components/ui/modal";
+import { SearchInput } from "../../components/ui/search-input";
+import { PaginationBar } from "../../components/ui/pagination-bar";
 import {
-  Search, MapPin, User, Clock, ChevronRight, FileText,
+  MapPin, User, Clock, ChevronRight, FileText,
   Package, Megaphone, Newspaper, Camera, CheckCircle2,
-  XCircle, AlertCircle, Filter, Download, Eye,
+  AlertCircle, Download,
 } from "lucide-react";
-import { visitsApi, formsApi } from "@/lib/api";
 import { API_BASE_URL } from "@/lib/api/config";
 import { getAccessToken } from "@/lib/api/auth-storage";
 import { toast } from "sonner";
 import { exportToExcel } from "@/lib/exportExcel";
+import { usePaginated } from "@/lib/api/usePaginated";
 
 interface EnrichedVisit {
   VisitId: number;
@@ -39,18 +41,6 @@ interface VisitFull {
   photos: Array<{ FileId: number; PhotoType: string; url: string; Notes: string | null }>;
 }
 
-async function fetchVisitsFull(params: Record<string, string | number>): Promise<EnrichedVisit[]> {
-  const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(params)) qs.set(k, String(v));
-  qs.set("enrich", "true");
-  const token = getAccessToken();
-  const res = await fetch(`${API_BASE_URL}/visits?${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error("Error al cargar visitas");
-  return res.json();
-}
-
 async function fetchVisitDetail(visitId: number): Promise<VisitFull> {
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}/visits/${visitId}/full`, {
@@ -68,12 +58,22 @@ function formatDate(iso: string | null) {
   });
 }
 
+function formatDuration(openedAt: string | null, closedAt: string | null): string | null {
+  if (!openedAt || !closedAt) return null;
+  const ms = new Date(closedAt).getTime() - new Date(openedAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const totalMin = Math.round(ms / 60000);
+  if (totalMin < 60) return `${totalMin} min`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
 function renderAnswerValue(a: { QType: string; ValueText: string | null; ValueNumber: number | null; ValueBool: boolean | null; ValueJson: string | null }) {
   if (a.ValueJson) {
     try {
       const parsed = JSON.parse(a.ValueJson);
       if (typeof parsed === "object" && !Array.isArray(parsed)) {
-        // checkbox_price: { brand: price }
         return Object.entries(parsed)
           .filter(([, v]) => v !== null && v !== false)
           .map(([k, v]) => `${k}: ${v === true ? "Si" : `$${v}`}`)
@@ -88,35 +88,42 @@ function renderAnswerValue(a: { QType: string; ValueText: string | null; ValueNu
   return a.ValueText || "-";
 }
 
+type StatusFilter = "CLOSED" | "OPEN" | "";
+
+interface VisitFilters {
+  status?: string;
+  date_from?: string;
+  date_to?: string;
+  [key: string]: string | number | boolean | undefined;
+}
+
 export function VisitDataExplorer() {
-  const [visits, setVisits] = useState<EnrichedVisit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("CLOSED");
-  const [dateFrom, setDateFrom] = useState<string>("");
-  const [dateTo, setDateTo] = useState<string>("");
-  const [page, setPage] = useState(0);
-  const PAGE_SIZE = 50;
+  const {
+    items: visits,
+    total,
+    page,
+    totalPages,
+    loading,
+    error,
+    q,
+    setQ,
+    filters,
+    setFilters,
+    setPage,
+  } = usePaginated<EnrichedVisit, VisitFilters>({
+    endpoint: "/visits/admin-list",
+    pageSize: 50,
+    initialFilters: { status: "CLOSED" },
+  });
 
   // Detail modal
   const [selectedVisit, setSelectedVisit] = useState<VisitFull | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<"forms" | "coverage" | "pop" | "news" | "photos">("forms");
 
-  const loadVisits = useCallback(async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string | number> = { limit: PAGE_SIZE, skip: page * PAGE_SIZE };
-      if (statusFilter) params.status = statusFilter;
-      if (dateFrom) params.date_from = dateFrom;
-      if (dateTo) params.date_to = dateTo;
-      const data = await fetchVisitsFull(params);
-      setVisits(data);
-    } catch { toast.error("Error al cargar visitas"); }
-    finally { setLoading(false); }
-  }, [statusFilter, dateFrom, dateTo, page]);
-
-  useEffect(() => { loadVisits(); }, [loadVisits]);
+  const statusFilter = (filters.status ?? "") as StatusFilter;
+  const dateFrom = filters.date_from ?? "";
+  const dateTo = filters.date_to ?? "";
 
   const openDetail = async (visitId: number) => {
     setDetailLoading(true);
@@ -127,23 +134,6 @@ export function VisitDataExplorer() {
     } catch { toast.error("Error al cargar detalle"); }
     finally { setDetailLoading(false); }
   };
-
-  const filtered = search
-    ? visits.filter((v) =>
-        (v.PdvName || "").toLowerCase().includes(search.toLowerCase()) ||
-        (v.UserName || "").toLowerCase().includes(search.toLowerCase()) ||
-        (v.PdvAddress || "").toLowerCase().includes(search.toLowerCase())
-      )
-    : visits;
-
-  // Group by TM Rep
-  const groupedByUser = filtered.reduce((acc, v) => {
-    const key = v.UserName || `Usuario #${v.UserId}`;
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(v);
-    return acc;
-  }, {} as Record<string, EnrichedVisit[]>);
-  const sortedGroups = Object.entries(groupedByUser).sort(([a], [b]) => a.localeCompare(b));
 
   const handleExport = () => {
     if (!selectedVisit) return;
@@ -196,15 +186,12 @@ export function VisitDataExplorer() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-          <Input
-            placeholder="Buscar PDV, vendedor o dirección..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
+        <SearchInput
+          value={q}
+          onChange={setQ}
+          placeholder="Buscar PDV, vendedor o dirección..."
+          className="flex-1 min-w-[200px]"
+        />
         <div className="flex gap-1.5">
           {[
             { value: "CLOSED", label: "Cerradas" },
@@ -213,7 +200,7 @@ export function VisitDataExplorer() {
           ].map((f) => (
             <button
               key={f.value}
-              onClick={() => { setStatusFilter(f.value); setPage(0); }}
+              onClick={() => setFilters({ status: f.value || undefined })}
               className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
                 statusFilter === f.value
                   ? "bg-[#A48242] text-white"
@@ -228,7 +215,7 @@ export function VisitDataExplorer() {
           <Input
             type="date"
             value={dateFrom}
-            onChange={(e) => { setDateFrom(e.target.value); setPage(0); }}
+            onChange={(e) => setFilters({ date_from: e.target.value || undefined })}
             className="w-36 text-sm"
             placeholder="Desde"
           />
@@ -236,13 +223,13 @@ export function VisitDataExplorer() {
           <Input
             type="date"
             value={dateTo}
-            onChange={(e) => { setDateTo(e.target.value); setPage(0); }}
+            onChange={(e) => setFilters({ date_to: e.target.value || undefined })}
             className="w-36 text-sm"
             placeholder="Hasta"
           />
           {(dateFrom || dateTo) && (
             <button
-              onClick={() => { setDateFrom(""); setDateTo(""); setPage(0); }}
+              onClick={() => setFilters({ date_from: undefined, date_to: undefined })}
               className="text-xs text-muted-foreground hover:text-foreground"
             >
               Limpiar
@@ -252,65 +239,60 @@ export function VisitDataExplorer() {
       </div>
 
       {/* Visit list */}
-      {loading ? (
+      {error ? (
+        <div className="py-20 text-center text-destructive">{error}</div>
+      ) : loading && visits.length === 0 ? (
         <div className="py-20 text-center text-muted-foreground">Cargando visitas...</div>
-      ) : filtered.length === 0 ? (
+      ) : visits.length === 0 ? (
         <div className="py-20 text-center text-muted-foreground">Sin visitas encontradas</div>
       ) : (
         <>
-          <div className="space-y-6">
-            {sortedGroups.map(([userName, userVisits]) => (
-              <div key={userName}>
-                {/* TM Rep header */}
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-full bg-[#A48242]/10 flex items-center justify-center">
-                    <User size={16} className="text-[#A48242]" />
+          <Card>
+            <CardContent className="p-0 divide-y divide-border">
+              {visits.map((v) => (
+                <button
+                  key={v.VisitId}
+                  onClick={() => openDetail(v.VisitId)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                >
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
+                    v.Status === "CLOSED" ? "bg-green-100" : v.Status === "OPEN" ? "bg-amber-100" : "bg-muted"
+                  }`}>
+                    {v.Status === "CLOSED" ? <CheckCircle2 size={16} className="text-green-600" /> :
+                     v.Status === "OPEN" ? <Clock size={16} className="text-amber-600" /> :
+                     <AlertCircle size={16} className="text-muted-foreground" />}
                   </div>
-                  <div>
-                    <p className="font-semibold text-foreground text-sm">{userName}</p>
-                    <p className="text-[10px] text-muted-foreground">{userVisits.length} visita{userVisits.length !== 1 ? "s" : ""}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold text-foreground text-sm truncate">{v.PdvName || `PDV #${v.PdvId}`}</p>
+                      <Badge variant="outline" className="text-[9px] gap-1 shrink-0">
+                        <User size={9} />
+                        {v.UserName || `Usuario #${v.UserId}`}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      {v.PdvAddress && (
+                        <span className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+                          <MapPin size={10} />
+                          {v.PdvAddress}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-muted-foreground">{formatDate(v.OpenedAt)}</span>
+                    </div>
                   </div>
-                </div>
+                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
+                </button>
+              ))}
+            </CardContent>
+          </Card>
 
-                <Card>
-                  <CardContent className="p-0 divide-y divide-border">
-                    {userVisits.map((v) => (
-                      <button
-                        key={v.VisitId}
-                        onClick={() => openDetail(v.VisitId)}
-                        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
-                      >
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                          v.Status === "CLOSED" ? "bg-green-100" : v.Status === "OPEN" ? "bg-amber-100" : "bg-muted"
-                        }`}>
-                          {v.Status === "CLOSED" ? <CheckCircle2 size={16} className="text-green-600" /> :
-                           v.Status === "OPEN" ? <Clock size={16} className="text-amber-600" /> :
-                           <AlertCircle size={16} className="text-muted-foreground" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-foreground text-sm truncate">{v.PdvName || `PDV #${v.PdvId}`}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            {v.PdvAddress && <span className="text-[11px] text-muted-foreground truncate">{v.PdvAddress}</span>}
-                            <span className="text-[10px] text-muted-foreground">{formatDate(v.OpenedAt)}</span>
-                          </div>
-                        </div>
-                        <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-                      </button>
-                    ))}
-                  </CardContent>
-                </Card>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex justify-center gap-2">
-            {page > 0 && (
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p - 1)}>Anterior</Button>
-            )}
-            {filtered.length === PAGE_SIZE && (
-              <Button variant="outline" size="sm" onClick={() => setPage((p) => p + 1)}>Siguiente</Button>
-            )}
-          </div>
+          <PaginationBar
+            page={page}
+            totalPages={totalPages}
+            total={total}
+            onPageChange={setPage}
+            loading={loading}
+          />
         </>
       )}
 
@@ -330,6 +312,21 @@ export function VisitDataExplorer() {
               <div>
                 <p className="text-sm font-medium">{selectedVisit.user?.DisplayName}</p>
                 <p className="text-xs text-muted-foreground">{selectedVisit.pdv?.Address} · {selectedVisit.pdv?.Channel}</p>
+                {/* Tiempos: apertura → cierre + duración total (cuando hay ambas) */}
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {formatDate(selectedVisit.visit.OpenedAt)}
+                  {selectedVisit.visit.ClosedAt && (
+                    <>
+                      {" → "}
+                      {formatDate(selectedVisit.visit.ClosedAt)}
+                      {formatDuration(selectedVisit.visit.OpenedAt, selectedVisit.visit.ClosedAt) && (
+                        <span className="ml-2 font-medium text-foreground">
+                          · {formatDuration(selectedVisit.visit.OpenedAt, selectedVisit.visit.ClosedAt)}
+                        </span>
+                      )}
+                    </>
+                  )}
+                </p>
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={handleExport} className="gap-1">
@@ -396,7 +393,6 @@ export function VisitDataExplorer() {
                   <p className="text-sm text-muted-foreground py-8 text-center">Sin datos de cobertura</p>
                 ) : (
                   <div className="space-y-1">
-                    {/* Group by category */}
                     {Object.entries(
                       selectedVisit.coverage.reduce((acc, c) => {
                         if (!acc[c.Category]) acc[c.Category] = [];

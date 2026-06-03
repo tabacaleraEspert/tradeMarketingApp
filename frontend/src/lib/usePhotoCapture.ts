@@ -155,10 +155,12 @@ export function usePhotoCapture(options: UsePhotoCaptureOptions = {}) {
   }, [photos, uploadUrl, photoType, label, tempVisitId]);
 
   // Props to spread on the hidden <input>
+  // Nota: sin `capture` para que el usuario pueda elegir entre cámara y galería
+  // (pedido del campo — a veces necesitan subir una foto vieja o tomar una nueva).
+  // El browser muestra el chooser nativo con ambas opciones.
   const inputProps = {
     type: "file" as const,
     accept: "image/*",
-    capture: "environment" as const,
     className: "hidden",
     onChange: handleInput,
   };

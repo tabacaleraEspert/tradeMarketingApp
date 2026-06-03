@@ -265,7 +265,7 @@ export function MarketNewsStepPage() {
       <input
         ref={photoInputRef}
         type="file"
-        accept="image/*" capture="environment"
+        accept="image/*"
         className="hidden"
         onChange={handlePhoto}
       />

@@ -218,7 +218,7 @@ export function PhotoCapture() {
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*" capture="environment"
+        accept="image/*"
         className="hidden"
         onChange={handleFileSelected}
       />

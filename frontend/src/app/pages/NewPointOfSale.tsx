@@ -974,6 +974,9 @@ export function NewPointOfSale() {
               <h3 className="font-semibold text-foreground">Fotos Iniciales</h3>
               <Badge variant="outline">{photos.length} fotos</Badge>
             </div>
+            <p className="text-xs text-muted-foreground -mt-1">
+              Sacá una foto del frente del local mostrando el cartel o la fachada completa, así queda identificable el PDV.
+            </p>
 
             <Button type="button" variant="outline" className="w-full" onClick={handleTakePhoto}>
               <Camera size={18} className="mr-2" />

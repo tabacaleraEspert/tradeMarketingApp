@@ -302,7 +302,7 @@ export function POPCensusPage() {
                         )}
                         {photos.length === 0 && (
                           <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                            <ImageIcon size={10} /> Sin foto
+                            <ImageIcon size={10} /> Sin foto — capturá el material POP de esta marca
                           </p>
                         )}
                       </div>
@@ -347,7 +347,7 @@ export function POPCensusPage() {
       <input
         ref={popPhotoInputRef}
         type="file"
-        accept="image/*" capture="environment"
+        accept="image/*"
         className="hidden"
         onChange={handlePopPhoto}
       />
