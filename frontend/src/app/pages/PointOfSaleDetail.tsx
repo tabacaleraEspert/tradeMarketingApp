@@ -1159,7 +1159,7 @@ export function PointOfSaleDetail() {
             ) : (
               <div className="grid grid-cols-3 gap-2">
                 {pdvPhotos.map((photo) => (
-                  <div key={photo.FileId} className="relative group">
+                  <div key={photo.FileId} className="relative">
                     <img
                       src={photo.url}
                       alt={photo.PhotoType}
@@ -1171,15 +1171,17 @@ export function PointOfSaleDetail() {
                     <button
                       onClick={async () => {
                         if (!id) return;
+                        if (!window.confirm("¿Borrar esta foto?")) return;
                         try {
                           await pdvPhotosApi.delete(Number(id), photo.FileId);
                           setPdvPhotos((prev) => prev.filter((p) => p.FileId !== photo.FileId));
                           toast.success("Foto eliminada");
                         } catch { toast.error("Error al eliminar"); }
                       }}
-                      className="absolute top-1 right-1 p-0.5 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Borrar foto"
+                      className="absolute top-1 right-1 p-1.5 bg-black/70 active:bg-black/90 rounded-full"
                     >
-                      <X size={12} className="text-white" />
+                      <Trash2 size={14} className="text-white" />
                     </button>
                   </div>
                 ))}

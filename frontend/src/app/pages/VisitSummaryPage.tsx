@@ -8,7 +8,7 @@ import { Modal } from "../components/ui/modal";
 import {
   ArrowLeft, CheckCircle2, AlertTriangle, XCircle, ClipboardCheck,
   Camera, Zap, Newspaper, LogOut, ChevronRight, Clock, MapPin,
-  Navigation, FileText, Megaphone, Package,
+  Navigation, FileText, Megaphone, Package, Trash2,
 } from "lucide-react";
 import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi, pdvSuppliersApi } from "@/lib/api";
 import { Truck } from "lucide-react";
@@ -628,6 +628,21 @@ export function VisitSummaryPage() {
                 <div className="absolute bottom-1 left-1">
                   <Badge variant="secondary" className="text-[9px]">{p.PhotoType}</Badge>
                 </div>
+                <button
+                  onClick={async () => {
+                    if (!visitId) return;
+                    if (!window.confirm("¿Borrar esta foto?")) return;
+                    try {
+                      await visitPhotosApi.delete(visitId, p.FileId);
+                      setVisitPhotos((prev) => prev.filter((x) => x.FileId !== p.FileId));
+                      toast.success("Foto eliminada");
+                    } catch { toast.error("Error al eliminar"); }
+                  }}
+                  aria-label="Borrar foto"
+                  className="absolute top-1 right-1 p-1.5 bg-black/70 active:bg-black/90 rounded-full"
+                >
+                  <Trash2 size={14} className="text-white" />
+                </button>
                 <div className="mt-1 text-[10px] text-muted-foreground text-center">
                   {formatTime24(p.created_at)}
                 </div>

@@ -291,10 +291,14 @@ export function POPCensusPage() {
                                   className="w-14 h-14 rounded-md object-cover border border-border"
                                 />
                                 <button
-                                  onClick={() => handleDeletePhoto(key, pIdx)}
-                                  className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"
+                                  onClick={() => {
+                                    if (!window.confirm("¿Borrar esta foto?")) return;
+                                    handleDeletePhoto(key, pIdx);
+                                  }}
+                                  aria-label="Borrar foto"
+                                  className="absolute -top-1 -right-1 p-1 bg-black/70 active:bg-black/90 rounded-full"
                                 >
-                                  <X size={10} className="text-white" />
+                                  <X size={12} className="text-white" />
                                 </button>
                               </div>
                             ))}

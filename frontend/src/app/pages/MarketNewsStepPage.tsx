@@ -381,10 +381,14 @@ export function MarketNewsStepPage() {
                           className="w-16 h-16 rounded-md object-cover border border-border"
                         />
                         <button
-                          onClick={() => deletePhoto(idx, pIdx)}
-                          className="absolute -top-1 -right-1 p-0.5 bg-black/60 rounded-full"
+                          onClick={() => {
+                            if (!window.confirm("¿Borrar esta foto?")) return;
+                            deletePhoto(idx, pIdx);
+                          }}
+                          aria-label="Borrar foto"
+                          className="absolute -top-1 -right-1 p-1 bg-black/70 active:bg-black/90 rounded-full"
                         >
-                          <X size={10} className="text-white" />
+                          <X size={12} className="text-white" />
                         </button>
                       </div>
                     ))}
