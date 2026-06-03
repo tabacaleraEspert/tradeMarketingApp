@@ -20,14 +20,14 @@ export function Layout() {
   return (
     <div className="flex flex-col h-[100dvh] bg-background pt-[env(safe-area-inset-top)]">
       {/* Main Content.
-          isolation + will-change: scroll-position son hints "seguros" al
-          compositor de Chromium para mitigar ghosting en Android sin romper
-          position: fixed (que SI rompen `contain: paint` y `translateZ(0)`,
-          porque crean containing block para descendientes fixed → los CTAs
-          de las pages quedaban "volando" en medio del scroll). */}
+          Nota: `will-change: scroll-position` es un hint seguro al compositor
+          para mitigar ghosting de Chromium en Android. NO usamos `isolation:
+          isolate` ni `contain` ni `translateZ(0)` porque crean stacking context
+          y/o containing block, lo cual hace que los CTAs `position: fixed` de
+          las pages queden por DEBAJO del nav (que es sibling a nivel root). */}
       <main
         className="flex-1 overflow-auto"
-        style={{ isolation: "isolate", willChange: "scroll-position" }}
+        style={{ willChange: "scroll-position" }}
       >
         <div className="max-w-lg mx-auto">
           <Outlet />
