@@ -419,17 +419,8 @@ export function Home() {
       {/* Content */}
       {/* -mt-3 hace que la primera card "asome" debajo del header negro redondeado.
           Sólo aplica si hay una nextPdv card (diseñada para ese efecto); si no,
-          el primer item es un botón plano que quedaría superpuesto al header.
-
-          isolation/contain: workaround para ghosting de Chromium en Android —
-          en algunos devices (drivers GPU + versiones de WebView específicas),
-          las stats cards y los quick action buttons quedaban duplicados como
-          fantasmas al repintar. Forzando un stacking context aislado + content
-          containment, el painter de Chromium recicla la capa correctamente. */}
-      <div
-        className={`px-4 space-y-3 ${nextPdv ? "-mt-3" : "mt-3"}`}
-        style={{ isolation: "isolate", contain: "layout paint", transform: "translateZ(0)" }}
-      >
+          el primer item es un botón plano que quedaría superpuesto al header. */}
+      <div className={`px-4 space-y-3 ${nextPdv ? "-mt-3" : "mt-3"}`}>
 
         {/* === NEXT STEP CARD === */}
         {nextPdv && (

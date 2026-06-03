@@ -20,16 +20,14 @@ export function Layout() {
   return (
     <div className="flex flex-col h-[100dvh] bg-background pt-[env(safe-area-inset-top)]">
       {/* Main Content.
-          isolation/contain/translateZ: workaround para ghosting de Chromium
-          en Android — en algunos devices con bugs de driver GPU, el scroll
-          container dejaba fantasmas de cards/secciones tras repintes en
-          Home y PDV detail. Forzamos una capa GPU dedicada para el contenido
-          y stacking context aislado para que el painter recicle la capa
-          correctamente.
-          contain: layout paint (sin "size" para no romper flex/altura). */}
+          isolation + will-change: scroll-position son hints "seguros" al
+          compositor de Chromium para mitigar ghosting en Android sin romper
+          position: fixed (que SI rompen `contain: paint` y `translateZ(0)`,
+          porque crean containing block para descendientes fixed → los CTAs
+          de las pages quedaban "volando" en medio del scroll). */}
       <main
         className="flex-1 overflow-auto"
-        style={{ isolation: "isolate", contain: "layout paint", transform: "translateZ(0)" }}
+        style={{ isolation: "isolate", willChange: "scroll-position" }}
       >
         <div className="max-w-lg mx-auto">
           <Outlet />
