@@ -22,6 +22,8 @@ import type { Form, FormQuestion, FormOption } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache, readCache, writeCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
+import { usePhotoCapture } from "@/lib/usePhotoCapture";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 interface QuestionWithOptions extends FormQuestion {
@@ -475,6 +477,7 @@ export function SurveyForm() {
                       question={q}
                       value={answers[q.QuestionId]}
                       onChange={(v) => setAnswer(q.QuestionId, v)}
+                      visitId={visitId}
                     />
                   ))}
                   {(!formQuestions[f.FormId] || formQuestions[f.FormId].length === 0) && (
@@ -509,10 +512,12 @@ function SurveyQuestionField({
   question,
   value,
   onChange,
+  visitId,
 }: {
   question: QuestionWithOptions;
   value: string | number | boolean | string[] | Record<string, number | null> | undefined;
   onChange: (v: string | number | boolean | string[] | Record<string, number | null>) => void;
+  visitId?: number | null;
 }) {
   const opts = question.options || [];
 
@@ -649,81 +654,41 @@ function SurveyQuestionField({
   if (question.QType === "checkbox") {
     const arr = (value as string[]) ?? [];
     const hasImages = opts.some((o) => o.ImageUrl);
+    if (hasImages) {
+      /* Visual card grid + foto por opción (e.g. materiales POP) */
+      return <ImageCheckboxField question={question} value={value} onChange={onChange} visitId={visitId} />;
+    }
     return (
       <div className="space-y-2">
         <Label>
           {question.Label}
           {question.IsRequired && <span className="text-red-500">*</span>}
         </Label>
-        {hasImages ? (
-          /* Visual card grid for items with images (e.g. materiales POP) */
-          <div className="grid grid-cols-2 gap-2">
-            {opts.map((o) => {
-              const isChecked = arr.includes(o.Value);
-              return (
-                <div
-                  key={o.OptionId}
-                  onClick={() => {
-                    const next = isChecked ? arr.filter((v) => v !== o.Value) : [...arr, o.Value];
+        {/* Standard checkbox list for items without images */}
+        <div className="space-y-1">
+          {opts.map((o) => {
+            const isChecked = arr.includes(o.Value);
+            return (
+              <label
+                key={o.OptionId}
+                className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
+                  isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:bg-muted/50"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 accent-[#A48242]"
+                  checked={isChecked}
+                  onChange={(e) => {
+                    const next = e.target.checked ? [...arr, o.Value] : arr.filter((x) => x !== o.Value);
                     onChange(next);
                   }}
-                  className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all ${
-                    isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:border-[#A48242]/40"
-                  }`}
-                >
-                  <div className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                    isChecked ? "bg-[#A48242] text-white" : "border-2 border-border"
-                  }`}>
-                    {isChecked && "✓"}
-                  </div>
-                  {o.ImageUrl ? (
-                    <img src={o.ImageUrl} alt={o.Label} className="w-full h-20 object-contain rounded-lg mb-2 bg-muted" />
-                  ) : (
-                    <div className="w-full h-20 rounded-lg mb-2 bg-muted/60 flex items-center justify-center">
-                      <ImageIcon size={24} className="text-muted-foreground/40" />
-                    </div>
-                  )}
-                  <p className="text-sm font-medium text-center">{o.Label}</p>
-                  {isChecked && (
-                    <button
-                      onClick={(e) => e.stopPropagation()}
-                      className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-muted text-xs text-muted-foreground hover:bg-muted/80 transition-colors"
-                    >
-                      <Camera size={12} />
-                      Tomar foto
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          /* Standard checkbox list for items without images */
-          <div className="space-y-1">
-            {opts.map((o) => {
-              const isChecked = arr.includes(o.Value);
-              return (
-                <label
-                  key={o.OptionId}
-                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                    isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:bg-muted/50"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    className="w-4 h-4 accent-[#A48242]"
-                    checked={isChecked}
-                    onChange={(e) => {
-                      const next = e.target.checked ? [...arr, o.Value] : arr.filter((x) => x !== o.Value);
-                      onChange(next);
-                    }}
-                  />
-                  <span className="text-sm font-medium">{o.Label}</span>
-                </label>
-              );
-            })}
-          </div>
-        )}
+                />
+                <span className="text-sm font-medium">{o.Label}</span>
+              </label>
+            );
+          })}
+        </div>
       </div>
     );
   }
@@ -917,20 +882,202 @@ function SurveyQuestionField({
   }
 
   if (question.QType === "photo") {
-    return (
-      <div className="space-y-2">
-        <Label>
-          {question.Label}
-          {question.IsRequired && <span className="text-red-500">*</span>}
-        </Label>
-        <div className="border-2 border-dashed border-[#A48242]/30 rounded-xl p-8 text-center bg-[#A48242]/5 cursor-pointer hover:bg-[#A48242]/10 transition-colors">
-          <Camera size={32} className="mx-auto text-[#A48242]/60 mb-2" />
-          <p className="text-sm font-medium text-[#A48242]">Tomar foto</p>
-          <p className="text-xs text-muted-foreground mt-1">Toca para abrir la cámara</p>
-        </div>
-      </div>
-    );
+    return <PhotoQuestionField question={question} value={value} onChange={onChange} visitId={visitId} />;
   }
 
   return null;
+}
+
+/**
+ * Pregunta tipo "foto": abre cámara/galería, sube a la visita (cola offline-tolerante)
+ * y guarda como respuesta la cantidad de fotos tomadas (para el progreso del formulario).
+ */
+function PhotoQuestionField({
+  question,
+  value,
+  onChange,
+  visitId,
+}: {
+  question: QuestionWithOptions;
+  value: string | number | boolean | string[] | Record<string, number | null> | undefined;
+  onChange: (v: string | number | boolean | string[] | Record<string, number | null>) => void;
+  visitId?: number | null;
+}) {
+  const tempVisitId = visitId != null && visitId < 0 ? visitId : undefined;
+  const { inputRef, inputProps, takePhoto, sourceSheet, photos, removePhoto } = usePhotoCapture({
+    uploadUrl: visitId ? `/files/photos/visit/${visitId}` : undefined,
+    photoType: `survey_q${question.QuestionId}`,
+    label: question.Label || "Foto del formulario",
+    tempVisitId,
+  });
+
+  // La respuesta = cantidad de fotos (>0 marca la pregunta como respondida).
+  useEffect(() => {
+    onChange(photos.length > 0 ? photos.length : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos.length]);
+
+  const handleTake = () => {
+    if (!visitId) {
+      toast.error("Hacé el check-in antes de sacar fotos.");
+      return;
+    }
+    takePhoto();
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>
+        {question.Label}
+        {question.IsRequired && <span className="text-red-500">*</span>}
+      </Label>
+      <input ref={inputRef} {...inputProps} />
+      {sourceSheet}
+
+      {photos.length === 0 ? (
+        <div
+          onClick={handleTake}
+          className="border-2 border-dashed border-[#A48242]/30 rounded-xl p-8 text-center bg-[#A48242]/5 cursor-pointer hover:bg-[#A48242]/10 transition-colors"
+        >
+          <Camera size={32} className="mx-auto text-[#A48242]/60 mb-2" />
+          <p className="text-sm font-medium text-[#A48242]">Tomar foto</p>
+          <p className="text-xs text-muted-foreground mt-1">Tocá para abrir la cámara o elegir de la galería</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((photo, idx) => (
+              <div key={idx} className="relative">
+                <img
+                  src={photo.url}
+                  alt={`Foto ${idx + 1}`}
+                  className="w-full h-24 object-cover rounded-lg border border-border"
+                />
+                {photo.pending && (
+                  <span className="absolute bottom-1 left-1 text-[9px] px-1 rounded bg-amber-500 text-white">
+                    Pendiente
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => removePhoto(idx)}
+                  aria-label="Quitar foto"
+                  className="absolute -top-1.5 -right-1.5 p-1 bg-black/70 active:bg-black/90 rounded-full"
+                >
+                  <Trash2 size={12} className="text-white" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={handleTake}
+            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-[#A48242]/40 text-xs text-[#A48242] hover:bg-[#A48242]/5 transition-colors"
+          >
+            <Camera size={14} />
+            Agregar otra foto
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Checkbox con imágenes (grilla visual) + foto opcional por opción marcada.
+ * El valor sigue siendo el array de opciones seleccionadas; las fotos se suben a la
+ * visita etiquetadas por opción (no van en la respuesta del formulario).
+ */
+function ImageCheckboxField({
+  question,
+  value,
+  onChange,
+  visitId,
+}: {
+  question: QuestionWithOptions;
+  value: string | number | boolean | string[] | Record<string, number | null> | undefined;
+  onChange: (v: string | number | boolean | string[] | Record<string, number | null>) => void;
+  visitId?: number | null;
+}) {
+  const opts = question.options || [];
+  const arr = (value as string[]) ?? [];
+  const tempVisitId = visitId != null && visitId < 0 ? visitId : undefined;
+  const activeOptionRef = useRef<string | null>(null);
+  const [photoType, setPhotoType] = useState(`survey_q${question.QuestionId}`);
+  const [photoCount, setPhotoCount] = useState<Record<string, number>>({});
+
+  const { inputRef, inputProps, takePhoto, sourceSheet } = usePhotoCapture({
+    uploadUrl: visitId ? `/files/photos/visit/${visitId}` : undefined,
+    photoType,
+    label: question.Label || "Foto",
+    tempVisitId,
+    onUploaded: () => {
+      const opt = activeOptionRef.current;
+      if (opt) setPhotoCount((prev) => ({ ...prev, [opt]: (prev[opt] || 0) + 1 }));
+    },
+  });
+
+  const snapFor = (optValue: string) => {
+    if (!visitId) {
+      toast.error("Hacé el check-in antes de sacar fotos.");
+      return;
+    }
+    activeOptionRef.current = optValue;
+    // Etiqueta la foto por opción; setState aplica antes de que el usuario elija el archivo.
+    setPhotoType(`survey_q${question.QuestionId}_${optValue}`);
+    takePhoto();
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>
+        {question.Label}
+        {question.IsRequired && <span className="text-red-500">*</span>}
+      </Label>
+      <input ref={inputRef} {...inputProps} />
+      {sourceSheet}
+      <div className="grid grid-cols-2 gap-2">
+        {opts.map((o) => {
+          const isChecked = arr.includes(o.Value);
+          const count = photoCount[o.Value] || 0;
+          return (
+            <div
+              key={o.OptionId}
+              onClick={() => {
+                const next = isChecked ? arr.filter((v) => v !== o.Value) : [...arr, o.Value];
+                onChange(next);
+              }}
+              className={`relative rounded-xl border-2 p-3 cursor-pointer transition-all ${
+                isChecked ? "border-[#A48242] bg-[#A48242]/5" : "border-border hover:border-[#A48242]/40"
+              }`}
+            >
+              <div className={`absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                isChecked ? "bg-[#A48242] text-white" : "border-2 border-border"
+              }`}>
+                {isChecked && "✓"}
+              </div>
+              {o.ImageUrl ? (
+                <img src={o.ImageUrl} alt={o.Label} className="w-full h-20 object-contain rounded-lg mb-2 bg-muted" />
+              ) : (
+                <div className="w-full h-20 rounded-lg mb-2 bg-muted/60 flex items-center justify-center">
+                  <ImageIcon size={24} className="text-muted-foreground/40" />
+                </div>
+              )}
+              <p className="text-sm font-medium text-center">{o.Label}</p>
+              {isChecked && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); snapFor(o.Value); }}
+                  className="mt-2 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-muted text-xs text-muted-foreground hover:bg-muted/80 transition-colors"
+                >
+                  <Camera size={12} />
+                  {count > 0 ? `${count} ${count === 1 ? "foto" : "fotos"}` : "Tomar foto"}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

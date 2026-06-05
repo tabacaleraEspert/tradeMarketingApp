@@ -417,7 +417,8 @@ export function UserManagement() {
       {viewMode === "list" && (
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
+          {/* Tabla — solo desktop/tablet (≥md). En mobile se usan cards apiladas. */}
+          <div className="overflow-x-auto hidden md:block">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-border bg-muted">
@@ -481,6 +482,49 @@ export function UserManagement() {
               </tbody>
             </table>
           </div>
+
+          {/* Cards apiladas — solo mobile (<md). Item 4: gestión de usuarios desde el celular. */}
+          <div className="md:hidden divide-y divide-border">
+            {filtered.map((u) => (
+              <div key={u.UserId} className="p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">{u.DisplayName}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
+                      <Mail size={12} /> {u.Email}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">ID: {u.UserId}</p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
+                      <Edit size={16} />
+                    </Button>
+                    {u.UserId !== Number(currentUser.id) && (
+                      <Button variant="ghost" size="sm" onClick={() => setDeleteUser(u)}>
+                        <Trash2 size={16} className="text-red-500" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 mt-2">
+                  {getRoleBadge(u.roleName)}
+                  <span className="text-xs text-muted-foreground">{getZoneName(u.ZoneId)}</span>
+                  {u.ManagerUserId && (
+                    <span className="text-xs text-muted-foreground">
+                      ↳ {users.find((m) => m.UserId === u.ManagerUserId)?.DisplayName ?? `#${u.ManagerUserId}`}
+                    </span>
+                  )}
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">{u.IsActive ? "Activo" : "Inactivo"}</span>
+                    <Switch checked={u.IsActive} onCheckedChange={() => handleToggleActive(u)} />
+                  </div>
+                </div>
+              </div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="py-8 text-center text-muted-foreground">No se encontraron usuarios</div>
+            )}
+          </div>
         </CardContent>
       </Card>
       )}
@@ -541,7 +585,7 @@ export function UserManagement() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Rol</Label>
               <select

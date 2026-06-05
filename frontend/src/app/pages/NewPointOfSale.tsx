@@ -92,7 +92,7 @@ export function NewPointOfSale() {
   const [selectedRouteId, setSelectedRouteId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
   const submittingRef = useRef(false);
-  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: handleTakePhoto, photos, hasPhotos } = usePhotoCapture({ uploadImmediately: false });
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: handleTakePhoto, sourceSheet: photoSourceSheet, photos, hasPhotos } = usePhotoCapture({ uploadImmediately: false });
 
   const userId = Number(currentUser.id) || undefined;
   const { data: myRoutes } = useMyRoutes(userId);
@@ -480,6 +480,7 @@ export function NewPointOfSale() {
         ref={photoInputRef}
         {...photoInputProps}
       />
+      {photoSourceSheet}
 
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">

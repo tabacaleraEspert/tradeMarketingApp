@@ -10,7 +10,7 @@ import { Modal } from "../components/ui/modal";
 import { pdvsApi, visitsApi, incidentsApi, pdvNotesApi, ApiError } from "@/lib/api";
 import { fetchWithCache } from "@/lib/offline";
 import type { Incident, PdvNote } from "@/lib/api";
-import { executeOrEnqueue, markVisitClosedLocally } from "@/lib/offline";
+import { executeOrEnqueue, markVisitClosedLocally, markVisitOpenLocally } from "@/lib/offline";
 import { saveVisitContext } from "@/lib/useVisitAutoSave";
 import { QuickContactsModal } from "../components/QuickContactsModal";
 import { getCurrentUser } from "../lib/auth";
@@ -196,6 +196,14 @@ export function CheckIn() {
           ? "Check-in guardado. Se sincronizará cuando el PDV se cree en el server."
           : "Check-in guardado. Se sincronizará cuando vuelva la conexión.");
       }
+
+      // Reflejar la visita OPEN en los caches locales para que un refetch posterior
+      // (p.ej. al volver al detalle o editar el PDV) no reexponga el botón de
+      // check-in y provoque una segunda visita. Inverso de markVisitClosedLocally.
+      markVisitOpenLocally(visitId, pdvIdNum, Number(currentUser.id), {
+        routeDayId: routeDayId ?? null,
+        pdvName: pdv.Name,
+      });
 
       // GPS check-in (best effort, offline-tolerant)
       if (userCoords) {

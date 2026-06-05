@@ -193,12 +193,14 @@ export function VisitSummaryPage() {
         statusSteps.push({ label: "Acciones de Ejecución", icon: Zap, type: "acciones", status: "pending", detail: "Sin acciones" });
       }
 
-      // Fotos (optional)
-      const photosDone = acts.filter((a: VisitAction) => a.PhotoTaken).length;
+      // Fotos (optional) — contar las fotos reales subidas a la visita (POP, fachada, etc.),
+      // no el flag PhotoTaken de las acciones. Así el paso refleja lo ya capturado y no
+      // vuelve a invitar a sacar fotos al cierre (item 5: "pide la foto dos veces").
+      const photosDone = photos.length;
       statusSteps.push({
         label: "Evidencia Fotográfica", icon: Camera, type: "fotos",
         status: photosDone > 0 ? "completed" : "pending",
-        detail: photosDone > 0 ? `${photosDone} fotos` : "Sin fotos (opcional)",
+        detail: photosDone > 0 ? `${photosDone} ${photosDone === 1 ? "foto" : "fotos"}` : "Sin fotos (opcional)",
       });
 
       // Novedades

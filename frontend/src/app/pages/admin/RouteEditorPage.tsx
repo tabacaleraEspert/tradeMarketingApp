@@ -783,7 +783,10 @@ export function RouteEditorPage() {
         EstimatedMinutes: routeDraft.EstimatedMinutes ?? undefined,
         FrequencyType: routeDraft.FrequencyType ?? null,
         FrequencyConfig: routeDraft.FrequencyConfig ?? null,
-        AssignedUserId: routeDraft.AssignedUserId ?? undefined,
+        // Enviar null (no undefined) para que "Sin asignar" realmente limpie el TM
+        // y dispare el cascadeo a los PDVs de la ruta en el backend (update_route).
+        // Con undefined el campo se omitía del PATCH y no pasaba nada.
+        AssignedUserId: routeDraft.AssignedUserId ?? null,
       });
       setRoute(updated);
       setRouteDraft({

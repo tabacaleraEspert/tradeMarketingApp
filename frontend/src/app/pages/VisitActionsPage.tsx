@@ -79,7 +79,7 @@ export function VisitActionsPage() {
   const [formData, setFormData] = useState<Record<string, unknown>>({});
 
   // Unified photo capture (deferred upload — photos upload when action is saved)
-  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto, photos: formPhotos, removePhoto, clearPhotos, hasPhotos: formHasPhotos } = usePhotoCapture({ uploadImmediately: false });
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto, sourceSheet: photoSourceSheet, photos: formPhotos, removePhoto, clearPhotos, hasPhotos: formHasPhotos } = usePhotoCapture({ uploadImmediately: false });
 
   const loadData = useCallback(async () => {
     if (!id) return;
@@ -617,6 +617,7 @@ export function VisitActionsPage() {
     return (
       <div className="min-h-screen bg-background pb-24">
         <input ref={photoInputRef} {...photoInputProps} />
+        {photoSourceSheet}
         <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <button onClick={resetForm} className="p-2 hover:bg-muted rounded-lg"><ArrowLeft size={24} /></button>
@@ -646,6 +647,7 @@ export function VisitActionsPage() {
   return (
     <div className="min-h-screen bg-background pb-24">
       <input ref={photoInputRef} {...photoInputProps} />
+      {photoSourceSheet}
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">

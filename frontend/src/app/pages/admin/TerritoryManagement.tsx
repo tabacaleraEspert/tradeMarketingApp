@@ -372,7 +372,7 @@ export function TerritoryManagement() {
               </h2>
               <Card>
                 <CardContent className="p-0">
-                  <div className="grid grid-cols-[1fr_80px_80px_80px_80px] gap-2 px-4 py-2.5 border-b border-border bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  <div className="grid grid-cols-[minmax(0,1fr)_52px_60px_44px_56px] sm:grid-cols-[1fr_80px_80px_80px_80px] gap-1.5 sm:gap-2 px-4 py-2.5 border-b border-border bg-muted/40 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
                     <span>Rep</span>
                     <span className="text-center">Visitas</span>
                     <span className="text-center">Compliance</span>
@@ -380,7 +380,7 @@ export function TerritoryManagement() {
                     <span className="text-center">Tiempo</span>
                   </div>
                   {data.reps.map((rep, i) => (
-                    <div key={rep.userId} className={`grid grid-cols-[1fr_80px_80px_80px_80px] gap-2 px-4 py-2.5 items-center ${i < data.reps.length - 1 ? "border-b border-border" : ""}`}>
+                    <div key={rep.userId} className={`grid grid-cols-[minmax(0,1fr)_52px_60px_44px_56px] sm:grid-cols-[1fr_80px_80px_80px_80px] gap-1.5 sm:gap-2 px-4 py-2.5 items-center ${i < data.reps.length - 1 ? "border-b border-border" : ""}`}>
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-foreground truncate">{rep.name}</p>
                         <p className="text-[10px] text-muted-foreground truncate">{rep.routeName || "Sin ruta"}</p>
