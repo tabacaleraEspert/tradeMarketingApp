@@ -253,13 +253,18 @@ def create_visit(
         .first()
     )
     if open_visit:
+        # Idempotencia para el MISMO PDV: si el usuario ya tiene una visita abierta
+        # en este mismo PDV, devolvemos esa en vez de crear una nueva (no 409). Esto
+        # evita visitas duplicadas cuando el front re-dispara el check-in: pérdida del
+        # estado optimista offline, un refetch que reexpone el botón, o un segundo
+        # visit_create encolado offline. El sync worker mapea el tempId a esta visita,
+        # de modo que las ops dependientes (respuestas, cobertura, fotos) caen sobre
+        # la única visita real. La mandatory-actions/RouteDayPdv ya se setearon al
+        # crearla, por eso retornamos temprano sin re-ejecutar ese setup.
+        if open_visit.PdvId == data.PdvId:
+            return open_visit
         open_pdv = db.query(PDVModel).filter(PDVModel.PdvId == open_visit.PdvId).first()
         open_pdv_name = open_pdv.Name if open_pdv else f"PDV #{open_visit.PdvId}"
-        if open_visit.PdvId == data.PdvId:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Ya tenés una visita abierta en {open_pdv_name} (visit_id={open_visit.VisitId})",
-            )
         raise HTTPException(
             status_code=409,
             detail=f"Tenés una visita abierta en {open_pdv_name}. Cerrala antes de hacer check-in.",

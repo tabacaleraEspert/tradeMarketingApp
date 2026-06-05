@@ -23,7 +23,7 @@ class SettingUpdate(BaseModel):
 
 # Default settings
 DEFAULTS = {
-    "competitor_coverage_every_n_visits": ("4", "Cada cuántas visitas es obligatoria la cobertura de competencia"),
+    "competitor_coverage_every_n_visits": ("5", "Cada cuántas visitas es obligatoria la cobertura de competencia"),
 }
 
 

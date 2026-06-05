@@ -147,9 +147,23 @@ class TestCreateVisit:
         resp = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"], status="BOGUS")
         assert resp.status_code == 400
 
-    def test_duplicate_open_visit_rejected(self, client, pdv, vendedor):
+    def test_duplicate_open_visit_same_pdv_is_idempotent(self, client, pdv, vendedor):
+        """Re-crear el check-in en el MISMO PDV con una visita abierta devuelve la
+        misma visita (idempotente) en vez de duplicar. Evita visitas duplicadas
+        cuando el front re-dispara el check-in (pérdida de estado optimista offline
+        o un refetch que reexpone el botón)."""
+        first = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"])
+        assert first.status_code in (200, 201), first.text
+        second = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"])
+        assert second.status_code in (200, 201), second.text
+        assert second.json()["VisitId"] == first.json()["VisitId"]
+
+    def test_open_visit_in_other_pdv_rejected(self, client, channel, pdv, vendedor):
+        """Con una visita abierta, abrir en OTRO PDV se sigue rechazando (409):
+        hay que cerrar la visita en curso antes de hacer check-in en otro lado."""
         _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"])
-        resp = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"])
+        other_pdv = _make_pdv(client, channel["ChannelId"])
+        resp = _make_visit(client, other_pdv["PdvId"], vendedor["user"]["UserId"])
         assert resp.status_code == 409
 
     def test_vendedor_cannot_create_visit_for_other_user(self, client, pdv, vendedor):

@@ -15,10 +15,13 @@ def test_zones_empty(client):
 
 
 def test_pdvs_empty(client):
-    """PDVs endpoint returns list."""
+    """PDVs endpoint returns a paginated envelope (items + total)."""
     resp = client.get("/pdvs")
     assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    body = resp.json()
+    assert isinstance(body, dict)
+    assert isinstance(body.get("items"), list)
+    assert "total" in body
 
 
 def test_routes_empty(client):

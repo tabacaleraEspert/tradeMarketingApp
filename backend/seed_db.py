@@ -440,6 +440,7 @@ def seed_products(db: Session) -> None:
         ("Cigarrillos", "Todo Tabaco", "Golden King Caps", False),
         ("Cigarrillos", "Cigarrillos y Tabacos", "GO", False),
         ("Cigarrillos", "Cigarrillos y Tabacos", "CJ", False),
+        ("Cigarrillos", None, "Hills", False),
         # --- TABACOS ---
         ("Tabacos", "Espert", "Van Kiff", True),
         ("Tabacos", "Espert", "Lebonn", True),

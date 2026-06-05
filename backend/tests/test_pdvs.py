@@ -118,18 +118,22 @@ class TestCreatePdv:
         resp = _make_pdv(client, 999999)
         assert resp.status_code == 400
 
-    def test_duplicate_name_same_zone_rejected(self, client, channel, zone):
+    def test_duplicate_name_same_zone_warns(self, client, channel, zone):
+        # El alta de PDV duplicado (mismo nombre+zona) ya NO bloquea (409): avisa
+        # con _warning y lo crea igual (201), para no frenar al usuario en campo.
         name = f"DupPDV_{_uid()}"
         _make_pdv(client, channel["ChannelId"], name=name, ZoneId=zone["ZoneId"])
         resp = _make_pdv(client, channel["ChannelId"], name=name, ZoneId=zone["ZoneId"])
-        assert resp.status_code == 409
+        assert resp.status_code == 201
+        assert resp.json().get("_warning")
 
-    def test_same_name_different_zone_allowed(self, client, channel, zone):
+    def test_same_name_different_zone_no_warning(self, client, channel, zone):
         zone2 = _make_zone(client)
         name = f"CrossZone_{_uid()}"
         _make_pdv(client, channel["ChannelId"], name=name, ZoneId=zone["ZoneId"])
         resp = _make_pdv(client, channel["ChannelId"], name=name, ZoneId=zone2["ZoneId"])
         assert resp.status_code == 201
+        assert not resp.json().get("_warning")
 
     def test_create_pdv_sets_channel_name(self, client, channel):
         resp = _make_pdv(client, channel["ChannelId"])
