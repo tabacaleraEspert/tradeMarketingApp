@@ -1,4 +1,4 @@
-import { saveTokens, clearTokens, getAccessToken } from "@/lib/api/auth-storage";
+import { saveTokens, clearTokens, getAccessToken, getRefreshToken, getTokenExpiresAt } from "@/lib/api/auth-storage";
 import type { LoginResponse } from "@/lib/api";
 import { clearAllOfflineState } from "@/lib/offline/queue";
 
@@ -85,8 +85,78 @@ export async function refreshUserRole(): Promise<void> {
   } catch { /* silent */ }
 }
 
+// ── Impersonation (admin "ingresar como" usuario) ──
+// Guardamos la sesión admin original para poder volver. No es un secreto
+// compartido: el backend ya validó que quien llamó es admin y lo auditó.
+const IMPERSONATION_ORIGIN_KEY = "espert.impersonation_origin";
+
+interface ImpersonationOrigin {
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: number | null;
+  user: StoredUser | null;
+}
+
+/** Inicia la impersonation: stashea la sesión admin actual y activa la del target. */
+export function startImpersonation(targetLogin: LoginResponse): void {
+  // Evitar anidar impersonations: si ya hay un origin, conservamos el original.
+  if (!localStorage.getItem(IMPERSONATION_ORIGIN_KEY)) {
+    const origin: ImpersonationOrigin = {
+      accessToken: getAccessToken() ?? "",
+      refreshToken: getRefreshToken(),
+      expiresAt: getTokenExpiresAt(),
+      user: getStoredUser(),
+    };
+    localStorage.setItem(IMPERSONATION_ORIGIN_KEY, JSON.stringify(origin));
+  }
+  // persistSession limpia el estado offline porque el user cambia → target arranca limpio.
+  persistSession(targetLogin);
+}
+
+/** Termina la impersonation y restaura la sesión admin original. */
+export function stopImpersonation(): void {
+  const raw = localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+  if (!raw) return;
+  // El estado offline pertenece al usuario impersonado; no debe mezclarse con el admin.
+  clearAllOfflineState().catch(() => { /* no bloquear el retorno */ });
+  try {
+    const origin = JSON.parse(raw) as ImpersonationOrigin;
+    const remainingMs = origin.expiresAt ? origin.expiresAt - Date.now() : 0;
+    saveTokens({
+      accessToken: origin.accessToken,
+      refreshToken: origin.refreshToken ?? "",
+      // Si el access admin ya venció, el client lo refresca con el refresh token (7 días).
+      expiresInSeconds: Math.max(1, Math.floor(remainingMs / 1000)),
+    });
+    if (origin.user) {
+      localStorage.setItem(USER_KEY, JSON.stringify(origin.user));
+      localStorage.setItem("isAuthenticated", "true");
+    }
+  } finally {
+    localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
+  }
+}
+
+/** True si hay una sesión admin stasheada (estamos impersonando a alguien). */
+export function isImpersonating(): boolean {
+  return !!localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+}
+
+/** Devuelve el admin original (para mostrar "volver a X"), o null. */
+export function getImpersonationOriginUser(): StoredUser | null {
+  try {
+    const raw = localStorage.getItem(IMPERSONATION_ORIGIN_KEY);
+    if (!raw) return null;
+    return (JSON.parse(raw) as ImpersonationOrigin).user;
+  } catch {
+    return null;
+  }
+}
+
 /** Cierra sesión: borra tokens y user. El caller es responsable de redirigir a /login. */
 export function logout(): void {
+  // Si estábamos impersonando, también descartamos la sesión admin stasheada.
+  localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
   clearTokens();
 }
 

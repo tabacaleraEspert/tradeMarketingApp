@@ -22,11 +22,12 @@ import {
   User as UserIcon,
   FolderTree,
   List,
+  LogIn,
 } from "lucide-react";
-import { usersApi, rolesApi, zonesApi } from "@/lib/api";
+import { usersApi, rolesApi, zonesApi, authApi } from "@/lib/api";
 import type { User, Role, Zone } from "@/lib/api";
 import { toast } from "sonner";
-import { getCurrentUser } from "../../lib/auth";
+import { getCurrentUser, startImpersonation } from "../../lib/auth";
 
 interface UserWithRole extends User {
   roleId?: number | null;
@@ -133,6 +134,28 @@ export function UserManagement() {
   };
 
   const currentUser = getCurrentUser();
+  // Solo admin puede impersonar (el backend lo exige igual). No te impersonás a vos mismo.
+  const canImpersonate = currentUser.role === "admin";
+
+  const handleImpersonate = async (u: UserWithRole) => {
+    if (u.UserId === Number(currentUser.id)) return;
+    if (!u.IsActive) {
+      toast.error("El usuario está inactivo");
+      return;
+    }
+    if (!window.confirm(`¿Ingresar como "${u.DisplayName}"? Vas a ver la app tal como la ve este usuario. Podés volver a tu cuenta desde la barra superior.`)) {
+      return;
+    }
+    try {
+      const resp = await authApi.impersonate(u.UserId);
+      startImpersonation(resp);
+      toast.success(`Ingresando como ${u.DisplayName}`);
+      // Reload completo al inicio del usuario para resetear el estado en memoria.
+      window.location.href = "/";
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo ingresar como el usuario");
+    }
+  };
 
   const handleSave = async () => {
     if (!form.Email || !form.DisplayName) {
@@ -460,6 +483,16 @@ export function UserManagement() {
                     </td>
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-1">
+                        {canImpersonate && u.UserId !== Number(currentUser.id) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="Ingresar como este usuario"
+                            onClick={() => handleImpersonate(u)}
+                          >
+                            <LogIn size={16} className="text-[#A48242]" />
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                           <Edit size={16} />
                         </Button>
@@ -496,6 +529,16 @@ export function UserManagement() {
                     <p className="text-[11px] text-muted-foreground mt-0.5">ID: {u.UserId}</p>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {canImpersonate && u.UserId !== Number(currentUser.id) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Ingresar como este usuario"
+                        onClick={() => handleImpersonate(u)}
+                      >
+                        <LogIn size={16} className="text-[#A48242]" />
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                       <Edit size={16} />
                     </Button>

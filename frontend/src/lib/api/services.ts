@@ -46,6 +46,9 @@ export const authApi = {
   me: () => api.get<MeResponse>("/auth/me"),
   changePassword: (current_password: string, new_password: string) =>
     api.post<{ ok: boolean }>("/auth/change-password", { current_password, new_password }),
+  /** Admin-only: obtiene una sesión como otro usuario (impersonation). */
+  impersonate: (userId: number) =>
+    api.post<LoginResponse>(`/auth/impersonate/${userId}`, {}),
 };
 
 // --- Visit Photos ---

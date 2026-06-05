@@ -315,3 +315,67 @@ class TestRequireRole:
         login = _login(client, "can_access@test.com", "Pass123!").json()
         resp = client.get("/zones", headers=_auth_header(login["access_token"]))
         assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Impersonation ("ingresar como" — admin-only)
+# ---------------------------------------------------------------------------
+
+class TestImpersonation:
+    def test_admin_can_impersonate_user(self, client, admin_user):
+        target = _make_user(client, email="imp_target@test.com", password="Pass123!")
+        resp = client.post(f"/auth/impersonate/{target['UserId']}")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # La respuesta es la sesión del target, no del admin
+        assert data["UserId"] == target["UserId"]
+        assert data["Email"] == "imp_target@test.com"
+        assert data["Role"] == "vendedor"
+        assert "access_token" in data and "refresh_token" in data
+
+    def test_impersonation_token_resolves_to_target(self, client):
+        target = _make_user(client, email="imp_resolve@test.com", password="Pass123!")
+        data = client.post(f"/auth/impersonate/{target['UserId']}").json()
+        me = client.get("/auth/me", headers=_auth_header(data["access_token"]))
+        assert me.status_code == 200
+        assert me.json()["UserId"] == target["UserId"]
+
+    def test_impersonation_token_carries_imp_by_claim(self, client, admin_user):
+        target = _make_user(client, email="imp_claim@test.com", password="Pass123!")
+        data = client.post(f"/auth/impersonate/{target['UserId']}").json()
+        payload = decode_token(data["access_token"])
+        assert payload["sub"] == str(target["UserId"])
+        assert payload["imp_by"] == admin_user.UserId
+
+    def test_non_admin_cannot_impersonate(self, client):
+        # Un vendedor (rol bajo) no puede impersonar a otro
+        attacker = _make_user(client, email="imp_attacker@test.com", password="Pass123!")
+        victim = _make_user(client, email="imp_victim@test.com", password="Pass123!")
+        login = _login(client, "imp_attacker@test.com", "Pass123!").json()
+        resp = client.post(
+            f"/auth/impersonate/{victim['UserId']}",
+            headers=_auth_header(login["access_token"]),
+        )
+        assert resp.status_code == 403
+
+    def test_impersonate_requires_auth(self, client):
+        target = _make_user(client, email="imp_noauth@test.com", password="Pass123!")
+        resp = client.post(
+            f"/auth/impersonate/{target['UserId']}",
+            headers={"Authorization": ""},
+        )
+        assert resp.status_code == 401
+
+    def test_cannot_impersonate_self(self, client, admin_user):
+        resp = client.post(f"/auth/impersonate/{admin_user.UserId}")
+        assert resp.status_code == 400
+
+    def test_impersonate_unknown_user_404(self, client):
+        resp = client.post("/auth/impersonate/99999999")
+        assert resp.status_code == 404
+
+    def test_cannot_impersonate_inactive_user(self, client):
+        target = _make_user(client, email="imp_inactive@test.com", password="Pass123!")
+        client.patch(f"/users/{target['UserId']}", json={"IsActive": False})
+        resp = client.post(f"/auth/impersonate/{target['UserId']}")
+        assert resp.status_code == 400

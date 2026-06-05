@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useLocation } from "react-router";
 import { Home, MapPin, AlertCircle, RefreshCw, User } from "lucide-react";
 import { useEffect } from "react";
 import { isAuthenticated } from "../lib/auth";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 
 export function Layout() {
   const navigate = useNavigate();
@@ -19,6 +20,7 @@ export function Layout() {
 
   return (
     <div className="flex flex-col h-[100dvh] bg-background pt-[env(safe-area-inset-top)]">
+      <ImpersonationBanner />
       {/* Main Content.
           Nota: `will-change: scroll-position` es un hint seguro al compositor
           para mitigar ghosting de Chromium en Android. NO usamos `isolation:

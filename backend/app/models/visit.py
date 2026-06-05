@@ -38,6 +38,9 @@ class VisitCheck(Base):
     AccuracyMeters = Column(Numeric(8, 2), nullable=True)
     DistanceToPdvM = Column(Numeric(8, 2), nullable=True)
     DeviceId = Column(Integer, ForeignKey("Device.DeviceId"), nullable=True, index=True)
+    # % de batería del dispositivo al momento del check (0-100). Nullable: iOS no
+    # expone la Battery API en el navegador, así que puede venir vacío.
+    BatteryPct = Column(Integer, nullable=True)
 
 
 class VisitAnswer(Base):

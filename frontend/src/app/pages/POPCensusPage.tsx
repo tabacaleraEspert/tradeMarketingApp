@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
-import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitStep, useAutoSaveDraft, getDraft } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { usePhotoSource } from "@/lib/photoSource";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
@@ -98,6 +98,21 @@ export function POPCensusPage() {
           });
         }
       }
+      // Overlay any unsaved local draft (e.g. user marked materials then
+      // navigated away with the back arrow / step indicator without pressing
+      // "Continuar"). The draft is at least as fresh as the backend data.
+      const draft = getDraft<POPRow[]>(visitId, "pop");
+      if (draft) {
+        const draftMap = new Map(draft.map((d) => [d.MaterialName, d]));
+        for (const r of allRows) {
+          const d = draftMap.get(r.MaterialName);
+          if (d) {
+            r.Companies = d.Companies ?? r.Companies;
+            r.Present = d.Present ?? r.Present;
+            r.HasPrice = d.HasPrice ?? r.HasPrice;
+          }
+        }
+      }
       setRows(allRows);
 
       // Load existing photos (grouped by PhotoType)
@@ -117,12 +132,18 @@ export function POPCensusPage() {
     });
   }, [visitId]);
 
+  // Persist every change to a local draft so nothing is lost when the user
+  // leaves this step by ANY route (back arrow, step indicator, hardware back,
+  // refresh). Gated on `!loading` so the empty initial state can't clobber it.
+  useAutoSaveDraft(visitId, "pop", rows, !loading);
+
   const updateRow = (idx: number, field: keyof POPRow, value: string | boolean | null | string[]) => {
     setRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
   };
 
-  const handleSave = async () => {
-    if (!visitId) return;
+  // Persist marks to the backend (offline-tolerant). Returns true on success.
+  const persist = async (silent = false): Promise<boolean> => {
+    if (!visitId) return false;
     setSaving(true);
     try {
       const items = rows
@@ -143,13 +164,24 @@ export function POPCensusPage() {
         label: "Censo POP",
         _tempVisitId: isTempVisit ? visitId : undefined,
       });
-      toast.success("Censo POP guardado");
+      if (!silent) toast.success("Censo POP guardado");
+      return true;
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Error al guardar");
+      if (!silent) toast.error(err instanceof ApiError ? err.message : "Error al guardar");
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    await persist();
     navigate(`/pos/${id}/suppliers`, { state: { routeDayId, visitId } });
+  };
+
+  const handleBack = async () => {
+    await persist(true);
+    navigate(`/pos/${id}/coverage`, { state: { routeDayId, visitId } });
   };
 
   const handlePopPhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -364,7 +396,7 @@ export function POPCensusPage() {
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/pos/${id}/coverage`, { state: { routeDayId, visitId } })}
+            onClick={handleBack}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />

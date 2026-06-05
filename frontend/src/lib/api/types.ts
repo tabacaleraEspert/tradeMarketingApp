@@ -2,6 +2,15 @@
  * Tipos que coinciden con los schemas del backend (PascalCase)
  */
 
+/** Envelope estándar para endpoints paginados. Ver docs/pagination-and-search-plan.md */
+export interface Page<T> {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
 export interface Zone {
   ZoneId: number;
   Name: string;

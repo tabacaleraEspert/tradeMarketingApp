@@ -89,32 +89,40 @@ export function useAutoSaveDraft<T>(
   visitId: number | null | undefined,
   step: string,
   data: T,
+  enabled = true,
 ) {
   const dataRef = useRef(data);
   dataRef.current = data;
 
-  // Debounced save on change
+  // Debounced save on change. `enabled` lets callers gate writes until the
+  // backend load has finished, so the empty initial state never clobbers a
+  // previously saved draft.
   useEffect(() => {
-    if (!visitId) return;
+    if (!visitId || !enabled) return;
     const timer = setTimeout(() => {
       try {
         localStorage.setItem(draftKey(visitId, step), JSON.stringify(dataRef.current));
       } catch {}
     }, 800);
     return () => clearTimeout(timer);
-  }, [visitId, step, data]);
+  }, [visitId, step, data, enabled]);
 
-  // Immediate save on beforeunload
+  // Immediate save on beforeunload + on unmount. The debounced timer above is
+  // cleared when the component unmounts (SPA navigation), so without this flush
+  // the last change made within the debounce window would be lost.
   useEffect(() => {
-    if (!visitId) return;
-    const handler = () => {
+    if (!visitId || !enabled) return;
+    const flush = () => {
       try {
         localStorage.setItem(draftKey(visitId, step), JSON.stringify(dataRef.current));
       } catch {}
     };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [visitId, step]);
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      flush();
+    };
+  }, [visitId, step, enabled]);
 }
 
 export function getDraft<T>(visitId: number, step: string): T | null {

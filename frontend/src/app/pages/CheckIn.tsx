@@ -207,6 +207,16 @@ export function CheckIn() {
 
       // GPS check-in (best effort, offline-tolerant)
       if (userCoords) {
+        // % de batería del dispositivo (Battery API). Solo disponible en Chrome/
+        // Android; en iOS/desktop no existe y queda sin dato.
+        let batteryPct: number | undefined;
+        try {
+          const navAny = navigator as unknown as { getBattery?: () => Promise<{ level: number }> };
+          if (navAny.getBattery) {
+            const b = await navAny.getBattery();
+            if (typeof b?.level === "number") batteryPct = Math.round(b.level * 100);
+          }
+        } catch { /* sin Battery API */ }
         try {
           await executeOrEnqueue({
             kind: "visit_check",
@@ -217,6 +227,7 @@ export function CheckIn() {
               Lat: userCoords.lat,
               Lon: userCoords.lon,
               DistanceToPdvM: distanceMeters ?? undefined,
+              BatteryPct: batteryPct,
             },
             label: `Check-in GPS en ${pdv.Name}`,
             _tempVisitId: visitId < 0 ? visitId : undefined,

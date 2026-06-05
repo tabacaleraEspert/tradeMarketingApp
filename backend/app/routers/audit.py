@@ -78,6 +78,24 @@ def user_timeline(
                 "pdvName": pdv_name,
             })
 
+    # --- 1b. Altas de PDV (proxy: AssignedUserId queda seteado al creador en el alta) ---
+    pq = db.query(PDVModel).filter(PDVModel.AssignedUserId == user_id)
+    if dt_from:
+        pq = pq.filter(PDVModel.CreatedAt >= dt_from)
+    if dt_to:
+        pq = pq.filter(PDVModel.CreatedAt <= dt_to)
+    for p in pq.order_by(PDVModel.CreatedAt.desc()).limit(limit).all():
+        bits = [b for b in (getattr(p, "Channel", None), p.Address) if b]
+        events.append({
+            "ts": p.CreatedAt.isoformat() if p.CreatedAt else None,
+            "type": "pdv_created",
+            "icon": "🆕",
+            "title": f"Alta de PDV — {p.Name}",
+            "detail": " · ".join(bits) or "Nuevo punto de venta",
+            "pdvId": p.PdvId,
+            "pdvName": p.Name,
+        })
+
     if not visit_ids:
         events.sort(key=lambda e: e["ts"] or "", reverse=True)
         return {"user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email}, "events": events}
@@ -91,7 +109,7 @@ def user_timeline(
             "type": f"check_{c.CheckType.lower()}",
             "icon": "📍" if c.CheckType == "IN" else "🚶",
             "title": f"Check-{c.CheckType} — {visit_pdv.get(c.VisitId, '')}",
-            "detail": f"GPS: {c.Lat}, {c.Lon}" + (f" · Precisión: {c.AccuracyMeters}m" if c.AccuracyMeters else "") + (f" · Distancia PDV: {c.DistanceToPdvM}m" if c.DistanceToPdvM else ""),
+            "detail": f"GPS: {c.Lat}, {c.Lon}" + (f" · Precisión: {c.AccuracyMeters}m" if c.AccuracyMeters else "") + (f" · Distancia PDV: {c.DistanceToPdvM}m" if c.DistanceToPdvM else "") + (f" · 🔋 {c.BatteryPct}%" if getattr(c, "BatteryPct", None) is not None else ""),
             "visitId": c.VisitId,
         })
 

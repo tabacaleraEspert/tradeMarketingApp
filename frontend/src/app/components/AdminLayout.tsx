@@ -23,6 +23,7 @@ import {
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { authApi, type MeResponse } from "../../lib/api/services";
+import { ImpersonationBanner } from "./ImpersonationBanner";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -98,6 +99,7 @@ export function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ImpersonationBanner />
       {/* Top Header */}
       <header className="bg-card border-b border-border sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
         <div className="flex items-center justify-between px-4 h-14">

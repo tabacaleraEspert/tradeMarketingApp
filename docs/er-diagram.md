@@ -213,6 +213,37 @@ erDiagram
     }
 
     %% ═══════════════════════════════════════
+    %% PROVEEDORES (CENSO POR PDV)
+    %% ═══════════════════════════════════════
+
+    SupplierType {
+        int SupplierTypeId PK
+        string Name
+        bool IsActive
+        datetime CreatedAt
+    }
+
+    SupplierProductType {
+        int SupplierProductTypeId PK
+        string Name
+        bool IsActive
+        datetime CreatedAt
+    }
+
+    PdvSupplier {
+        int PdvSupplierId PK
+        int PdvId FK
+        int ZoneId FK
+        int SupplierTypeId FK
+        string Name
+        string Phone
+        string Products
+        bool IsActive
+        datetime CreatedAt
+        datetime UpdatedAt
+    }
+
+    %% ═══════════════════════════════════════
     %% ARCHIVOS
     %% ═══════════════════════════════════════
 
@@ -476,6 +507,9 @@ erDiagram
     PDV ||--o{ PdvProductCategory : "categorías"
     PDV ||--o{ PdvAssignment : "asignado a"
     PDV ||--o{ PdvKpiSnapshot : "KPIs"
+    PDV ||--o{ PdvSupplier : "proveedores"
+    SupplierType ||--o{ PdvSupplier : "tipo"
+    Zone ||--o{ PdvSupplier : "zona"
     File ||--o{ PdvPhoto : "archivo"
     User ||--o{ PdvAssignment : "asignado"
 
@@ -528,10 +562,13 @@ erDiagram
 | Usuarios y roles | User, Role, UserRole, Zone, Device, DeviceState, SyncLog, Notification, UserVacation, Holiday, AppSetting |
 | Canales y productos | Channel, SubChannel, Product, Distributor |
 | Puntos de venta | PDV, PdvDistributor, PdvContact, PdvNote, PdvPhoto, PdvProductCategory, PdvAssignment, PdvKpiSnapshot |
+| Proveedores | SupplierType, SupplierProductType, PdvSupplier |
 | Archivos | File |
 | Formularios | Form, FormQuestion, FormOption |
 | Rutas y planificacion | Route, RouteForm, RoutePdv, RouteDay, RouteDayPdv, MandatoryActivity |
 | Visitas | Visit, VisitCheck, VisitAnswer, VisitPhoto, VisitAction, VisitCoverage, VisitPOPItem, VisitLooseSurvey, VisitFormTime, MarketNews, Incident |
 | Auditoria | AuditEvent |
 
-**Total: 46 tablas**
+**Total: 48 tablas**
+
+> Actualizado 2026-06-02: agregado el módulo Proveedores (SupplierType, SupplierProductType, PdvSupplier).

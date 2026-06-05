@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from .database import engine, Base, get_db
 from .models import User as UserModel, UserRole, Role, Zone
 from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities, pdv_notes, files, holidays, user_vacations, route_generator, products, pdv_product_categories, visit_coverage, visit_pop, visit_loose, visit_indicators, app_settings, audit, supplier_types, supplier_product_types, pdv_suppliers, dashboard
-from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role
+from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role, require_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
 from .observability import init_sentry, init_app_insights
@@ -217,6 +217,79 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     access = create_access_token(subject=user.UserId, role=role_name)
     return RefreshResponse(
         access_token=access,
+        expires_in=settings.jwt_expire_minutes * 60,
+    )
+
+
+@app.post("/auth/impersonate/{target_user_id}", response_model=LoginResponse, tags=["Auth"])
+def impersonate(
+    target_user_id: int,
+    current_user: UserModel = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    """Emite una sesión como otro usuario (impersonation), SOLO para admins.
+
+    Diferencia clave con una "contraseña maestra": no hay secreto compartido que
+    se pueda filtrar. Se usa el permiso admin real del solicitante, queda
+    auditado quién impersonó a quién, y el access token lleva el claim `imp_by`
+    con el id del admin. El frontend guarda la sesión admin original para volver.
+    """
+    if target_user_id == current_user.UserId:
+        raise HTTPException(status_code=400, detail="No podés ingresar como vos mismo")
+
+    target = db.query(UserModel).filter(UserModel.UserId == target_user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if not target.IsActive:
+        raise HTTPException(status_code=400, detail="El usuario está inactivo")
+
+    role_name = get_user_role(db, target.UserId)
+    zone_name = None
+    if target.ZoneId:
+        z = db.query(Zone).filter(Zone.ZoneId == target.ZoneId).first()
+        if z:
+            zone_name = z.Name
+
+    # Token de la sesión impersonada. Lleva `imp_by` para trazabilidad server-side.
+    access = create_access_token(
+        subject=target.UserId,
+        role=role_name,
+        extra={"imp_by": current_user.UserId},
+    )
+    refresh = create_refresh_token(subject=target.UserId)
+
+    # Auditoría — best-effort: nunca debe bloquear la operación.
+    try:
+        import json
+        from .models.audit import AuditEvent
+        db.add(AuditEvent(
+            UserId=current_user.UserId,
+            Entity="User",
+            EntityId=str(target.UserId),
+            Action="IMPERSONATE",
+            PayloadJson=json.dumps({
+                "admin_id": current_user.UserId,
+                "admin_email": current_user.Email,
+                "target_id": target.UserId,
+                "target_email": target.Email,
+            }, ensure_ascii=False),
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return LoginResponse(
+        UserId=target.UserId,
+        Email=target.Email,
+        DisplayName=target.DisplayName,
+        ZoneId=target.ZoneId,
+        ZoneName=zone_name,
+        ManagerUserId=getattr(target, "ManagerUserId", None),
+        Role=role_name,
+        IsActive=target.IsActive,
+        MustChangePassword=False,  # no forzar cambio de pass durante impersonation
+        access_token=access,
+        refresh_token=refresh,
         expires_in=settings.jwt_expire_minutes * 60,
     )
 

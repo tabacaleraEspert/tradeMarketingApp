@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
-import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { useVisitStep, useAutoSaveDraft, getDraft } from "@/lib/useVisitAutoSave";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { productsApi, visitCoverageApi, pdvProductCategoriesApi, ApiError } from "@/lib/api";
 import type { Product, CoverageDiff } from "@/lib/api/types";
@@ -237,7 +237,6 @@ export function CoverageFormPage() {
         // Default: No Trabaja
         catStatus[cat] = false;
       }
-      setCategoryStatus(catStatus);
       setProducts(prods);
       setDiffs(diffData);
 
@@ -275,6 +274,24 @@ export function CoverageFormPage() {
           };
         }
       }
+      // Overlay any unsaved local draft so marks/prices/categories aren't lost
+      // when the user leaves this step without pressing "Continuar" (back arrow,
+      // step indicator, hardware back, refresh). Draft is the freshest source.
+      const draft = getDraft<{
+        rows?: Record<number, CoverageRow>;
+        categoryStatus?: Record<string, boolean>;
+        otherProducts?: Record<string, { name: string; price: string }[]>;
+      }>(visitId, "coverage");
+      if (draft?.rows) {
+        for (const k of Object.keys(draft.rows)) {
+          const pid = Number(k);
+          if (initial[pid]) initial[pid] = draft.rows[pid];
+        }
+      }
+      if (draft?.categoryStatus) Object.assign(catStatus, draft.categoryStatus);
+      if (draft?.otherProducts) setOtherProducts(draft.otherProducts);
+
+      setCategoryStatus(catStatus);
       setRows(initial);
       setLoading(false);
     }).catch(() => {
@@ -320,8 +337,13 @@ export function CoverageFormPage() {
 
   const getDiff = (pid: number) => diffs.find((d) => d.ProductId === pid);
 
-  const handleSave = async () => {
-    if (!visitId) return;
+  // Persist every change to a local draft so nothing is lost when the user
+  // leaves this step by ANY route (back arrow, step indicator, hardware back,
+  // refresh). Gated on `!loading` so the empty initial state can't clobber it.
+  useAutoSaveDraft(visitId, "coverage", { rows, categoryStatus, otherProducts }, !loading);
+
+  const persist = async (silent = false): Promise<boolean> => {
+    if (!visitId) return false;
     setSaving(true);
     try {
       // Save ALL products that have any data (Works=true, or previously worked, or category is active)
@@ -391,13 +413,24 @@ export function CoverageFormPage() {
           _tempPdvId: Number(id) < 0 ? Number(id) : undefined,
         }).catch(() => {}) : Promise.resolve(),
       ]);
-      toast.success("Cobertura guardada");
+      if (!silent) toast.success("Cobertura guardada");
+      return true;
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Error al guardar");
+      if (!silent) toast.error(err instanceof ApiError ? err.message : "Error al guardar");
+      return false;
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSave = async () => {
+    await persist();
     navigate(`/pos/${id}/pop`, { state: { routeDayId, visitId } });
+  };
+
+  const handleBack = async () => {
+    await persist(true);
+    navigate(`/pos/${id}/survey`, { state: { routeDayId, visitId } });
   };
 
   const workedCount = Object.values(rows).filter((r) => r.Works).length;
@@ -420,7 +453,7 @@ export function CoverageFormPage() {
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/pos/${id}/survey`, { state: { routeDayId, visitId } })}
+            onClick={handleBack}
             className="p-2 hover:bg-muted rounded-lg transition-colors"
           >
             <ArrowLeft size={24} />

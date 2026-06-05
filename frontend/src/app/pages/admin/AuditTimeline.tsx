@@ -32,6 +32,7 @@ interface UserOption {
 }
 
 const TYPE_COLORS: Record<string, string> = {
+  pdv_created: "bg-emerald-600",
   visit_open: "bg-blue-500",
   visit_close: "bg-green-500",
   check_in: "bg-indigo-500",
@@ -47,6 +48,7 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
+  pdv_created: "Alta PDV",
   visit_open: "Visita",
   visit_close: "Cierre",
   check_in: "Check-in",
@@ -138,9 +140,11 @@ export function AuditTimeline() {
       if (!groups[dateKey]) groups[dateKey] = [];
       groups[dateKey].push(ev);
     }
-    // Sort events within each group by timestamp descending
+    // Orden cronológico ASCENDENTE dentro de cada día (mañana → noche), para
+    // leer la jornada del rep en secuencia. Los días se listan del más reciente
+    // al más viejo.
     for (const evs of Object.values(groups)) {
-      evs.sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+      evs.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
     }
     return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
   }, [filteredEvents]);

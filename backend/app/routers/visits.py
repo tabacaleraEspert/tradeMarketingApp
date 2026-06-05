@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from ..auth import get_current_user, get_user_role
+from ..auth import get_current_user, get_user_role, require_role
+from ..utils.pagination import PageParams, paginate, make_page
 from ..database import get_db
 from ..models import Visit as VisitModel, User as UserModel
 from ..models.visit import VisitAnswer as VisitAnswerModel, VisitCheck as VisitCheckModel
@@ -108,6 +110,19 @@ def list_visits(
         enriched_q = enriched_q.filter(VisitModel.RouteDayId == route_day_id)
     if status is not None:
         enriched_q = enriched_q.filter(VisitModel.Status == status)
+    if date_from:
+        from datetime import datetime as _dt
+        try:
+            enriched_q = enriched_q.filter(VisitModel.OpenedAt >= _dt.fromisoformat(date_from))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_from inválido: {date_from}")
+    if date_to:
+        from datetime import datetime as _dt2, timedelta as _td
+        try:
+            end = _dt2.fromisoformat(date_to) + _td(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_to inválido: {date_to}")
+        enriched_q = enriched_q.filter(VisitModel.OpenedAt < end)
     rows = enriched_q.order_by(VisitModel.OpenedAt.desc()).offset(skip).limit(limit).all()
 
     result = []
@@ -124,6 +139,86 @@ def list_visits(
         }
         result.append(d)
     return result
+
+
+@router.get("/admin-list", dependencies=[Depends(require_role("admin"))])
+def admin_list_visits(
+    p: PageParams = Depends(),
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    user_id: int | None = None,
+    pdv_id: int | None = None,
+    db: Session = Depends(get_db),
+):
+    """Paginated visits list for /admin/visit-data.
+
+    Returns Page envelope. Search ``q`` matches PDV name, PDV address, and TM Rep
+    display name (case-insensitive ILIKE).
+    """
+    from sqlalchemy.orm import aliased
+    UserAlias = aliased(UserModel)
+
+    q = (
+        db.query(
+            VisitModel,
+            PDVModel.Name.label("PdvName"),
+            PDVModel.Address.label("PdvAddress"),
+            UserAlias.DisplayName.label("UserName"),
+        )
+        .outerjoin(PDVModel, VisitModel.PdvId == PDVModel.PdvId)
+        .outerjoin(UserAlias, VisitModel.UserId == UserAlias.UserId)
+    )
+
+    if user_id is not None:
+        q = q.filter(VisitModel.UserId == user_id)
+    if pdv_id is not None:
+        q = q.filter(VisitModel.PdvId == pdv_id)
+    if status:
+        q = q.filter(VisitModel.Status == status)
+    if date_from:
+        try:
+            q = q.filter(VisitModel.OpenedAt >= datetime.fromisoformat(date_from))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_from inválido: {date_from}")
+    if date_to:
+        from datetime import timedelta as _td
+        try:
+            end = datetime.fromisoformat(date_to) + _td(days=1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"date_to inválido: {date_to}")
+        q = q.filter(VisitModel.OpenedAt < end)
+
+    if p.q:
+        like = f"%{p.q}%"
+        q = q.filter(or_(
+            PDVModel.Name.ilike(like),
+            PDVModel.Address.ilike(like),
+            UserAlias.DisplayName.ilike(like),
+        ))
+
+    q = q.order_by(VisitModel.OpenedAt.desc())
+
+    total = q.count()
+    rows = q.offset(p.skip).limit(p.page_size).all()
+
+    items = [
+        {
+            "VisitId": v.VisitId,
+            "PdvId": v.PdvId,
+            "UserId": v.UserId,
+            "RouteDayId": v.RouteDayId,
+            "Status": v.Status,
+            "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
+            "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
+            "CloseReason": v.CloseReason,
+            "PdvName": pdv_name or f"PDV #{v.PdvId}",
+            "PdvAddress": pdv_address,
+            "UserName": user_name or f"Usuario #{v.UserId}",
+        }
+        for v, pdv_name, pdv_address, user_name in rows
+    ]
+    return make_page(items, total, p)
 
 
 @router.get("/{visit_id}", response_model=Visit)
@@ -739,7 +834,7 @@ def create_visit_check(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Payload: { CheckType: 'IN'|'OUT', Lat, Lon, AccuracyMeters?, DistanceToPdvM? }"""
+    """Payload: { CheckType: 'IN'|'OUT', Lat, Lon, AccuracyMeters?, DistanceToPdvM?, BatteryPct? }"""
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
@@ -767,6 +862,14 @@ def create_visit_check(
     if lon is not None and (lon < -180 or lon > 180):
         raise HTTPException(status_code=400, detail="Longitud fuera de rango (-180 a 180)")
 
+    # % de batería (opcional). Lo clampeamos a 0-100 y descartamos basura.
+    battery_pct = data.get("BatteryPct")
+    if battery_pct is not None:
+        try:
+            battery_pct = max(0, min(100, int(round(float(battery_pct)))))
+        except (TypeError, ValueError):
+            battery_pct = None
+
     row = VisitCheckModel(
         VisitId=visit_id,
         CheckType=check_type,
@@ -775,6 +878,7 @@ def create_visit_check(
         Lon=lon,
         AccuracyMeters=data.get("AccuracyMeters"),
         DistanceToPdvM=data.get("DistanceToPdvM"),
+        BatteryPct=battery_pct,
     )
     db.add(row)
     db.commit()
