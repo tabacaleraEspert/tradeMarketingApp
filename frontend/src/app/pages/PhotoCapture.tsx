@@ -9,6 +9,7 @@ import { pdvsApi, visitsApi, visitPhotosApi, ApiError } from "@/lib/api";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
+import { usePhotoSource } from "@/lib/photoSource";
 import { toast } from "sonner";
 
 // Extiende VisitPhotoRead con campos opcionales para fotos pendientes de sync (offline)
@@ -21,14 +22,16 @@ interface CategoryDef {
   id: string;
   label: string;
   required: boolean;
+  hint: string;
 }
 
+// Todas las fotos de la visita son opcionales (la fachada se captura en el alta del PDV).
 const CATEGORIES: CategoryDef[] = [
-  { id: "storefront", label: "Frente del Local", required: true },
-  { id: "shelf", label: "Góndola/Exhibición", required: true },
-  { id: "pop", label: "Material POP", required: false },
-  { id: "price", label: "Precio", required: false },
-  { id: "other", label: "Otra", required: false },
+  { id: "storefront", label: "Frente del Local", required: false, hint: "Mostrá la fachada con el cartel y la entrada del local." },
+  { id: "shelf", label: "Góndola/Exhibición", required: false, hint: "Capturá la góndola o exhibidor donde se ven los productos." },
+  { id: "pop", label: "Material POP", required: false, hint: "Sacale foto al material POP colocado (afiche, exhibidor, cartelería)." },
+  { id: "price", label: "Precio", required: false, hint: "Foto donde se vea el precio exhibido del producto." },
+  { id: "other", label: "Otra", required: false, hint: "Cualquier otra evidencia relevante de la visita." },
 ];
 
 export function PhotoCapture() {
@@ -47,6 +50,7 @@ export function PhotoCapture() {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { openSheet, sheet: photoSourceSheet } = usePhotoSource(fileInputRef);
 
   // Cargar PDV + resolver VisitId
   useEffect(() => {
@@ -76,7 +80,7 @@ export function PhotoCapture() {
       toast.error("No hay una visita abierta. Hacé check-in primero.");
       return;
     }
-    fileInputRef.current?.click();
+    openSheet();
   };
 
   // Obtener GPS actual (best-effort, no bloqueante)
@@ -214,7 +218,7 @@ export function PhotoCapture() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Input file oculto — dispara la cámara nativa en mobile */}
+      {/* Input file oculto — el origen (cámara/galería) lo decide el selector */}
       <input
         ref={fileInputRef}
         type="file"
@@ -222,6 +226,7 @@ export function PhotoCapture() {
         className="hidden"
         onChange={handleFileSelected}
       />
+      {photoSourceSheet}
 
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
@@ -240,10 +245,11 @@ export function PhotoCapture() {
 
         <div className="flex items-center justify-between text-sm">
           <span className="text-muted-foreground">
-            {photos.length} fotos · {coveredRequired}/{requiredCount} categorías obligatorias
+            {photos.length} {photos.length === 1 ? "foto" : "fotos"}
+            {requiredCount > 0 && ` · ${coveredRequired}/${requiredCount} obligatorias`}
           </span>
-          <Badge variant={coveredRequired >= requiredCount ? "secondary" : "destructive"}>
-            {coveredRequired >= requiredCount ? "Completo" : "Incompleto"}
+          <Badge variant="secondary">
+            {requiredCount === 0 ? "Opcional" : coveredRequired >= requiredCount ? "Completo" : "Incompleto"}
           </Badge>
         </div>
       </div>
@@ -315,6 +321,11 @@ export function PhotoCapture() {
             : `Tomar Foto - ${CATEGORIES.find((c) => c.id === selectedCategory)?.label}`}
         </Button>
 
+        {/* Qué se está pidiendo en esta categoría */}
+        <p className="text-xs text-muted-foreground text-center -mt-1 px-2">
+          {CATEGORIES.find((c) => c.id === selectedCategory)?.hint}
+        </p>
+
         {/* Photo Gallery */}
         {photos.length > 0 && (
           <Card>
@@ -381,7 +392,7 @@ export function PhotoCapture() {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-espert-gold font-bold">•</span>
-                <span>Las fotos obligatorias son necesarias para completar la visita</span>
+                <span>Las fotos son opcionales, pero ayudan a documentar la visita</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-espert-gold font-bold">•</span>
@@ -397,7 +408,7 @@ export function PhotoCapture() {
         <Button
           className="w-full h-12 text-base font-semibold"
           onClick={handleFinish}
-          disabled={coveredRequired < requiredCount || uploading}
+          disabled={uploading}
         >
           Continuar a Resumen
         </Button>

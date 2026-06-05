@@ -16,6 +16,7 @@ import {
 import { toast } from "sonner";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
+import { usePhotoSource } from "@/lib/photoSource";
 import { executeOrEnqueue } from "@/lib/offline";
 import { marketNewsApi, visitPhotosApi, ApiError } from "@/lib/api";
 import type { MarketNews } from "@/lib/api/types";
@@ -53,6 +54,7 @@ export function MarketNewsStepPage() {
   const [saving, setSaving] = useState(false);
   const [activePhotoIdx, setActivePhotoIdx] = useState<number | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const { openSheet: openNewsPhotoSheet, sheet: newsPhotoSheet } = usePhotoSource(photoInputRef);
 
   useEffect(() => {
     if (!visitId) { setLoading(false); return; }
@@ -261,7 +263,7 @@ export function MarketNewsStepPage() {
 
   return (
     <div className="min-h-screen bg-background pb-28">
-      {/* Hidden photo input */}
+      {/* Hidden photo input — el origen (cámara/galería) lo decide el selector */}
       <input
         ref={photoInputRef}
         type="file"
@@ -269,6 +271,7 @@ export function MarketNewsStepPage() {
         className="hidden"
         onChange={handlePhoto}
       />
+      {newsPhotoSheet}
 
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
@@ -364,13 +367,16 @@ export function MarketNewsStepPage() {
                     <Camera size={10} /> Fotos
                   </p>
                   <button
-                    onClick={() => { setActivePhotoIdx(idx); photoInputRef.current?.click(); }}
+                    onClick={() => { setActivePhotoIdx(idx); openNewsPhotoSheet(); }}
                     className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-border text-[10px] text-muted-foreground hover:bg-muted transition-colors"
                   >
                     <Camera size={12} />
                     Agregar foto
                   </button>
                 </div>
+                <p className="text-[10px] text-muted-foreground mb-1.5">
+                  Capturá el cartel, precio o producto que respalda la novedad que estás reportando.
+                </p>
                 {draft.photos.length > 0 ? (
                   <div className="flex gap-1.5 flex-wrap">
                     {draft.photos.map((photo, pIdx) => (

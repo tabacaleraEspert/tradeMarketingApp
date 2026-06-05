@@ -38,9 +38,9 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
-import { fetchWithCache, executeOrEnqueue } from "@/lib/offline";
+import { fetchWithCache, executeOrEnqueue, queue } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
-import type { PdvPhotoRead, Route } from "@/lib/api";
+import type { PdvPhotoRead, Route, Visit } from "@/lib/api";
 import { formatDateLong, formatDateCompact, formatTime24, todayAR } from "../lib/dateUtils";
 import type { PdvNote } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
@@ -75,7 +75,7 @@ export function PointOfSaleDetail() {
     if (data?.FileId) setPdvPhotos((prev) => [...prev, data]);
   }, []);
   const [expandedContactIdx, setExpandedContactIdx] = useState<number | null>(null);
-  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: takePdvPhoto } = usePhotoCapture({
+  const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: takePdvPhoto, sourceSheet: pdvPhotoSheet } = usePhotoCapture({
     uploadUrl: id ? `/files/photos/pdv/${id}` : undefined,
     photoType: "fachada",
     label: "Foto PDV",
@@ -208,7 +208,48 @@ export function PointOfSaleDetail() {
       fetchWithCache(`pdv_photos_${pdvId}`, () => pdvPhotosApi.list(pdvId)).catch(() => [] as PdvPhotoRead[]),
     ]).then(async ([p, v, n, photos]) => {
       setPos(p);
-      setVisits(v);
+
+      // Item 2 — preservar la visita en curso aún no sincronizada para no reexponer
+      // el botón de check-in (lo que llevaba a iniciar una segunda visita al editar
+      // el PDV). fetchWithCache es network-first y pisa el cache al éxito, así que
+      // usamos la COLA como fuente de verdad: si el server no devuelve ninguna visita
+      // OPEN pero hay un visit_create encolado para este PDV+usuario, sintetizamos la
+      // visita OPEN. Cuando el create sincroniza (sale de la cola), el server ya la
+      // devuelve y este merge deja de aplicar — sin riesgo de duplicar en la UI.
+      let mergedVisits = v;
+      try {
+        const hasOpenInServer = v.some((x) => x.Status === "OPEN" || x.Status === "IN_PROGRESS");
+        if (!hasOpenInServer) {
+          const pending = await queue.list();
+          const pendingCreate = pending.find(
+            (op) =>
+              op.kind === "visit_create" &&
+              !!op.body &&
+              (op.body as { PdvId?: number }).PdvId === pdvId &&
+              Number((op.body as { UserId?: number }).UserId) === Number(currentUser.id)
+          );
+          if (pendingCreate) {
+            const tempOpen: Visit = {
+              VisitId: pendingCreate._tempVisitId ?? -1,
+              PdvId: pdvId,
+              UserId: Number(currentUser.id),
+              RouteDayId: (pendingCreate.body as { RouteDayId?: number | null }).RouteDayId ?? null,
+              Status: "OPEN",
+              FormId: null,
+              FormVersion: null,
+              FormStatus: "PENDING",
+              MaterialExternalId: null,
+              CloseReason: null,
+              OpenedAt: new Date(pendingCreate.createdAt).toISOString(),
+              ClosedAt: null,
+              SubmittedAt: null,
+            };
+            mergedVisits = [tempOpen, ...v];
+          }
+        }
+      } catch { /* best-effort: si la cola no se puede leer, seguimos con el server */ }
+
+      setVisits(mergedVisits);
       setPdvNotes(n);
       setPdvPhotos(photos);
 
@@ -1132,6 +1173,7 @@ export function PointOfSaleDetail() {
               </h3>
               <div>
                 <input ref={photoInputRef} {...photoInputProps} />
+                {pdvPhotoSheet}
                 <Button
                   variant="outline"
                   size="sm"

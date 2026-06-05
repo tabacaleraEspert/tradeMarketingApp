@@ -17,6 +17,7 @@ import { visitPOPApi, visitPhotosApi, ApiError } from "@/lib/api";
 import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
+import { usePhotoSource } from "@/lib/photoSource";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
 
 const POP_COMPANIES = ["Espert", "Massalin", "BAT", "TABSA", "Otra"];
@@ -73,6 +74,7 @@ export function POPCensusPage() {
   const [popPhotos, setPopPhotos] = useState<Record<string, PhotoEntry[]>>({});
   const [activePhotoKey, setActivePhotoKey] = useState<string | null>(null);
   const popPhotoInputRef = useRef<HTMLInputElement>(null);
+  const { openSheet: openPopPhotoSheet, sheet: popPhotoSheet } = usePhotoSource(popPhotoInputRef);
 
   useEffect(() => {
     if (!visitId) { setLoading(false); return; }
@@ -274,7 +276,8 @@ export function POPCensusPage() {
                         <div className="flex items-center justify-between mb-1.5">
                           <span className="text-[11px] font-semibold text-foreground">{company}</span>
                           <button
-                            onClick={() => { setActivePhotoKey(key); popPhotoInputRef.current?.click(); }}
+                            onClick={() => { setActivePhotoKey(key); openPopPhotoSheet(); }}
+                            aria-label={`Sacar foto del material POP de ${company}`}
                             className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-border text-[10px] text-muted-foreground hover:bg-background transition-colors"
                           >
                             <Camera size={12} />
@@ -347,7 +350,7 @@ export function POPCensusPage() {
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      {/* Hidden photo input — outside form */}
+      {/* Hidden photo input — el origen (cámara/galería) lo decide el selector */}
       <input
         ref={popPhotoInputRef}
         type="file"
@@ -355,6 +358,7 @@ export function POPCensusPage() {
         className="hidden"
         onChange={handlePopPhoto}
       />
+      {popPhotoSheet}
 
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">

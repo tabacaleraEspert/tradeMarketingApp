@@ -31,6 +31,67 @@ interface CachedHomeData {
 }
 
 /**
+ * Marca una visita como OPEN (recién iniciada) en todos los caches relevantes.
+ *
+ * Sin esto, tras un check-in (sobre todo offline/temp) los reads siguen viendo el
+ * estado pre-check-in: PointOfSaleDetail no encuentra `openVisit` → `canCheckIn`
+ * vuelve a `true` → el botón de check-in reaparece y el usuario inicia una SEGUNDA
+ * visita (bug "editar dirección duplica la visita": editar el PDV dispara loadData,
+ * que reexpone el botón). Es el inverso de `markVisitClosedLocally`.
+ *
+ * Caches actualizados (mismo set que el close):
+ *   - visits_pdv_{pdvId}  → usado por PointOfSaleDetail.canCheckIn
+ *   - visits_user_{userId} → usado por el fallback globalOpenVisit
+ *   - dashboard_home_{date} → setea openVisit para la tarjeta "Visita en curso"
+ */
+export function markVisitOpenLocally(
+  visitId: number,
+  pdvId: number,
+  userId: number,
+  opts?: { routeDayId?: number | null; pdvName?: string }
+): void {
+  const now = new Date().toISOString();
+  const openRow: CachedVisit = {
+    VisitId: visitId,
+    PdvId: pdvId,
+    UserId: userId,
+    Status: "OPEN",
+    OpenedAt: now,
+    ClosedAt: null,
+    RouteDayId: opts?.routeDayId ?? null,
+  };
+
+  const upsertOpen = (key: string) => {
+    const list = readCache<CachedVisit[]>(key);
+    if (!list) return; // cache nunca traído → un read posterior tampoco lo tiene
+    const idx = list.findIndex((v) => v.VisitId === visitId);
+    const next = idx >= 0
+      ? list.map((v) => (v.VisitId === visitId ? { ...v, ...openRow } : v))
+      : [openRow, ...list];
+    writeCache(key, next);
+  };
+
+  // 1. visits_pdv_{pdvId}
+  upsertOpen(`visits_pdv_${pdvId}`);
+  // 2. visits_user_{userId}
+  upsertOpen(`visits_user_${userId}`);
+
+  // 3. dashboard_home_{date} — setear openVisit (inverso del clear en close).
+  const homePrefix = `${CACHE_PREFIX}dashboard_home_`;
+  for (const fullKey of Object.keys(localStorage)) {
+    if (!fullKey.startsWith(homePrefix)) continue;
+    const key = fullKey.slice(CACHE_PREFIX.length);
+    const data = readCache<CachedHomeData>(key);
+    if (data && !data.openVisit) {
+      writeCache(key, {
+        ...data,
+        openVisit: { VisitId: visitId, PdvId: pdvId, PdvName: opts?.pdvName, Status: "OPEN" },
+      });
+    }
+  }
+}
+
+/**
  * Marca una visita como CLOSED en todos los caches relevantes.
  *
  * Caches actualizados:

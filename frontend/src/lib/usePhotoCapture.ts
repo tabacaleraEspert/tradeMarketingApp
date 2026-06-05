@@ -12,6 +12,7 @@
 
 import { useRef, useState, useCallback } from "react";
 import { executeOrEnqueue } from "@/lib/offline/execute";
+import { usePhotoSource } from "@/lib/photoSource";
 
 export interface CapturedPhoto {
   url: string;       // ObjectURL for preview
@@ -54,9 +55,9 @@ export function usePhotoCapture(options: UsePhotoCaptureOptions = {}) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [photos, setPhotos] = useState<CapturedPhoto[]>([]);
 
-  const takePhoto = useCallback(() => {
-    inputRef.current?.click();
-  }, []);
+  // Selector Cámara/Galería: takePhoto abre la hoja y el consumidor renderiza `sheet`.
+  const { openSheet, sheet: sourceSheet } = usePhotoSource(inputRef);
+  const takePhoto = openSheet;
 
   const handleInput = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -169,6 +170,8 @@ export function usePhotoCapture(options: UsePhotoCaptureOptions = {}) {
     inputRef,
     inputProps,
     takePhoto,
+    /** Hoja de selección Cámara/Galería. Renderizala una vez junto al input. */
+    sourceSheet,
     photos,
     setPhotos,
     removePhoto,

@@ -35,7 +35,11 @@ const ROLE_LABELS: Record<string, string> = {
 export function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  // En mobile la sidebar arranca cerrada para no tapar el contenido al entrar
+  // (en desktop ≥1024px arranca abierta). Item 4 — admin operable desde el celular.
+  const [isSidebarOpen, setIsSidebarOpen] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true
+  );
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {

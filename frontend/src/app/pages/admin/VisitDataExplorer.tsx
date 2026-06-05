@@ -344,7 +344,7 @@ export function VisitDataExplorer() {
                 {/* Tiempos: apertura → cierre + duración total (cuando hay ambas) */}
                 <p className="text-[11px] text-muted-foreground mt-1">
                   {formatDate(selectedVisit.visit.OpenedAt)}
-                  {selectedVisit.visit.ClosedAt && (
+                  {selectedVisit.visit.ClosedAt ? (
                     <>
                       {" → "}
                       {formatDate(selectedVisit.visit.ClosedAt)}
@@ -354,6 +354,10 @@ export function VisitDataExplorer() {
                         </span>
                       )}
                     </>
+                  ) : (
+                    selectedVisit.visit.OpenedAt && (
+                      <span className="ml-2 font-medium text-amber-600">· En curso</span>
+                    )
                   )}
                 </p>
               </div>
