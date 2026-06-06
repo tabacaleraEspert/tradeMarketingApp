@@ -79,6 +79,27 @@ function formatDate(iso: string) {
   });
 }
 
+function hhmm(iso: string) {
+  return new Date(iso).toLocaleTimeString("es-AR", {
+    hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires",
+  });
+}
+
+// Un día se compone de bloques: una "visita" (colapsable, con sus pasos) o un
+// evento "suelto" (alta de PDV, nota, etc.) que ocurre entre visitas.
+type VisitBlock = {
+  kind: "visit";
+  key: string;
+  visitId: number;
+  pdvName: string;
+  anchorTs: string;
+  openTs: string | null;
+  closeTs: string | null;
+  events: TimelineEvent[];
+};
+type LooseBlock = { kind: "loose"; key: string; anchorTs: string; event: TimelineEvent };
+type DayBlock = VisitBlock | LooseBlock;
+
 export function AuditTimeline() {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -92,6 +113,14 @@ export function AuditTimeline() {
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
   const [searchUser, setSearchUser] = useState("");
+  // Visitas expandidas (key = `${dateKey}-visit-${visitId}`). Arrancan colapsadas.
+  const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
+  const toggleVisit = (key: string) =>
+    setExpandedVisits((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
 
   useEffect(() => {
     usersApi.list().then((u) =>
@@ -131,22 +160,49 @@ export function AuditTimeline() {
     return data.events.filter(e => e.type === filterType);
   }, [data, filterType]);
 
-  // Group events by date
-  const groupedEvents = useMemo(() => {
-    const groups: Record<string, TimelineEvent[]> = {};
+  // Agrupado día → bloques. Dentro de cada día, los eventos con visitId se
+  // juntan en un bloque "visita" (colapsable); los que no tienen visita (alta de
+  // PDV, notas) quedan como bloques sueltos. Todo ordenado cronológicamente
+  // ascendente (mañana → noche); los días, del más reciente al más viejo.
+  const groupedByDay = useMemo(() => {
+    const days: Record<string, TimelineEvent[]> = {};
     for (const ev of filteredEvents) {
-      // Convert to Argentina timezone to group correctly
       const dateKey = ev.ts ? new Date(ev.ts).toLocaleDateString("sv-SE", { timeZone: "America/Argentina/Buenos_Aires" }) : "sin-fecha";
-      if (!groups[dateKey]) groups[dateKey] = [];
-      groups[dateKey].push(ev);
+      (days[dateKey] ||= []).push(ev);
     }
-    // Orden cronológico ASCENDENTE dentro de cada día (mañana → noche), para
-    // leer la jornada del rep en secuencia. Los días se listan del más reciente
-    // al más viejo.
-    for (const evs of Object.values(groups)) {
+    const result: Array<[string, DayBlock[]]> = [];
+    for (const [dateKey, evs] of Object.entries(days)) {
       evs.sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+      const visitMap = new Map<number, TimelineEvent[]>();
+      const blocks: DayBlock[] = [];
+      for (const ev of evs) {
+        if (ev.visitId != null) {
+          if (!visitMap.has(ev.visitId)) visitMap.set(ev.visitId, []);
+          visitMap.get(ev.visitId)!.push(ev);
+        } else {
+          blocks.push({ kind: "loose", key: `${dateKey}-loose-${ev.type}-${ev.ts}-${ev.pdvId ?? ""}`, anchorTs: ev.ts || "", event: ev });
+        }
+      }
+      for (const [visitId, vEvents] of visitMap.entries()) {
+        const open = vEvents.find((e) => e.type === "visit_open");
+        const close = vEvents.find((e) => e.type === "visit_close");
+        const named = vEvents.find((e) => e.pdvName);
+        blocks.push({
+          kind: "visit",
+          key: `${dateKey}-visit-${visitId}`,
+          visitId,
+          pdvName: named?.pdvName || `Visita #${visitId}`,
+          anchorTs: vEvents[0]?.ts || "",
+          openTs: open?.ts || null,
+          closeTs: close?.ts || null,
+          events: vEvents,
+        });
+      }
+      blocks.sort((a, b) => (a.anchorTs || "").localeCompare(b.anchorTs || ""));
+      result.push([dateKey, blocks]);
     }
-    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]));
+    result.sort((a, b) => b[0].localeCompare(a[0]));
+    return result;
   }, [filteredEvents]);
 
   const eventTypes = useMemo(() => {
@@ -154,6 +210,29 @@ export function AuditTimeline() {
     const types = new Set(data.events.map(e => e.type));
     return Array.from(types).sort();
   }, [data]);
+
+  const renderEventRow = (ev: TimelineEvent, key: string) => (
+    <div key={key} className="relative">
+      <div className={`absolute -left-[21px] top-2 w-3 h-3 rounded-full border-2 border-background ${TYPE_COLORS[ev.type] || "bg-gray-400"}`} />
+      <div className="bg-muted rounded-lg p-3">
+        <div className="flex items-start gap-2">
+          <span className="text-base">{ev.icon}</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold truncate">{ev.title}</p>
+              <Badge variant="outline" className={`text-[9px] shrink-0 ${TYPE_COLORS[ev.type] || ""} text-white border-0`}>
+                {TYPE_LABELS[ev.type] || ev.type}
+              </Badge>
+            </div>
+            {ev.detail && <p className="text-xs text-muted-foreground mt-0.5">{ev.detail}</p>}
+          </div>
+          <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
+            {ev.ts ? hhmm(ev.ts) : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-4 pb-8">
@@ -255,46 +334,55 @@ export function AuditTimeline() {
             })}
           </div>
 
-          {/* Timeline */}
-          <div className="space-y-4">
-            {groupedEvents.map(([dateKey, events]) => (
+          {/* Timeline — día → visita (colapsable) → pasos; sueltos intercalados */}
+          <div className="space-y-5">
+            {groupedByDay.map(([dateKey, blocks]) => {
+              const dayCount = blocks.reduce((n, b) => n + (b.kind === "visit" ? b.events.length : 1), 0);
+              return (
               <div key={dateKey}>
                 <div className="flex items-center gap-2 mb-2">
                   <Calendar size={14} className="text-[#A48242]" />
                   <p className="text-xs font-bold text-[#A48242] uppercase">
                     {dateKey !== "sin-fecha" ? formatDate(dateKey) : "Sin fecha"}
                   </p>
-                  <Badge variant="outline" className="text-[10px]">{events.length}</Badge>
+                  <Badge variant="outline" className="text-[10px]">{dayCount}</Badge>
                 </div>
 
                 <div className="relative ml-3 border-l-2 border-border pl-4 space-y-2">
-                  {events.map((ev, i) => (
-                    <div key={`${dateKey}-${i}`} className="relative">
-                      {/* Dot on timeline */}
-                      <div className={`absolute -left-[21px] top-2 w-3 h-3 rounded-full border-2 border-background ${TYPE_COLORS[ev.type] || "bg-gray-400"}`} />
-
-                      <div className="bg-muted rounded-lg p-3">
-                        <div className="flex items-start gap-2">
-                          <span className="text-base">{ev.icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold truncate">{ev.title}</p>
-                              <Badge variant="outline" className={`text-[9px] shrink-0 ${TYPE_COLORS[ev.type] || ""} text-white border-0`}>
-                                {TYPE_LABELS[ev.type] || ev.type}
-                              </Badge>
-                            </div>
-                            {ev.detail && <p className="text-xs text-muted-foreground mt-0.5">{ev.detail}</p>}
+                  {blocks.map((b) => {
+                    if (b.kind === "loose") return renderEventRow(b.event, b.key);
+                    const expanded = expandedVisits.has(b.key);
+                    const openT = b.openTs ? hhmm(b.openTs) : null;
+                    const closeT = b.closeTs ? hhmm(b.closeTs) : null;
+                    return (
+                      <div key={b.key} className="relative">
+                        <div className="absolute -left-[21px] top-3.5 w-3 h-3 rounded-full border-2 border-background bg-blue-500" />
+                        <button
+                          onClick={() => toggleVisit(b.key)}
+                          className="w-full text-left bg-card border border-border rounded-lg p-3 hover:bg-muted/40 transition-colors"
+                        >
+                          <div className="flex items-center gap-2">
+                            <ChevronDown size={16} className={`shrink-0 text-muted-foreground transition-transform ${expanded ? "" : "-rotate-90"}`} />
+                            <MapPin size={14} className="text-[#A48242] shrink-0" />
+                            <span className="text-sm font-semibold truncate flex-1">{b.pdvName}</span>
+                            <Badge variant="outline" className="text-[9px] shrink-0">{b.events.length} pasos</Badge>
+                            <span className="text-[10px] text-muted-foreground shrink-0">
+                              {openT || "?"}{closeT ? ` → ${closeT}` : " · abierta"}
+                            </span>
                           </div>
-                          <span className="text-[10px] text-muted-foreground shrink-0 mt-0.5">
-                            {ev.ts ? new Date(ev.ts).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Argentina/Buenos_Aires" }) : ""}
-                          </span>
-                        </div>
+                        </button>
+                        {expanded && (
+                          <div className="mt-2 ml-2 border-l-2 border-border/60 pl-4 space-y-2">
+                            {b.events.map((ev, i) => renderEventRow(ev, `${b.key}-${i}`))}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {filteredEvents.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
