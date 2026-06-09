@@ -23,9 +23,18 @@ def _validate_password(v: str | None) -> str | None:
     return v
 
 
+def _normalize_dni(v: str | None) -> str | None:
+    """Normaliza el DNI: trim y convierte vacío en None (evita choques con el unique)."""
+    if v is None:
+        return None
+    v = v.strip()
+    return v or None
+
+
 class UserBase(BaseModel):
     Email: str
     DisplayName: str
+    DNI: str | None = None
     ZoneId: int | None = None
     ManagerUserId: int | None = None
     IsActive: bool = True
@@ -53,10 +62,16 @@ class UserCreate(UserBase):
             raise ValueError("El nombre no puede estar vacío")
         return v.strip()
 
+    @field_validator("DNI")
+    @classmethod
+    def _v_dni(cls, v):
+        return _normalize_dni(v)
+
 
 class UserUpdate(BaseModel):
     Email: str | None = None
     DisplayName: str | None = None
+    DNI: str | None = None
     ZoneId: int | None = None
     ManagerUserId: int | None = None
     IsActive: bool | None = None
@@ -73,6 +88,11 @@ class UserUpdate(BaseModel):
     @classmethod
     def _v_password(cls, v):
         return _validate_password(v)
+
+    @field_validator("DNI")
+    @classmethod
+    def _v_dni(cls, v):
+        return _normalize_dni(v)
 
 
 class User(UserBase):

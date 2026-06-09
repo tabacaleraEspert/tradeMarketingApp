@@ -20,6 +20,7 @@ export interface User {
   UserId: number;
   Email: string;
   DisplayName: string;
+  DNI?: string | null;
   ZoneId: number | null;
   ManagerUserId: number | null;
   IsActive: boolean;

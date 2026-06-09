@@ -145,6 +145,7 @@ export const usersApi = {
   create: (data: {
     Email: string;
     DisplayName: string;
+    DNI?: string | null;
     Password?: string;
     ZoneId?: number | null;
     IsActive?: boolean;
@@ -154,6 +155,7 @@ export const usersApi = {
     data: {
       Email?: string;
       DisplayName?: string;
+      DNI?: string | null;
       Password?: string;
       ZoneId?: number | null;
       IsActive?: boolean;

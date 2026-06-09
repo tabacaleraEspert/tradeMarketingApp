@@ -25,10 +25,12 @@ interface TimelineResponse {
   totalEvents: number;
 }
 
-interface UserOption {
+interface ActiveUser {
   UserId: number;
   DisplayName: string;
   Email: string;
+  count: number;
+  lastTs: string | null;
 }
 
 const TYPE_COLORS: Record<string, string> = {
@@ -101,18 +103,15 @@ type LooseBlock = { kind: "loose"; key: string; anchorTs: string; event: Timelin
 type DayBlock = VisitBlock | LooseBlock;
 
 export function AuditTimeline() {
-  const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
-  const [dateFrom, setDateFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
-  });
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().split("T")[0]);
   const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [activeUsers, setActiveUsers] = useState<ActiveUser[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [searched, setSearched] = useState(false);
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [filterType, setFilterType] = useState<string>("all");
-  const [searchUser, setSearchUser] = useState("");
   // Visitas expandidas (key = `${dateKey}-visit-${visitId}`). Arrancan colapsadas.
   const [expandedVisits, setExpandedVisits] = useState<Set<string>>(new Set());
   const toggleVisit = (key: string) =>
@@ -122,27 +121,32 @@ export function AuditTimeline() {
       return next;
     });
 
-  useEffect(() => {
-    usersApi.list().then((u) =>
-      setUsers(u.map((x: any) => ({ UserId: x.UserId, DisplayName: x.DisplayName, Email: x.Email })))
-    ).catch(() => {});
-  }, []);
-
-  const filteredUsers = useMemo(() => {
-    if (!searchUser) return users;
-    const q = searchUser.toLowerCase();
-    return users.filter(u => u.DisplayName.toLowerCase().includes(q) || u.Email.toLowerCase().includes(q));
-  }, [users, searchUser]);
-
-  const loadTimeline = async () => {
-    if (!selectedUserId) {
-      toast.error("Seleccioná un usuario");
-      return;
+  // Paso 1: buscar los trades que tuvieron movimiento en el rango elegido.
+  const loadActiveUsers = async () => {
+    setLoadingUsers(true);
+    setData(null);
+    setSelectedUserId(null);
+    try {
+      const res = await api.get<{ users: ActiveUser[] }>("/audit/active-users", {
+        date_from: dateFrom + "T00:00:00-03:00",
+        date_to: dateTo + "T23:59:59-03:00",
+      });
+      setActiveUsers(res.users);
+      setSearched(true);
+    } catch (e: any) {
+      toast.error(e?.message || "Error al buscar trades");
+    } finally {
+      setLoadingUsers(false);
     }
+  };
+
+  // Paso 2: al clicar un trade, traer su timeline del rango (igual que antes).
+  const loadTimeline = async (userId: number) => {
+    setSelectedUserId(userId);
     setLoading(true);
     try {
       const result = await api.get<TimelineResponse>("/audit/user-timeline", {
-        user_id: selectedUserId,
+        user_id: userId,
         date_from: dateFrom + "T00:00:00-03:00",
         date_to: dateTo + "T23:59:59-03:00",
       });
@@ -238,41 +242,12 @@ export function AuditTimeline() {
     <div className="space-y-4 pb-8">
       <div>
         <h1 className="text-xl font-bold">Auditoría de Usuario</h1>
-        <p className="text-sm text-muted-foreground">Timeline completo de actividad por vendedor</p>
+        <p className="text-sm text-muted-foreground">Elegí el rango y mirá qué trades se movieron</p>
       </div>
 
-      {/* Filters */}
+      {/* Paso 1: rango de fechas */}
       <Card>
         <CardContent className="p-4 space-y-3">
-          {/* User select */}
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground mb-1">Usuario</p>
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={searchUser}
-                onChange={(e) => setSearchUser(e.target.value)}
-                placeholder="Buscar usuario..."
-                className="pl-8 h-9 text-sm"
-              />
-            </div>
-            {(searchUser || !selectedUserId) && filteredUsers.length > 0 && (
-              <div className="mt-1 max-h-40 overflow-y-auto border border-border rounded-lg bg-background">
-                {filteredUsers.slice(0, 10).map(u => (
-                  <button
-                    key={u.UserId}
-                    onClick={() => { setSelectedUserId(u.UserId); setSearchUser(u.DisplayName); }}
-                    className={`w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors ${selectedUserId === u.UserId ? "bg-[#A48242]/10 font-semibold" : ""}`}
-                  >
-                    <span className="font-medium">{u.DisplayName}</span>
-                    <span className="text-muted-foreground ml-2 text-xs">{u.Email}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Date range */}
           <div className="flex gap-2">
             <div className="flex-1">
               <p className="text-xs font-semibold text-muted-foreground mb-1">Desde</p>
@@ -283,16 +258,69 @@ export function AuditTimeline() {
               <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-9 text-sm" />
             </div>
           </div>
-
-          <Button onClick={loadTimeline} disabled={loading || !selectedUserId} className="w-full h-9 bg-[#A48242] hover:bg-[#8a6d35]">
-            {loading ? "Cargando..." : "Ver timeline"}
+          <Button onClick={loadActiveUsers} disabled={loadingUsers} className="w-full h-9 bg-[#A48242] hover:bg-[#8a6d35]">
+            {loadingUsers ? "Buscando..." : "Ver trades con movimiento"}
           </Button>
         </CardContent>
       </Card>
 
+      {/* Paso 2: lista de trades con movimiento (cuando no hay timeline abierto) */}
+      {!data && searched && (
+        <div className="space-y-2">
+          {activeUsers.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <User size={40} className="mx-auto mb-2 opacity-50" />
+              <p className="font-medium">Sin movimiento</p>
+              <p className="text-sm">Ningún trade registró actividad en el rango seleccionado</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-muted-foreground px-1">
+                {activeUsers.length} trade{activeUsers.length === 1 ? "" : "s"} con movimiento
+              </p>
+              {activeUsers.map((u) => (
+                <button
+                  key={u.UserId}
+                  onClick={() => loadTimeline(u.UserId)}
+                  disabled={loading}
+                  className="w-full text-left"
+                >
+                  <Card className="hover:bg-muted/40 transition-colors">
+                    <CardContent className="p-3 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-[#A48242] flex items-center justify-center text-white font-bold text-lg shrink-0">
+                        {u.DisplayName.charAt(0)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold truncate">{u.DisplayName}</p>
+                        <p className="text-xs text-muted-foreground truncate">{u.Email}</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-lg font-bold text-[#A48242]">{u.count}</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {u.lastTs ? formatTs(u.lastTs) : "movs"}
+                        </p>
+                      </div>
+                      <ChevronDown size={16} className="-rotate-90 text-muted-foreground shrink-0" />
+                    </CardContent>
+                  </Card>
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {/* Results */}
       {data && (
         <>
+          {/* Volver a la lista de trades */}
+          <button
+            onClick={() => { setData(null); setSelectedUserId(null); }}
+            className="text-sm text-[#A48242] font-semibold flex items-center gap-1 hover:underline"
+          >
+            <ChevronDown size={16} className="rotate-90" /> Volver a trades
+          </button>
+
           {/* User info + stats */}
           <Card>
             <CardContent className="p-4">

@@ -61,6 +61,7 @@ export function UserManagement() {
   const [form, setForm] = useState({
     Email: "",
     DisplayName: "",
+    DNI: "",
     Password: "",
     ZoneId: "" as number | "",
     RoleId: "" as number | "",
@@ -108,7 +109,7 @@ export function UserManagement() {
   });
 
   const resetForm = () => {
-    setForm({ Email: "", DisplayName: "", Password: "", ZoneId: "", RoleId: "", ManagerUserId: "", IsActive: true });
+    setForm({ Email: "", DisplayName: "", DNI: "", Password: "", ZoneId: "", RoleId: "", ManagerUserId: "", IsActive: true });
     setEditingUser(null);
     setShowPassword(false);
   };
@@ -123,6 +124,7 @@ export function UserManagement() {
     setForm({
       Email: u.Email,
       DisplayName: u.DisplayName,
+      DNI: u.DNI ?? "",
       Password: "",
       ZoneId: u.ZoneId ?? "",
       RoleId: u.roleId ?? "",
@@ -173,6 +175,7 @@ export function UserManagement() {
         const updateData: Record<string, unknown> = {
           Email: form.Email,
           DisplayName: form.DisplayName,
+          DNI: form.DNI.trim() || null,
           ZoneId: form.ZoneId || null,
           ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
@@ -190,6 +193,7 @@ export function UserManagement() {
         const createData: Record<string, unknown> = {
           Email: form.Email,
           DisplayName: form.DisplayName,
+          DNI: form.DNI.trim() || null,
           ZoneId: form.ZoneId || null,
           ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
@@ -606,6 +610,16 @@ export function UserManagement() {
               placeholder="carlos@empresa.com"
               value={form.Email}
               onChange={(e) => setForm((f) => ({ ...f, Email: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>DNI</Label>
+            <Input
+              inputMode="numeric"
+              placeholder="Ej: 30123456"
+              value={form.DNI}
+              onChange={(e) => setForm((f) => ({ ...f, DNI: e.target.value }))}
             />
           </div>
 

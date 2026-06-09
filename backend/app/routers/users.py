@@ -40,6 +40,7 @@ def _attach_role(user: UserModel, db: Session) -> User:
         "UserId": user.UserId,
         "Email": user.Email,
         "DisplayName": user.DisplayName,
+        "DNI": getattr(user, "DNI", None),
         "ZoneId": user.ZoneId,
         "ManagerUserId": getattr(user, "ManagerUserId", None),
         "IsActive": user.IsActive,
@@ -186,12 +187,19 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
         if not manager:
             raise HTTPException(status_code=400, detail="ManagerUserId no existe")
 
+    # Validar DNI único (si se pasa)
+    if data.DNI:
+        clash = db.query(UserModel).filter(UserModel.DNI == data.DNI).first()
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Ya existe un usuario con el DNI '{data.DNI}'")
+
     password_hash = None
     if data.Password:
         password_hash = hash_password(data.Password)
     user = UserModel(
         Email=data.Email,
         DisplayName=data.DisplayName,
+        DNI=data.DNI,
         ZoneId=data.ZoneId,
         ManagerUserId=data.ManagerUserId,
         MustChangePassword=data.MustChangePassword,
@@ -224,6 +232,16 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
         ).first()
         if clash:
             raise HTTPException(status_code=409, detail=f"Ya existe otro usuario con el email '{new_email}'")
+
+    # Validar DNI único si se está cambiando
+    new_dni = dump.get("DNI")
+    if new_dni and new_dni != getattr(user, "DNI", None):
+        clash = db.query(UserModel).filter(
+            UserModel.DNI == new_dni,
+            UserModel.UserId != user_id,
+        ).first()
+        if clash:
+            raise HTTPException(status_code=409, detail=f"Ya existe otro usuario con el DNI '{new_dni}'")
 
     # Validar manager: existe + no es self + no genera ciclo
     new_manager = dump.get("ManagerUserId")

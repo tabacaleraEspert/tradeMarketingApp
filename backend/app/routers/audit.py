@@ -1,6 +1,7 @@
 """Audit endpoints — user activity timeline aggregated from all tables."""
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from ..auth import get_current_user, require_role
 from ..database import get_db
@@ -17,6 +18,95 @@ from ..models.file import File as FileModel
 from ..models.product import Product as ProductModel
 
 router = APIRouter(prefix="/audit", tags=["Auditoría"])
+
+
+@router.get("/active-users")
+def active_users(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """Lista de trades que tuvieron movimiento en el rango (visitas, altas de PDV,
+    incidentes o notas), con cantidad de movimientos y última actividad. Pensado
+    como paso 1: elegir el rango y ver quiénes se movieron, antes de abrir el
+    timeline de un trade puntual."""
+    dt_from = datetime.fromisoformat(date_from) if date_from else None
+    dt_to = datetime.fromisoformat(date_to) if date_to else None
+
+    # acc[user_id] = {"count": n, "last": datetime|None}
+    acc: dict[int, dict] = {}
+
+    def add(uid, count, last_ts):
+        if uid is None:
+            return
+        slot = acc.setdefault(uid, {"count": 0, "last": None})
+        slot["count"] += int(count or 0)
+        if last_ts and (slot["last"] is None or last_ts > slot["last"]):
+            slot["last"] = last_ts
+
+    # Visitas
+    vq = db.query(
+        VisitModel.UserId, func.count(VisitModel.VisitId), func.max(VisitModel.OpenedAt)
+    )
+    if dt_from:
+        vq = vq.filter(VisitModel.OpenedAt >= dt_from)
+    if dt_to:
+        vq = vq.filter(VisitModel.OpenedAt <= dt_to)
+    for uid, cnt, last in vq.group_by(VisitModel.UserId).all():
+        add(uid, cnt, last)
+
+    # Altas de PDV (proxy: AssignedUserId = creador en el alta)
+    pq = db.query(
+        PDVModel.AssignedUserId, func.count(PDVModel.PdvId), func.max(PDVModel.CreatedAt)
+    )
+    if dt_from:
+        pq = pq.filter(PDVModel.CreatedAt >= dt_from)
+    if dt_to:
+        pq = pq.filter(PDVModel.CreatedAt <= dt_to)
+    for uid, cnt, last in pq.group_by(PDVModel.AssignedUserId).all():
+        add(uid, cnt, last)
+
+    # Incidentes
+    iq = db.query(
+        IncidentModel.CreatedBy, func.count(IncidentModel.CreatedBy), func.max(IncidentModel.CreatedAt)
+    )
+    if dt_from:
+        iq = iq.filter(IncidentModel.CreatedAt >= dt_from)
+    if dt_to:
+        iq = iq.filter(IncidentModel.CreatedAt <= dt_to)
+    for uid, cnt, last in iq.group_by(IncidentModel.CreatedBy).all():
+        add(uid, cnt, last)
+
+    # Notas de PDV
+    nq = db.query(
+        NoteModel.CreatedByUserId, func.count(NoteModel.CreatedByUserId), func.max(NoteModel.CreatedAt)
+    )
+    if dt_from:
+        nq = nq.filter(NoteModel.CreatedAt >= dt_from)
+    if dt_to:
+        nq = nq.filter(NoteModel.CreatedAt <= dt_to)
+    for uid, cnt, last in nq.group_by(NoteModel.CreatedByUserId).all():
+        add(uid, cnt, last)
+
+    user_ids = list(acc.keys())
+    users = (
+        db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()
+        if user_ids else []
+    )
+    result = []
+    for u in users:
+        slot = acc[u.UserId]
+        result.append({
+            "UserId": u.UserId,
+            "DisplayName": u.DisplayName,
+            "Email": u.Email,
+            "count": slot["count"],
+            "lastTs": slot["last"].isoformat() if slot["last"] else None,
+        })
+    # Más movimiento primero
+    result.sort(key=lambda r: (r["count"], r["lastTs"] or ""), reverse=True)
+
+    return {"users": result, "total": len(result)}
 
 
 @router.get("/user-timeline")
