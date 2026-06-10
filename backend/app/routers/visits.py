@@ -231,10 +231,13 @@ def get_visit(visit_id: int, db: Session = Depends(get_db)):
 
 @router.get("/{visit_id}/full")
 def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
-    """Full visit detail: visit + PDV + user + answers + coverage + POP + market news + photos."""
+    """Full visit detail: visit + PDV + user + answers + coverage + POP + market news + photos + suppliers."""
+    import json as _json
     from ..models.market_news import MarketNews as MNModel
     from ..models.visit import VisitPhoto as VPModel
     from ..models.file import File as FileModel
+    from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
+    from ..models.supplier_type import SupplierType as SupplierTypeModel
     from ..storage import storage
 
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
@@ -298,6 +301,32 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
         url = storage.get_url(f.BlobKey) if f.BlobKey else (f.Url or "")
         photos.append({"FileId": f.FileId, "PhotoType": vp.PhotoType, "url": url, "Notes": vp.Notes})
 
+    # Proveedores del PDV (dato del PDV: persiste entre visitas, no es de la visita)
+    sup_rows = (
+        db.query(PdvSupplierModel)
+        .filter(PdvSupplierModel.PdvId == v.PdvId, PdvSupplierModel.IsActive == True)
+        .order_by(PdvSupplierModel.Name)
+        .all()
+    )
+    st_ids = {s.SupplierTypeId for s in sup_rows if s.SupplierTypeId}
+    st_map = (
+        {t.SupplierTypeId: t.Name for t in db.query(SupplierTypeModel).filter(SupplierTypeModel.SupplierTypeId.in_(st_ids)).all()}
+        if st_ids else {}
+    )
+    suppliers = []
+    for s in sup_rows:
+        try:
+            prods = _json.loads(s.Products) if s.Products else []
+        except (ValueError, TypeError):
+            prods = []
+        suppliers.append({
+            "PdvSupplierId": s.PdvSupplierId,
+            "Name": s.Name,
+            "Phone": s.Phone,
+            "SupplierType": st_map.get(s.SupplierTypeId),
+            "Products": prods,
+        })
+
     return {
         "visit": {
             "VisitId": v.VisitId, "PdvId": v.PdvId, "UserId": v.UserId,
@@ -312,6 +341,7 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
         "pop": pop,
         "marketNews": news,
         "photos": photos,
+        "suppliers": suppliers,
     }
 
 

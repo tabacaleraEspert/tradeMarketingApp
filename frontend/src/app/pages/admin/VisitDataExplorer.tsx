@@ -7,7 +7,7 @@ import { Modal } from "../../components/ui/modal";
 import {
   Search, MapPin, User, Clock, ChevronRight, FileText,
   Package, Megaphone, Newspaper, Camera, CheckCircle2,
-  XCircle, AlertCircle, Filter, Download, Eye,
+  XCircle, AlertCircle, Filter, Download, Eye, Truck, Phone,
 } from "lucide-react";
 import { visitsApi, formsApi } from "@/lib/api";
 import { API_BASE_URL } from "@/lib/api/config";
@@ -37,6 +37,7 @@ interface VisitFull {
   pop: Array<{ MaterialType: string; MaterialName: string; Company: string | null; Present: boolean; HasPrice: boolean | null }>;
   marketNews: Array<{ MarketNewsId: number; Tags: string | null; Notes: string; CreatedAt: string | null }>;
   photos: Array<{ FileId: number; PhotoType: string; url: string; Notes: string | null }>;
+  suppliers: Array<{ PdvSupplierId: number; Name: string; Phone: string; SupplierType: string | null; Products: string[] }>;
 }
 
 async function fetchVisitsFull(params: Record<string, string | number>): Promise<EnrichedVisit[]> {
@@ -112,7 +113,7 @@ export function VisitDataExplorer() {
   // Detail modal
   const [selectedVisit, setSelectedVisit] = useState<VisitFull | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [detailTab, setDetailTab] = useState<"forms" | "coverage" | "pop" | "news" | "photos">("forms");
+  const [detailTab, setDetailTab] = useState<"forms" | "coverage" | "pop" | "suppliers" | "news" | "photos">("forms");
 
   const loadVisits = useCallback(async () => {
     setLoading(true);
@@ -183,6 +184,15 @@ export function VisitDataExplorer() {
         data: sv.pop.map((p) => ({
           Tipo: p.MaterialType, Material: p.MaterialName, Empresa: p.Company || "",
           Presente: p.Present ? "Si" : "No", Precio: p.HasPrice === true ? "Con precio" : p.HasPrice === false ? "Sin precio" : "",
+        })),
+      });
+    }
+    if ((sv.suppliers || []).length) {
+      sheets.push({
+        name: "Proveedores",
+        data: sv.suppliers.map((s) => ({
+          Proveedor: s.Name, Telefono: s.Phone, Tipo: s.SupplierType || "",
+          Productos: s.Products.join(", "),
         })),
       });
     }
@@ -377,6 +387,7 @@ export function VisitDataExplorer() {
                 { key: "forms", label: "Formularios", icon: FileText, count: selectedVisit.answers.length },
                 { key: "coverage", label: "Cobertura", icon: Package, count: selectedVisit.coverage.filter((c) => c.Works).length },
                 { key: "pop", label: "POP", icon: Megaphone, count: selectedVisit.pop.filter((p) => p.Present).length },
+                { key: "suppliers", label: "Proveedores", icon: Truck, count: (selectedVisit.suppliers || []).length },
                 { key: "news", label: "Novedades", icon: Newspaper, count: selectedVisit.marketNews.length },
                 { key: "photos", label: "Fotos", icon: Camera, count: selectedVisit.photos.length },
               ].map((tab) => {
@@ -477,6 +488,40 @@ export function VisitDataExplorer() {
                             </Badge>
                           )}
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              )}
+
+              {/* SUPPLIERS (dato del PDV: persiste entre visitas) */}
+              {detailTab === "suppliers" && (
+                (selectedVisit.suppliers || []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-8 text-center">Sin proveedores registrados en este PDV</p>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[10px] text-muted-foreground">
+                      Proveedores registrados en el PDV (se actualizan en el censo, persisten entre visitas)
+                    </p>
+                    {selectedVisit.suppliers.map((s) => (
+                      <div key={s.PdvSupplierId} className="p-3 bg-muted/50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-foreground">{s.Name}</p>
+                          {s.SupplierType && (
+                            <Badge variant="outline" className="text-[9px] shrink-0">{s.SupplierType}</Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Phone size={11} className="text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">{s.Phone}</span>
+                        </div>
+                        {s.Products.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {s.Products.map((p) => (
+                              <Badge key={p} variant="secondary" className="text-[9px]">{p}</Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
