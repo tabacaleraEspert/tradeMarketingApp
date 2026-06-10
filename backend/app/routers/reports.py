@@ -1117,7 +1117,8 @@ def supplier_analytics(db: Session = Depends(get_db)):
     zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
 
     total = len(suppliers)
-    pdv_ids = set(s.PdvId for s in suppliers)
+    # PdvId NULL = entrada de catálogo de zona, no cuenta como PDV censado
+    pdv_ids = set(s.PdvId for s in suppliers if s.PdvId is not None)
     total_pdvs = len(pdv_ids)
 
     # By type
@@ -1146,9 +1147,11 @@ def supplier_analytics(db: Session = Depends(get_db)):
     # Top suppliers (most PDVs)
     supplier_pdv_count: dict[str, set] = {}
     for s in suppliers:
-        key = s.Phone  # phone as unique identifier
+        # phone as unique identifier; sin teléfono, el nombre evita mezclar proveedores
+        key = s.Phone or f"name:{s.Name.strip().lower()}"
         supplier_pdv_count.setdefault(key, {"name": s.Name, "phone": s.Phone, "pdvs": set(), "type": types.get(s.SupplierTypeId, "-")})
-        supplier_pdv_count[key]["pdvs"].add(s.PdvId)
+        if s.PdvId is not None:
+            supplier_pdv_count[key]["pdvs"].add(s.PdvId)
 
     top_suppliers = sorted(
         [{"name": v["name"], "phone": v["phone"], "type": v["type"], "pdvCount": len(v["pdvs"])} for v in supplier_pdv_count.values()],

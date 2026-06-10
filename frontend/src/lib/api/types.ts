@@ -453,7 +453,7 @@ export interface SupplierProductType {
 
 export interface PdvSupplier {
   PdvSupplierId: number;
-  PdvId: number;
+  PdvId: number | null; // null = catálogo de zona (no atado a un PDV)
   ZoneId: number | null;
   Name: string;
   Phone: string;

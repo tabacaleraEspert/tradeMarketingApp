@@ -513,7 +513,7 @@ export function VisitDataExplorer() {
                         </div>
                         <div className="flex items-center gap-1.5 mt-1">
                           <Phone size={11} className="text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">{s.Phone}</span>
+                          <span className="text-xs text-muted-foreground">{s.Phone || "Sin teléfono"}</span>
                         </div>
                         {s.Products.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">

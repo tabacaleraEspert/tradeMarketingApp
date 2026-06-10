@@ -6,13 +6,15 @@ from ..database import Base
 class PdvSupplier(Base):
     """Proveedores registrados en cada PDV. Persiste entre visitas (dato del PDV, no de la visita).
 
-    Phone es la clave lógica para identificar al proveedor.
+    Phone es la clave lógica para identificar al proveedor (puede quedar vacío
+    hasta que alguien lo consiga). PdvId NULL = entrada de catálogo de zona:
+    proveedor cargado a mano para que los reps lo seleccionen en el censo.
     Products es un JSON array con los nombres de categoría: '["Cigarrillos","Golosinas"]'
     """
     __tablename__ = "PdvSupplier"
 
     PdvSupplierId = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=False, index=True)
+    PdvId = Column(Integer, ForeignKey("PDV.PdvId", ondelete="CASCADE"), nullable=True, index=True)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True, index=True)
     Name = Column(String(120), nullable=False)
     Phone = Column(String(40), nullable=False)

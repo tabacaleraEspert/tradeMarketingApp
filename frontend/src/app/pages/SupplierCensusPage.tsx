@@ -119,8 +119,8 @@ export function SupplierCensusPage() {
   };
 
   const handleSave = async () => {
-    if (!form.Name.trim() || !form.Phone.trim()) {
-      toast.error("Nombre y teléfono son obligatorios");
+    if (!form.Name.trim()) {
+      toast.error("El nombre es obligatorio");
       return;
     }
     setSaving(true);
@@ -227,7 +227,7 @@ export function SupplierCensusPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-bold text-foreground truncate">{s.Name}</p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                            <Phone size={10} /> {s.Phone}
+                            <Phone size={10} /> {s.Phone || <span className="italic">Sin teléfono</span>}
                           </p>
                           <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
                             <User size={10} /> {getTypeName(s.SupplierTypeId)}
@@ -290,7 +290,9 @@ export function SupplierCensusPage() {
                       {showZoneList && (
                         <div className="mt-1 max-h-40 overflow-y-auto border border-border rounded-lg divide-y divide-border bg-background">
                           {zoneSuppliers
-                            .filter((s) => !suppliers.some((ex) => ex.Phone === s.Phone))
+                            .filter((s) => !suppliers.some((ex) =>
+                              s.Phone ? ex.Phone === s.Phone : ex.Name.trim().toLowerCase() === s.Name.trim().toLowerCase()
+                            ))
                             .map((s) => (
                             <button
                               key={s.PdvSupplierId}
@@ -302,7 +304,7 @@ export function SupplierCensusPage() {
                               className="w-full text-left px-3 py-2 hover:bg-muted/50 text-sm"
                             >
                               <span className="font-medium">{s.Name}</span>
-                              <span className="text-muted-foreground ml-2 text-xs">{s.Phone}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">{s.Phone || "sin teléfono"}</span>
                             </button>
                           ))}
                         </div>
@@ -321,7 +323,7 @@ export function SupplierCensusPage() {
                     <input
                       type="tel"
                       inputMode="numeric"
-                      placeholder="Teléfono *"
+                      placeholder="Teléfono (si no lo tenés, dejalo vacío)"
                       value={form.Phone}
                       onChange={(e) => setForm({ ...form, Phone: e.target.value })}
                       className="w-full h-10 px-3 border border-border rounded-lg text-sm bg-background"
