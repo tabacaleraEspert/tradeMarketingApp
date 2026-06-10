@@ -305,7 +305,10 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
         SubChannelId=data.SubChannelId,
         Address=data.Address,
         City=data.City,
-        ZoneId=data.ZoneId,
+        # Fallback a la zona del creador: las sesiones viejas del frontend no
+        # mandaban ZoneId y los PDVs quedaban sin zona (invisibles en listados
+        # filtrados por zona).
+        ZoneId=data.ZoneId if data.ZoneId is not None else current_user.ZoneId,
         DistributorId=legacy_dist_id,
         Lat=data.Lat,
         Lon=data.Lon,

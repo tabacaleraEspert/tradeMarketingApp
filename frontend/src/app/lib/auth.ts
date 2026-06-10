@@ -65,7 +65,9 @@ export function persistSession(login: LoginResponse): void {
   localStorage.setItem("isAuthenticated", "true");
 }
 
-/** Refresca el rol del usuario desde el backend (silencioso, no bloquea). */
+/** Refresca rol y zona del usuario desde el backend (silencioso, no bloquea).
+ * La zona es clave: si el user se logueó antes de tener zona asignada, la
+ * sesión cacheada queda sin zoneId y las altas de PDV salen sin zona. */
 export async function refreshUserRole(): Promise<void> {
   const token = getAccessToken();
   const user = getStoredUser();
@@ -77,11 +79,20 @@ export async function refreshUserRole(): Promise<void> {
     );
     if (!res.ok) return;
     const data = await res.json();
+    const updated = { ...user };
+    let changed = false;
     if (data.roleName && data.roleName !== user.role) {
-      const updated = { ...user, role: data.roleName };
-      localStorage.setItem(USER_KEY, JSON.stringify(updated));
+      updated.role = data.roleName;
+      changed = true;
       console.info(`[auth] Role updated: ${user.role} → ${data.roleName}`);
     }
+    if (data.zoneId != null && data.zoneId !== user.zoneId) {
+      updated.zoneId = data.zoneId;
+      updated.zone = data.zoneName || `Zona #${data.zoneId}`;
+      changed = true;
+      console.info(`[auth] Zone updated: ${user.zoneId ?? "-"} → ${data.zoneId}`);
+    }
+    if (changed) localStorage.setItem(USER_KEY, JSON.stringify(updated));
   } catch { /* silent */ }
 }
 

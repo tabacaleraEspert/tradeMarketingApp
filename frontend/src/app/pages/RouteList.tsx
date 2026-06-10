@@ -22,11 +22,12 @@ export function RouteList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [channelFilter, setChannelFilter] = useState<string>("all");
 
-  // TM Reps sólo ven PDVs de su zona. Territory Manager+ ve todos.
-  const userZoneId = currentUser.zoneId;
+  // El backend ya limita visibilidad por rol (vendedor/ejecutivo: asignados +
+  // en sus rutas). No filtramos por zona acá: escondía PDVs de la ruta cuyo
+  // ZoneId era NULL o distinto al del usuario.
   const userId = Number(currentUser.id) || undefined;
   const isFieldRep = ["vendedor", "ejecutivo"].includes((currentUser.role || "").toLowerCase());
-  const { data: allPdvs, loading } = usePdvs(isFieldRep ? userZoneId : undefined);
+  const { data: allPdvs, loading } = usePdvs();
   const pendingPdvs = usePendingPdvs();
   const pdvs = useMemo(() => [...pendingPdvs, ...allPdvs], [pendingPdvs, allPdvs]);
 

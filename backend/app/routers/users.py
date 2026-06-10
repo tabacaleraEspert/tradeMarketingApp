@@ -369,11 +369,25 @@ def delete_user(
 
 @router.get("/{user_id}/role")
 def get_user_role(user_id: int, db: Session = Depends(get_db)):
+    # Devuelve también la zona: el frontend la usa para refrescar la sesión
+    # cacheada (un user que se logueó antes de tener zona asignada quedaba
+    # con zoneId vacío para siempre y creaba PDVs sin zona).
+    from ..models.zone import Zone as ZoneModel
+
+    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+    zone_name = None
+    if user and user.ZoneId:
+        zone = db.query(ZoneModel).filter(ZoneModel.ZoneId == user.ZoneId).first()
+        zone_name = zone.Name if zone else None
     ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user_id).first()
-    if not ur:
-        return {"userId": user_id, "roleId": None, "roleName": None}
-    role = db.query(RoleModel).filter(RoleModel.RoleId == ur.RoleId).first()
-    return {"userId": user_id, "roleId": ur.RoleId, "roleName": role.Name if role else None}
+    role = db.query(RoleModel).filter(RoleModel.RoleId == ur.RoleId).first() if ur else None
+    return {
+        "userId": user_id,
+        "roleId": ur.RoleId if ur else None,
+        "roleName": role.Name if role else None,
+        "zoneId": user.ZoneId if user else None,
+        "zoneName": zone_name,
+    }
 
 
 @router.put("/{user_id}/role", dependencies=[Depends(require_role("territory_manager"))])
