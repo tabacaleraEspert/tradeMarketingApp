@@ -89,6 +89,8 @@ export interface Pdv {
   Distributors: PdvDistributorInfo[];
   MonthlyVolume: number | null;      // Atados de cigarrillos / mes
   Category: string | null;            // Chico / Mediano / Grande
+  WorksEspertProducts: boolean | null;  // ¿Trabaja productos Espert? (null = sin dato)
+  SellsLooseCigarettes: boolean | null; // ¿Vende cigarrillos sueltos? (null = sin dato)
   DefaultMaterialExternalId: string | null;
   AssignedUserId: number | null;
   IsActive: boolean;

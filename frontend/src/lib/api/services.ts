@@ -362,6 +362,8 @@ export interface PdvCreateData {
   DefaultMaterialExternalId?: string;
   AssignedUserId?: number | null;
   IsActive?: boolean;
+  WorksEspertProducts?: boolean | null;
+  SellsLooseCigarettes?: boolean | null;
 }
 
 interface PaginatedResponse<T> {

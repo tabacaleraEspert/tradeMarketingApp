@@ -40,6 +40,9 @@ export function NewPointOfSale() {
     channelId: "" as number | "",
     subChannelId: "" as number | "",
     monthlyVolume: "" as number | "",
+    // null = sin responder (no bloquea el alta)
+    worksEspert: null as boolean | null,
+    sellsLoose: null as boolean | null,
     distributorId: "",
     observations: "",
     lat: null as number | null,
@@ -254,6 +257,8 @@ export function NewPointOfSale() {
         ClosingTime: validSlots[0]?.to || undefined,
         TimeSlotsJson: validSlots.length > 0 ? JSON.stringify(validSlots) : undefined,
         MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
+        WorksEspertProducts: formData.worksEspert ?? undefined,
+        SellsLooseCigarettes: formData.sellsLoose ?? undefined,
         Contacts: contactsToSend.length > 0 ? contactsToSend : undefined,
       };
 
@@ -397,6 +402,8 @@ export function NewPointOfSale() {
           Contacts: pdvBody.Contacts ?? [],
           Distributors: [],
           MonthlyVolume: pdvBody.MonthlyVolume ?? null,
+          WorksEspertProducts: pdvBody.WorksEspertProducts ?? null,
+          SellsLooseCigarettes: pdvBody.SellsLooseCigarettes ?? null,
           Category: null,
           DefaultMaterialExternalId: null,
           AssignedUserId: null,
@@ -738,6 +745,32 @@ export function NewPointOfSale() {
                 </Badge>
               )}
             </div>
+
+            {/* Perfil comercial: chips Sí/No tri-estado (tocar de nuevo deselecciona) */}
+            {([
+              { key: "worksEspert" as const, label: "¿Trabaja productos Espert?" },
+              { key: "sellsLoose" as const, label: "¿Vende cigarrillos sueltos?" },
+            ]).map(({ key, label }) => (
+              <div key={key} className="space-y-2">
+                <Label>{label}</Label>
+                <div className="flex gap-2">
+                  {([{ v: true, t: "Sí" }, { v: false, t: "No" }]).map(({ v, t }) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFormData({ ...formData, [key]: formData[key] === v ? null : v })}
+                      className={`px-5 py-2 rounded-full text-sm font-medium border transition-colors ${
+                        formData[key] === v
+                          ? v ? "bg-[#A48242] text-white border-[#A48242]" : "bg-foreground text-background border-foreground"
+                          : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </CardContent>
         </Card>
 

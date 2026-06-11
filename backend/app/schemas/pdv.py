@@ -66,6 +66,8 @@ class PdvBase(BaseModel):
     ClosingTime: str | None = Field(None, max_length=5)
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None  # 0=Dom .. 6=Sáb
+    WorksEspertProducts: bool | None = None  # ¿Trabaja productos Espert? (None = sin dato)
+    SellsLooseCigarettes: bool | None = None  # ¿Vende cigarrillos sueltos? (None = sin dato)
     MonthlyVolume: int | None = None  # Atados de cigarrillos / mes
     Category: str | None = None  # Chico / Mediano / Grande (derivado de MonthlyVolume)
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
@@ -94,6 +96,8 @@ class PdvCreate(BaseModel):
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
+    WorksEspertProducts: bool | None = None
+    SellsLooseCigarettes: bool | None = None
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     SupplierTypes: list[str] | None = None
@@ -149,6 +153,8 @@ class PdvUpdate(BaseModel):
     TimeSlotsJson: str | None = None
     VisitDay: int | None = None
     MonthlyVolume: int | None = Field(None, ge=0, description="Atados de cigarrillos / mes")
+    WorksEspertProducts: bool | None = None
+    SellsLooseCigarettes: bool | None = None
     Contacts: list[PdvContactCreate] | None = None
     DefaultMaterialExternalId: str | None = Field(None, max_length=50)
     AssignedUserId: int | None = None

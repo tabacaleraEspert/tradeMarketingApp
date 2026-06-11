@@ -37,6 +37,9 @@ class PDV(Base):
     # Categorización: qué nos permite hacer el PDV (JSON de flags)
     # {"pop": true, "sueltos": true, "acciones": true, "exhibidor": false, "cigarrera": true}
     AllowsJson = Column(String, nullable=True)
+    # Perfil comercial: NULL = sin dato (los PDVs viejos no respondieron la pregunta)
+    WorksEspertProducts = Column(Boolean, nullable=True)  # ¿Trabaja productos Espert?
+    SellsLooseCigarettes = Column(Boolean, nullable=True)  # ¿Vende cigarrillos sueltos?
     # Volumen mensual estimado en atados de cigarrillos (toda la categoría)
     MonthlyVolume = Column(Integer, nullable=True)
     # Categoría por volumen: Chico (0-800), Mediano (800-1500), Grande (>1500)

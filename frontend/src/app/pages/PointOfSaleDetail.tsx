@@ -109,6 +109,8 @@ export function PointOfSaleDetail() {
     zoneId: "" as number | "",
     distributorId: "" as number | "",
     monthlyVolume: "" as number | "",
+    worksEspert: null as boolean | null,
+    sellsLoose: null as boolean | null,
     distributorIds: [] as number[],
     isActive: true,
     inactiveReason: "",
@@ -296,6 +298,8 @@ export function PointOfSaleDetail() {
           zoneId: p.ZoneId ?? "",
           distributorId: p.DistributorId ?? "",
           monthlyVolume: p.MonthlyVolume ?? "",
+          worksEspert: p.WorksEspertProducts ?? null,
+          sellsLoose: p.SellsLooseCigarettes ?? null,
           distributorIds: p.Distributors?.map((d) => d.DistributorId) || (p.DistributorId ? [p.DistributorId] : []),
           isActive: p.IsActive,
           inactiveReason: p.InactiveReason ?? "",
@@ -453,6 +457,8 @@ export function PointOfSaleDetail() {
         zoneId: pos.ZoneId ?? "",
         distributorId: pos.DistributorId ?? "",
         monthlyVolume: pos.MonthlyVolume ?? "",
+        worksEspert: pos.WorksEspertProducts ?? null,
+        sellsLoose: pos.SellsLooseCigarettes ?? null,
         distributorIds: pos.Distributors?.map((d) => d.DistributorId) || (pos.DistributorId ? [pos.DistributorId] : []),
         isActive: pos.IsActive,
         inactiveReason: pos.InactiveReason ?? "",
@@ -495,6 +501,9 @@ export function PointOfSaleDetail() {
         ChannelId: Number(formData.channelId),
         SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
+        // null explícito = volver a "sin dato" (el backend lo admite)
+        WorksEspertProducts: formData.worksEspert,
+        SellsLooseCigarettes: formData.sellsLoose,
         Address: formData.address || undefined,
         ZoneId: formData.zoneId || undefined,
         DistributorId: formData.distributorId || undefined,
@@ -1108,6 +1117,30 @@ export function PointOfSaleDetail() {
               </div>
             )}
 
+            {/* Perfil comercial */}
+            {(pos.WorksEspertProducts != null || pos.SellsLooseCigarettes != null) && (
+              <div className="flex items-start gap-2">
+                <BarChart3 size={18} className="text-muted-foreground mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Perfil comercial</p>
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      pos.WorksEspertProducts == null ? "bg-slate-100 text-slate-500" :
+                      pos.WorksEspertProducts ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                    }`}>
+                      Productos Espert: {pos.WorksEspertProducts == null ? "Sin dato" : pos.WorksEspertProducts ? "Sí" : "No"}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded ${
+                      pos.SellsLooseCigarettes == null ? "bg-slate-100 text-slate-500" :
+                      pos.SellsLooseCigarettes ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                    }`}>
+                      Sueltos: {pos.SellsLooseCigarettes == null ? "Sin dato" : pos.SellsLooseCigarettes ? "Sí" : "No"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {pos.Lat != null && pos.Lon != null && (
               <div className="mt-3">
                 <LocationMap
@@ -1566,6 +1599,34 @@ export function PointOfSaleDetail() {
                 Categoría: {Number(formData.monthlyVolume) > 1500 ? "Grande" : Number(formData.monthlyVolume) > 800 ? "Mediano" : "Chico"}
               </p>
             )}
+          </div>
+
+          {/* Perfil comercial: chips Sí/No tri-estado (tocar de nuevo = sin dato) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {([
+              { key: "worksEspert" as const, label: "¿Trabaja productos Espert?" },
+              { key: "sellsLoose" as const, label: "¿Vende cigarrillos sueltos?" },
+            ]).map(({ key, label }) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-foreground mb-1">{label}</label>
+                <div className="flex gap-2">
+                  {([{ v: true, t: "Sí" }, { v: false, t: "No" }]).map(({ v, t }) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFormData((f) => ({ ...f, [key]: f[key] === v ? null : v }))}
+                      className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        formData[key] === v
+                          ? v ? "bg-[#A48242] text-white border-[#A48242]" : "bg-foreground text-background border-foreground"
+                          : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
 
           <div className="grid grid-cols-3 gap-4">

@@ -50,6 +50,8 @@ interface POSData {
   tradeMarketer: string;
   visitCount: number;
   hasCoords: boolean;
+  worksEspert: boolean | null;
+  sellsLoose: boolean | null;
 }
 
 type PdvAnalytics = Awaited<ReturnType<typeof reportsApi.pdvAnalytics>>;
@@ -172,6 +174,8 @@ export function POSManagement() {
     isActive: true,
     lat: null as number | null,
     lon: null as number | null,
+    worksEspert: null as boolean | null,
+    sellsLoose: null as boolean | null,
   });
   const [saving, setSaving] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -198,6 +202,9 @@ export function POSManagement() {
   const [selectedVisitFrequency, setSelectedVisitFrequency] = useState<string>("all");
   const [selectedDistributorFilter, setSelectedDistributorFilter] = useState<string>("all");
   const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>("all");
+  // Perfil comercial: all | si | no | nd (sin dato)
+  const [selectedEspertFilter, setSelectedEspertFilter] = useState<string>("all");
+  const [selectedSueltosFilter, setSelectedSueltosFilter] = useState<string>("all");
 
   const { data: pdvs, loading, refetch } = usePdvs(selectedZoneId);
   const { data: zones } = useZones();
@@ -256,8 +263,10 @@ export function POSManagement() {
     if (selectedVisitFrequency !== "all") count++;
     if (selectedDistributorFilter !== "all") count++;
     if (selectedRouteFilter !== "all") count++;
+    if (selectedEspertFilter !== "all") count++;
+    if (selectedSueltosFilter !== "all") count++;
     return count;
-  }, [selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter, selectedRouteFilter]);
+  }, [selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter, selectedRouteFilter, selectedEspertFilter, selectedSueltosFilter]);
 
   const clearAdvancedFilters = () => {
     setSelectedTradeMarketer("all");
@@ -267,11 +276,31 @@ export function POSManagement() {
     setSelectedVisitFrequency("all");
     setSelectedDistributorFilter("all");
     setSelectedRouteFilter("all");
+    setSelectedEspertFilter("all");
+    setSelectedSueltosFilter("all");
+  };
+
+  // Lookup pdvId → flags de perfil comercial (para los filtros avanzados)
+  const flagsByPdvId = useMemo(
+    () => new Map(pdvs.map((p) => [p.PdvId, { espert: p.WorksEspertProducts, sueltos: p.SellsLooseCigarettes }])),
+    [pdvs]
+  );
+
+  const _matchesTriState = (filterValue: string, flag: boolean | null | undefined) => {
+    if (filterValue === "all") return true;
+    if (filterValue === "si") return flag === true;
+    if (filterValue === "no") return flag === false;
+    return flag == null; // "nd" = sin dato
   };
 
   // Helper: check if a PDV matches advanced filters using enriched data
   const matchesAdvancedFilters = (pdvId: number, pdvDistributorIds?: number[]) => {
     const enriched = enrichedLookup.get(pdvId);
+
+    // Perfil comercial (¿trabaja Espert? / ¿vende sueltos?)
+    const flags = flagsByPdvId.get(pdvId);
+    if (!_matchesTriState(selectedEspertFilter, flags?.espert)) return false;
+    if (!_matchesTriState(selectedSueltosFilter, flags?.sueltos)) return false;
 
     // Trade marketer filter — usa PDV.AssignedUserId (consistente con el
     // dropdown del card), no la asignación route-based del endpoint.
@@ -437,6 +466,8 @@ export function POSManagement() {
           tradeMarketer: tmNameByPdvId.get(p.PdvId) ?? "Sin asignar",
           visitCount: enriched?.visitCount ?? 0,
           hasCoords: enriched?.hasCoords ?? false,
+          worksEspert: p.WorksEspertProducts ?? null,
+          sellsLoose: p.SellsLooseCigarettes ?? null,
         };
       }),
     [pdvs, zoneMap, distributorMap, enrichedLookup, tmNameByPdvId]
@@ -537,6 +568,8 @@ export function POSManagement() {
         isActive: pos.status === "active",
         lat: pdv?.Lat != null ? Number(pdv.Lat) : null,
         lon: pdv?.Lon != null ? Number(pdv.Lon) : null,
+        worksEspert: pdv?.WorksEspertProducts ?? null,
+        sellsLoose: pdv?.SellsLooseCigarettes ?? null,
       });
     } else {
       setSelectedPOS(null);
@@ -552,6 +585,8 @@ export function POSManagement() {
         isActive: true,
         lat: null,
         lon: null,
+        worksEspert: null,
+        sellsLoose: null,
       });
     }
   };
@@ -583,6 +618,9 @@ export function POSManagement() {
         IsActive: formData.isActive,
         Lat: formData.lat ?? undefined,
         Lon: formData.lon ?? undefined,
+        // null = "sin dato" (se manda explícito para poder limpiar en edición)
+        WorksEspertProducts: formData.worksEspert,
+        SellsLooseCigarettes: formData.sellsLoose,
         Contacts: validContacts.length > 0 ? validContacts : undefined,
       };
       if (selectedPOS) {
@@ -905,6 +943,42 @@ export function POSManagement() {
                   <option value="without">Sin ruta (huérfanos)</option>
                 </select>
               </div>
+
+              {/* Trabaja productos Espert */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                  <Filter size={13} />
+                  Trabaja productos Espert
+                </label>
+                <select
+                  value={selectedEspertFilter}
+                  onChange={(e) => setSelectedEspertFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
+                >
+                  <option value="all">Todos</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                  <option value="nd">Sin dato</option>
+                </select>
+              </div>
+
+              {/* Vende cigarrillos sueltos */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                  <Filter size={13} />
+                  Vende cigarrillos sueltos
+                </label>
+                <select
+                  value={selectedSueltosFilter}
+                  onChange={(e) => setSelectedSueltosFilter(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
+                >
+                  <option value="all">Todos</option>
+                  <option value="si">Sí</option>
+                  <option value="no">No</option>
+                  <option value="nd">Sin dato</option>
+                </select>
+              </div>
             </div>
           )}
         </CardContent>
@@ -1083,10 +1157,27 @@ export function POSManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-6 gap-4 pt-4 border-t border-border">
+              <div className="grid grid-cols-2 md:grid-cols-7 gap-4 pt-4 border-t border-border">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Canal</p>
                   <Badge variant="outline">{pos.channel}</Badge>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Perfil</p>
+                  <div className="flex flex-wrap gap-1">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      pos.worksEspert == null ? "bg-slate-100 text-slate-400" :
+                      pos.worksEspert ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-700"
+                    }`} title="¿Trabaja productos Espert?">
+                      Espert {pos.worksEspert == null ? "?" : pos.worksEspert ? "Sí" : "No"}
+                    </span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                      pos.sellsLoose == null ? "bg-slate-100 text-slate-400" :
+                      pos.sellsLoose ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-700"
+                    }`} title="¿Vende cigarrillos sueltos?">
+                      Sueltos {pos.sellsLoose == null ? "?" : pos.sellsLoose ? "Sí" : "No"}
+                    </span>
+                  </div>
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Zona</p>
@@ -1277,6 +1368,37 @@ export function POSManagement() {
                 />
               </>
             )}
+          </div>
+
+          {/* Perfil comercial: chips Sí/No tri-estado (tocar de nuevo = sin dato) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {([
+              { key: "worksEspert" as const, label: "¿Trabaja productos Espert?" },
+              { key: "sellsLoose" as const, label: "¿Vende cigarrillos sueltos?" },
+            ]).map(({ key, label }) => (
+              <div key={key}>
+                <label className="block text-sm font-medium text-muted-foreground mb-1.5">{label}</label>
+                <div className="flex gap-2">
+                  {([{ v: true, t: "Sí" }, { v: false, t: "No" }]).map(({ v, t }) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setFormData((f) => ({ ...f, [key]: f[key] === v ? null : v }))}
+                      className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                        formData[key] === v
+                          ? v ? "bg-[#A48242] text-white border-[#A48242]" : "bg-foreground text-background border-foreground"
+                          : "bg-background text-muted-foreground border-border hover:bg-muted"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                {formData[key] == null && (
+                  <p className="text-[11px] text-muted-foreground mt-1">Sin dato</p>
+                )}
+              </div>
+            ))}
           </div>
 
           {/* Contactos */}

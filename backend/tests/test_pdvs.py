@@ -118,6 +118,44 @@ class TestCreatePdv:
         resp = _make_pdv(client, 999999)
         assert resp.status_code == 400
 
+    def test_create_pdv_commercial_flags(self, client, channel):
+        resp = _make_pdv(
+            client, channel["ChannelId"],
+            WorksEspertProducts=True, SellsLooseCigarettes=False,
+        )
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["WorksEspertProducts"] is True
+        assert pdv["SellsLooseCigarettes"] is False
+
+    def test_create_pdv_commercial_flags_default_null(self, client, channel):
+        # Sin responder las preguntas → NULL (sin dato), nunca False
+        resp = _make_pdv(client, channel["ChannelId"])
+        assert resp.status_code == 201
+        pdv = resp.json()
+        assert pdv["WorksEspertProducts"] is None
+        assert pdv["SellsLooseCigarettes"] is None
+
+    def test_update_pdv_commercial_flags(self, client, channel):
+        pdv = _make_pdv(client, channel["ChannelId"]).json()
+        resp = client.patch(f"/pdvs/{pdv['PdvId']}", json={"WorksEspertProducts": True})
+        assert resp.status_code == 200
+        updated = resp.json()
+        assert updated["WorksEspertProducts"] is True
+        assert updated["SellsLooseCigarettes"] is None  # no tocado
+        # Volver a "sin dato" mandando null explícito
+        resp = client.patch(f"/pdvs/{pdv['PdvId']}", json={"WorksEspertProducts": None})
+        assert resp.status_code == 200
+        assert resp.json()["WorksEspertProducts"] is None
+
+    def test_list_pdvs_includes_commercial_flags(self, client, channel):
+        _make_pdv(client, channel["ChannelId"], SellsLooseCigarettes=True)
+        resp = client.get("/pdvs", params={"limit": 200})
+        assert resp.status_code == 200
+        items = resp.json()["items"]
+        assert any(p.get("SellsLooseCigarettes") is True for p in items)
+        assert all("WorksEspertProducts" in p for p in items)
+
     def test_duplicate_name_same_zone_warns(self, client, channel, zone):
         # El alta de PDV duplicado (mismo nombre+zona) ya NO bloquea (409): avisa
         # con _warning y lo crea igual (201), para no frenar al usuario en campo.
