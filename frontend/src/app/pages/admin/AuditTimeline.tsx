@@ -74,9 +74,12 @@ function formatTs(iso: string | null) {
   });
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-AR", {
-    timeZone: "America/Argentina/Buenos_Aires",
+function formatDate(dateKey: string) {
+  // dateKey es "YYYY-MM-DD" (ya en día de Argentina). new Date("YYYY-MM-DD")
+  // parsea medianoche UTC y al renderizar en -03 retrocede un día — por eso
+  // se construye con partes (medianoche local, sin conversión de zona).
+  const [y, m, d] = dateKey.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("es-AR", {
     weekday: "long", day: "numeric", month: "long",
   });
 }

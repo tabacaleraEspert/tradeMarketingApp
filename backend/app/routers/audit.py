@@ -186,6 +186,37 @@ def user_timeline(
             "pdvName": p.Name,
         })
 
+    # --- 1c. Incidentes y notas de PDV (independientes de visitas: van ANTES
+    # del early return de abajo; si no, un trade sin visitas en el rango pero
+    # con notas mostraba menos eventos que el conteo de "trades con movimiento") ---
+    incidents = db.query(IncidentModel).filter(IncidentModel.CreatedBy == user_id)
+    if dt_from:
+        incidents = incidents.filter(IncidentModel.CreatedAt >= dt_from)
+    if dt_to:
+        incidents = incidents.filter(IncidentModel.CreatedAt <= dt_to)
+    for i in incidents.all():
+        events.append({
+            "ts": i.CreatedAt.isoformat() if i.CreatedAt else None,
+            "type": "incident",
+            "icon": "⚠️",
+            "title": f"Incidente: {i.Type or 'general'}",
+            "detail": f"{i.Notes or ''} · Prioridad: {i.Priority}",
+        })
+
+    notes = db.query(NoteModel).filter(NoteModel.CreatedByUserId == user_id)
+    if dt_from:
+        notes = notes.filter(NoteModel.CreatedAt >= dt_from)
+    if dt_to:
+        notes = notes.filter(NoteModel.CreatedAt <= dt_to)
+    for n in notes.all():
+        events.append({
+            "ts": n.CreatedAt.isoformat() if n.CreatedAt else None,
+            "type": "note",
+            "icon": "📝",
+            "title": f"Nota en PDV #{n.PdvId}",
+            "detail": n.Content[:100] if n.Content else "",
+        })
+
     if not visit_ids:
         events.sort(key=lambda e: e["ts"] or "", reverse=True)
         return {"user": {"UserId": user.UserId, "DisplayName": user.DisplayName, "Email": user.Email}, "events": events}
@@ -295,35 +326,7 @@ def user_timeline(
             "visitId": n.VisitId,
         })
 
-    # --- 9. Incidents ---
-    incidents = db.query(IncidentModel).filter(IncidentModel.CreatedBy == user_id)
-    if dt_from:
-        incidents = incidents.filter(IncidentModel.CreatedAt >= dt_from)
-    if dt_to:
-        incidents = incidents.filter(IncidentModel.CreatedAt <= dt_to)
-    for i in incidents.all():
-        events.append({
-            "ts": i.CreatedAt.isoformat() if i.CreatedAt else None,
-            "type": "incident",
-            "icon": "⚠️",
-            "title": f"Incidente: {i.Type or 'general'}",
-            "detail": f"{i.Notes or ''} · Prioridad: {i.Priority}",
-        })
-
-    # --- 10. PDV Notes ---
-    notes = db.query(NoteModel).filter(NoteModel.CreatedByUserId == user_id)
-    if dt_from:
-        notes = notes.filter(NoteModel.CreatedAt >= dt_from)
-    if dt_to:
-        notes = notes.filter(NoteModel.CreatedAt <= dt_to)
-    for n in notes.all():
-        events.append({
-            "ts": n.CreatedAt.isoformat() if n.CreatedAt else None,
-            "type": "note",
-            "icon": "📝",
-            "title": f"Nota en PDV #{n.PdvId}",
-            "detail": n.Content[:100] if n.Content else "",
-        })
+    # (Incidentes y notas de PDV se agregan arriba, en 1c, antes del early return)
 
     # Post-filter: remove events outside the requested date range
     # (sub-events of visits may fall outside the visit's date filter)
