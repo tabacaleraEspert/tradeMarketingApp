@@ -60,8 +60,18 @@ def list_visits(
     date_to: str | None = None,
     enrich: bool = False,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
+    from ..hierarchy import visible_user_ids
+    # Visibilidad por jerarquía: admin ve todo (None); managers su sub-árbol.
+    visible = visible_user_ids(db, current_user)
+    # Guard IDOR: si piden un user_id fuera del sub-árbol visible, no devolver nada.
+    if user_id is not None and visible is not None and user_id not in visible:
+        return [] if not enrich else []
+
     q = db.query(VisitModel)
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
     if user_id is not None:
         q = q.filter(VisitModel.UserId == user_id)
     if pdv_id is not None:
@@ -102,6 +112,8 @@ def list_visits(
         .outerjoin(PDVModel, VisitModel.PdvId == PDVModel.PdvId)
         .outerjoin(UserAlias, VisitModel.UserId == UserAlias.UserId)
     )
+    if visible is not None:
+        enriched_q = enriched_q.filter(VisitModel.UserId.in_(visible))
     if user_id is not None:
         enriched_q = enriched_q.filter(VisitModel.UserId == user_id)
     if pdv_id is not None:
@@ -243,6 +255,12 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
         raise HTTPException(status_code=404, detail="Visita no encontrada")
+
+    # Guard IDOR: solo se ve el detalle de visitas de usuarios del sub-árbol visible.
+    from ..hierarchy import visible_user_ids
+    visible = visible_user_ids(db, current_user)
+    if visible is not None and v.UserId not in visible:
+        raise HTTPException(status_code=403, detail="No tenés acceso a esta visita")
 
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == v.PdvId).first()
     user = db.query(UserModel).filter(UserModel.UserId == v.UserId).first()

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
-from ..hierarchy import get_visible_user_ids
+from ..hierarchy import get_visible_user_ids, visible_user_ids
 from ..models import (
     Route as RouteModel,
     RouteForm as RouteFormModel,
@@ -81,16 +81,23 @@ def pdv_assignments(db: Session = Depends(get_db)):
 
 
 # --- Today's executive overview ---
-@router.get("/today-overview", dependencies=[Depends(get_current_user)])
-def today_overview(db: Session = Depends(get_db)):
-    """Executive view: today's routes, assigned users, and first activity time."""
+@router.get("/today-overview")
+def today_overview(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Executive view: today's routes, assigned users, and first activity time (filtrado por jerarquía)."""
     from datetime import date, datetime, timezone
     from ..models.visit import Visit as VisitModel, VisitCheck as VisitCheckModel
 
     today = date.today()
 
-    # 1. Route days for today
-    route_days = db.query(RouteDayModel).filter(RouteDayModel.WorkDate == today).all()
+    # 1. Route days for today (solo de usuarios visibles; admin ve todos)
+    visible = visible_user_ids(db, current_user)
+    rd_q = db.query(RouteDayModel).filter(RouteDayModel.WorkDate == today)
+    if visible is not None:
+        rd_q = rd_q.filter(RouteDayModel.AssignedUserId.in_(visible))
+    route_days = rd_q.all()
 
     # 2. Get route names
     route_ids = {rd.RouteId for rd in route_days}
@@ -174,10 +181,17 @@ def today_overview(db: Session = Depends(get_db)):
 
 
 # --- Route Map Overview ---
-@router.get("/map-overview", dependencies=[Depends(get_current_user)])
-def routes_map_overview(db: Session = Depends(get_db)):
-    """All routes with their PDV coordinates for map visualization."""
-    routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+@router.get("/map-overview")
+def routes_map_overview(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """All routes with their PDV coordinates for map visualization (filtrado por jerarquía)."""
+    routes_q = db.query(RouteModel).filter(RouteModel.IsActive == True)
+    visible = visible_user_ids(db, current_user)
+    if visible is not None:
+        routes_q = routes_q.filter(RouteModel.AssignedUserId.in_(visible))
+    routes = routes_q.all()
     if not routes:
         return {"routes": [], "unrouted": []}
 
@@ -427,13 +441,10 @@ def list_routes(
     if assigned_user_id is not None:
         q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
 
-    # Filtro de sub-árbol para no-admin: rutas asignadas a alguien visible (o sin asignar)
+    # Filtro de sub-árbol para no-admin: solo rutas asignadas a alguien visible.
+    # Las rutas sin asignar quedan solo para admins (decisión de producto).
     if visible_ids is not None:
-        from sqlalchemy import or_
-        q = q.filter(or_(
-            RouteModel.AssignedUserId.in_(visible_ids),
-            RouteModel.AssignedUserId.is_(None),
-        ))
+        q = q.filter(RouteModel.AssignedUserId.in_(visible_ids))
 
     routes = q.order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
     return [_route_to_response(r, db) for r in routes]

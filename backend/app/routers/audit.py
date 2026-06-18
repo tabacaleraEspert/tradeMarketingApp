@@ -16,6 +16,7 @@ from ..models.incident import Incident as IncidentModel
 from ..models.pdv_note import PdvNote as NoteModel
 from ..models.file import File as FileModel
 from ..models.product import Product as ProductModel
+from ..hierarchy import visible_user_ids
 
 router = APIRouter(prefix="/audit", tags=["Auditoría"])
 
@@ -25,19 +26,24 @@ def active_users(
     date_from: str | None = None,
     date_to: str | None = None,
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """Lista de trades que tuvieron movimiento en el rango (visitas, altas de PDV,
-    incidentes o notas), con cantidad de movimientos y última actividad. Pensado
-    como paso 1: elegir el rango y ver quiénes se movieron, antes de abrir el
-    timeline de un trade puntual."""
+    incidentes o notas), con cantidad de movimientos y última actividad. Filtrado
+    por jerarquía: cada manager ve solo su sub-árbol; admin ve todos."""
     dt_from = datetime.fromisoformat(date_from) if date_from else None
     dt_to = datetime.fromisoformat(date_to) if date_to else None
+
+    # Visibilidad por jerarquía: None = admin (ve todo).
+    visible = visible_user_ids(db, current_user)
 
     # acc[user_id] = {"count": n, "last": datetime|None}
     acc: dict[int, dict] = {}
 
     def add(uid, count, last_ts):
         if uid is None:
+            return
+        if visible is not None and uid not in visible:
             return
         slot = acc.setdefault(uid, {"count": 0, "last": None})
         slot["count"] += int(count or 0)
@@ -116,12 +122,18 @@ def user_timeline(
     date_to: str | None = None,
     limit: int = Query(default=500, le=2000),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Returns a chronological timeline of ALL activity for a user across all tables."""
+    """Returns a chronological timeline of ALL activity for a user across all tables.
+    Guard IDOR: solo se puede ver el timeline de usuarios del sub-árbol visible."""
 
     # Parse date filters
     dt_from = datetime.fromisoformat(date_from) if date_from else None
     dt_to = datetime.fromisoformat(date_to) if date_to else None
+
+    visible = visible_user_ids(db, current_user)
+    if visible is not None and user_id not in visible:
+        raise HTTPException(403, "No tenés acceso a la actividad de este usuario")
 
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
     if not user:

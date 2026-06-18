@@ -35,8 +35,28 @@ router = APIRouter(prefix="/forms", tags=["Formularios"])
 
 # --- Form ---
 @router.get("", response_model=list[Form])
-def list_forms(skip: int = 0, limit: int = Query(default=100, le=500), db: Session = Depends(get_db)):
-    return db.query(FormModel).order_by(FormModel.FormId).offset(skip).limit(limit).all()
+def list_forms(
+    skip: int = 0,
+    limit: int = Query(default=100, le=500),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Plantillas de visita visibles según jerarquía:
+    - admin → todas.
+    - resto → las nacionales (CreatedByUserId NULL, catálogo compartido) MÁS
+      las creadas por usuarios de su sub-árbol. Oculta las plantillas regionales
+      creadas por managers de otras zonas.
+    """
+    from ..hierarchy import visible_user_ids
+    q = db.query(FormModel)
+    visible = visible_user_ids(db, current_user)
+    if visible is not None:
+        from sqlalchemy import or_
+        q = q.filter(or_(
+            FormModel.CreatedByUserId.is_(None),
+            FormModel.CreatedByUserId.in_(visible),
+        ))
+    return q.order_by(FormModel.FormId).offset(skip).limit(limit).all()
 
 
 @router.get("/{form_id}", response_model=Form)

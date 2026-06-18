@@ -23,57 +23,19 @@ from ..models.incident import Incident as IncidentModel
 from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, DistributorInfo, volume_to_category
 from ..schemas.pdv_contact import PdvContact
 from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
+from ..hierarchy import visible_pdv_ids
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
 
 def _visible_pdv_ids(db: Session, user: UserModel) -> set[int] | None:
-    """Return the set of PdvIds visible to this user, or None if they can see all."""
-    role = get_user_role(db, user.UserId)
-    level = ROLE_HIERARCHY.get(role.lower(), 0)
-    # Level 4+ (admin, regional_manager) see everything
-    if level >= 4:
-        return None
+    """Return the set of PdvIds visible to this user, or None if they can see all.
 
-    ids: set[int] = set()
-
-    # PDVs directly assigned to this user
-    direct = db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId == user.UserId).all()
-    ids.update(r[0] for r in direct)
-
-    # PDVs in routes assigned to this user
-    route_pdvs = (
-        db.query(RoutePdvModel.PdvId)
-        .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
-        .filter(RouteModel.AssignedUserId == user.UserId)
-        .all()
-    )
-    ids.update(r[0] for r in route_pdvs)
-
-    # Territory managers also see PDVs of their direct reports
-    if role == "territory_manager":
-        report_ids = [
-            u.UserId for u in
-            db.query(UserModel.UserId).filter(UserModel.ManagerUserId == user.UserId).all()
-        ]
-        if report_ids:
-            sub_direct = db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId.in_(report_ids)).all()
-            ids.update(r[0] for r in sub_direct)
-            sub_route = (
-                db.query(RoutePdvModel.PdvId)
-                .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
-                .filter(RouteModel.AssignedUserId.in_(report_ids))
-                .all()
-            )
-            ids.update(r[0] for r in sub_route)
-
-    # Territory managers see all PDVs in their zone
-    if role == "territory_manager" and user.ZoneId:
-        zone_pdvs = db.query(PDVModel.PdvId).filter(PDVModel.ZoneId == user.ZoneId).all()
-        ids.update(r[0] for r in zone_pdvs)
-    # Vendedores and ejecutivos only see their directly assigned + route PDVs (already added above)
-
-    return ids
+    Delega en el helper unificado de hierarchy (sub-árbol completo + uno mismo;
+    admin = None). Reemplaza la lógica vieja que dejaba ver todo a regional_manager,
+    solo expandía a reportes directos del territory_manager e ignoraba a ejecutivos.
+    """
+    return visible_pdv_ids(db, user)
 
 
 def _sync_distributors(db: Session, pdv_id: int, distributor_ids: list[int]):

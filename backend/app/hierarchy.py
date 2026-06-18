@@ -82,3 +82,50 @@ def is_in_subtree_of(db: Session, manager_id: int, target_user_id: int) -> bool:
     if manager_id == target_user_id:
         return True
     return target_user_id in get_all_subordinate_ids(db, manager_id)
+
+
+def visible_user_ids(db: Session, current_user: UserModel) -> set[int] | None:
+    """Igual que get_visible_user_ids pero resolviendo el rol automáticamente.
+
+    Devuelve None si el usuario ve todo (admin), o el set de UserIds visibles
+    (sub-árbol + uno mismo) para managers, o {self} para vendedores. Este es el
+    wrapper que deberían usar los endpoints (ahorra resolver el rol a mano).
+    """
+    from .auth import get_user_role
+    role = get_user_role(db, current_user.UserId)
+    return get_visible_user_ids(db, current_user, role)
+
+
+def visible_pdv_ids(db: Session, current_user: UserModel) -> set[int] | None:
+    """PdvIds que current_user puede ver según la jerarquía.
+
+    - admin → None (sin filtro: ve todos los PDVs).
+    - resto → PDVs cuyo AssignedUserId está en el sub-árbol visible, MÁS los
+      PDVs que están en alguna ruta asignada a un usuario del sub-árbol.
+
+    Los PDVs huérfanos (sin trade asignado y sin ruta de un usuario visible)
+    NO los ve un manager: quedan solo para admins. Esta es la lógica unificada
+    que reemplaza al viejo _visible_pdv_ids (que dejaba ver todo a regional_manager
+    y solo expandía a reportes directos, sin contemplar ejecutivos).
+    """
+    visible_users = visible_user_ids(db, current_user)
+    if visible_users is None:
+        return None
+
+    from .models import PDV as PDVModel
+    from .models.route import Route as RouteModel, RoutePdv as RoutePdvModel
+
+    ids: set[int] = set()
+    # PDVs asignados directamente a usuarios visibles
+    for row in db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId.in_(visible_users)).all():
+        ids.add(row[0])
+    # PDVs en rutas asignadas a usuarios visibles
+    route_rows = (
+        db.query(RoutePdvModel.PdvId)
+        .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
+        .filter(RouteModel.AssignedUserId.in_(visible_users))
+        .all()
+    )
+    for row in route_rows:
+        ids.add(row[0])
+    return ids

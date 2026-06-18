@@ -21,7 +21,7 @@ from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
 from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
 from ..models.supplier_type import SupplierType as SupplierTypeModel
 from ..models.visit_action import VisitAction as VisitActionModel
-from ..hierarchy import get_visible_user_ids
+from ..hierarchy import get_visible_user_ids, visible_user_ids, visible_pdv_ids
 from ..auth import get_user_role
 import json as _json
 
@@ -42,25 +42,32 @@ def report_summary(
     year: int = Query(default=None),
     month: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """KPIs globales del mes: visitas, cobertura, GPS, fotos, tiempos."""
+    """KPIs del mes (filtrados por jerarquía): visitas, cobertura, GPS, fotos, tiempos."""
     now = datetime.now(timezone.utc)
     y = year or now.year
     m = month or now.month
     first, last = _date_range(y, m)
 
-    visits = (
-        db.query(VisitModel)
-        .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
-        .all()
-    )
+    # Visibilidad por jerarquía: admin ve todo (None); managers su sub-árbol.
+    visible = visible_user_ids(db, current_user)
+    vpdv = visible_pdv_ids(db, current_user)
+
+    vq = db.query(VisitModel).filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
+    if visible is not None:
+        vq = vq.filter(VisitModel.UserId.in_(visible))
+    visits = vq.all()
     total_visits = len(visits)
     closed = [v for v in visits if v.Status and v.Status.upper() in ("CLOSED", "COMPLETED")]
     total_closed = len(closed)
 
     # Unique PDVs visited
     pdv_ids_visited = set(v.PdvId for v in visits)
-    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).count()
+    pdv_count_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        pdv_count_q = pdv_count_q.filter(PDVModel.PdvId.in_(vpdv))
+    total_pdvs = pdv_count_q.count()
     coverage = round((len(pdv_ids_visited) / total_pdvs * 100) if total_pdvs > 0 else 0)
 
     # GPS checks
@@ -110,19 +117,23 @@ def vendor_ranking(
     year: int = Query(default=None),
     month: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Ranking de vendedores por visitas en el mes."""
+    """Ranking de vendedores por visitas en el mes (filtrado por jerarquía)."""
     now = datetime.now(timezone.utc)
     y = year or now.year
     m = month or now.month
     first, last = _date_range(y, m)
 
-    users = db.query(UserModel).filter(UserModel.IsActive== True).all()
-    visits = (
-        db.query(VisitModel)
-        .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
-        .all()
-    )
+    visible = visible_user_ids(db, current_user)
+    users_q = db.query(UserModel).filter(UserModel.IsActive == True)
+    if visible is not None:
+        users_q = users_q.filter(UserModel.UserId.in_(visible))
+    users = users_q.all()
+    vq = db.query(VisitModel).filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
+    if visible is not None:
+        vq = vq.filter(VisitModel.UserId.in_(visible))
+    visits = vq.all()
     visit_ids = [v.VisitId for v in visits]
 
     # GPS checks by visit
@@ -195,20 +206,26 @@ def channel_coverage(
     year: int = Query(default=None),
     month: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Cobertura de visitas por canal."""
+    """Cobertura de visitas por canal (filtrada por jerarquía)."""
     now = datetime.now(timezone.utc)
     y = year or now.year
     m = month or now.month
     first, last = _date_range(y, m)
 
+    visible = visible_user_ids(db, current_user)
+    vpdv = visible_pdv_ids(db, current_user)
+
     channels = db.query(ChannelModel).filter(ChannelModel.IsActive== True).all()
-    all_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
-    visits = (
-        db.query(VisitModel)
-        .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
-        .all()
-    )
+    pdv_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        pdv_q = pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+    all_pdvs = pdv_q.all()
+    vq = db.query(VisitModel).filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
+    if visible is not None:
+        vq = vq.filter(VisitModel.UserId.in_(visible))
+    visits = vq.all()
     visit_ids = [v.VisitId for v in visits]
 
     gps_visits: set[int] = set()
@@ -252,13 +269,17 @@ def channel_coverage(
 def pdv_map_data(
     zone_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """PDVs con coordenadas, visitas totales, última visita, y activador asignado."""
+    """PDVs con coordenadas, visitas totales, última visita, y activador asignado (filtrado por jerarquía)."""
     from ..models.route import RouteDay as RouteDayModel
 
     q = db.query(PDVModel).filter(PDVModel.IsActive== True)
     if zone_id:
         q = q.filter(PDVModel.ZoneId == zone_id)
+    vpdv = visible_pdv_ids(db, current_user)
+    if vpdv is not None:
+        q = q.filter(PDVModel.PdvId.in_(vpdv))
     pdvs = q.all()
 
     pdv_ids = [p.PdvId for p in pdvs]
@@ -340,8 +361,9 @@ def report_gps_alerts(
     days: int = Query(default=30, description="Visitas de los últimos N días"),
     user_id: int | None = Query(default=None, description="Filtrar por TM Rep"),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Visitas con alerta GPS:
+    """Visitas con alerta GPS (filtradas por jerarquía):
     - Sin VisitCheck IN registrado (el rep no tenía o no permitió GPS), o
     - VisitCheck IN con DistanceToPdvM > 200m (rep estaba fuera del perímetro)
 
@@ -349,8 +371,14 @@ def report_gps_alerts(
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
+    visible = visible_user_ids(db, current_user)
     q = db.query(VisitModel).filter(VisitModel.OpenedAt >= cutoff)
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
     if user_id is not None:
+        # Guard: no permitir pedir un user_id fuera del sub-árbol visible
+        if visible is not None and user_id not in visible:
+            return []
         q = q.filter(VisitModel.UserId == user_id)
     visits = q.order_by(VisitModel.OpenedAt.desc()).all()
 
@@ -700,9 +728,10 @@ def territory_overview(
 @router.get("/perfect-store")
 def perfect_store_scores(
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
     """
-    Perfect Store Score per PDV (0-100).
+    Perfect Store Score per PDV (0-100), filtrado por jerarquía.
     Components:
     - Coverage (25pts): Has been visited in last 30 days
     - Frequency (25pts): Visit frequency vs planned
@@ -712,7 +741,11 @@ def perfect_store_scores(
     now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
 
-    pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
+    pdv_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    vpdv = visible_pdv_ids(db, current_user)
+    if vpdv is not None:
+        pdv_q = pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+    pdvs = pdv_q.all()
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
     zone_map = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
 
@@ -827,10 +860,18 @@ def perfect_store_scores(
 def trending_report(
     months: int = Query(default=3, ge=2, le=12),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Month-over-month comparison of key metrics."""
+    """Month-over-month comparison of key metrics (filtrado por jerarquía)."""
     now = datetime.now(timezone.utc)
     data = []
+
+    visible = visible_user_ids(db, current_user)
+    vpdv = visible_pdv_ids(db, current_user)
+    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        total_pdvs = total_pdvs.filter(PDVModel.PdvId.in_(vpdv))
+    total_pdvs = total_pdvs.count()
 
     for i in range(months - 1, -1, -1):
         # Calculate month
@@ -841,14 +882,16 @@ def trending_report(
             y -= 1
         first, last = _date_range(y, m)
 
-        visits = db.query(VisitModel).filter(
+        vq = db.query(VisitModel).filter(
             VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last
-        ).all()
+        )
+        if visible is not None:
+            vq = vq.filter(VisitModel.UserId.in_(visible))
+        visits = vq.all()
 
         total = len(visits)
         closed = [v for v in visits if v.Status and v.Status.upper() in ("CLOSED", "COMPLETED")]
         pdv_ids = set(v.PdvId for v in visits)
-        total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).count()
         coverage = round(len(pdv_ids) / total_pdvs * 100) if total_pdvs > 0 else 0
 
         # GPS
@@ -890,14 +933,21 @@ def trending_report(
 @router.get("/smart-alerts")
 def smart_alerts(
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Auto-generated alerts based on data patterns."""
+    """Auto-generated alerts based on data patterns (filtrado por jerarquía)."""
     now = datetime.now(timezone.utc)
     alerts = []
 
+    visible = visible_user_ids(db, current_user)
+    vpdv = visible_pdv_ids(db, current_user)
+
     # 1. PDVs not visited in 14+ days
     fourteen_days_ago = now - timedelta(days=14)
-    active_pdvs = db.query(PDVModel).filter(PDVModel.IsActive== True).all()
+    active_pdv_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        active_pdv_q = active_pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+    active_pdvs = active_pdv_q.all()
     for p in active_pdvs:
         last_visit = db.query(sqlfunc.max(VisitModel.OpenedAt)).filter(VisitModel.PdvId == p.PdvId).scalar()
         if last_visit is None:
@@ -929,7 +979,10 @@ def smart_alerts(
     prev_year = now.year if now.month > 1 else now.year - 1
     prev_month_first, prev_month_last = _date_range(prev_year, prev_month)
 
-    users = db.query(UserModel).filter(UserModel.IsActive== True).all()
+    users_q = db.query(UserModel).filter(UserModel.IsActive == True)
+    if visible is not None:
+        users_q = users_q.filter(UserModel.UserId.in_(visible))
+    users = users_q.all()
     for u in users:
         this_visits = db.query(VisitModel).filter(
             VisitModel.UserId == u.UserId, VisitModel.OpenedAt >= this_month_first, VisitModel.OpenedAt <= this_month_last
@@ -949,7 +1002,10 @@ def smart_alerts(
     # 3. Channels losing coverage
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
     for ch_id, ch_name in ch_map.items():
-        ch_pdvs = db.query(PDVModel).filter(PDVModel.ChannelId == ch_id, PDVModel.IsActive== True).all()
+        ch_pdv_q = db.query(PDVModel).filter(PDVModel.ChannelId == ch_id, PDVModel.IsActive == True)
+        if vpdv is not None:
+            ch_pdv_q = ch_pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+        ch_pdvs = ch_pdv_q.all()
         if len(ch_pdvs) < 3:
             continue
         ch_pdv_ids = [p.PdvId for p in ch_pdvs]
@@ -1171,12 +1227,20 @@ def supplier_analytics(db: Session = Depends(get_db)):
 # ─── Route Analytics ─────────────────────────────────────────────────
 
 @router.get("/route-analytics")
-def route_analytics(db: Session = Depends(get_db)):
-    """Analytics de rutas: cumplimiento, cobertura, días."""
+def route_analytics(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Analytics de rutas (filtrado por jerarquía): cumplimiento, cobertura, días."""
     today = datetime.now(timezone.utc).date()
     thirty_days_ago = today - timedelta(days=30)
 
-    routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+    routes_q = db.query(RouteModel).filter(RouteModel.IsActive == True)
+    visible = visible_user_ids(db, current_user)
+    if visible is not None:
+        # Solo rutas asignadas a usuarios del sub-árbol (las sin asignar quedan para admin)
+        routes_q = routes_q.filter(RouteModel.AssignedUserId.in_(visible))
+    routes = routes_q.all()
     zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
     users = {u.UserId: u.DisplayName for u in db.query(UserModel).all()}
 
@@ -1244,9 +1308,16 @@ def route_analytics(db: Session = Depends(get_db)):
 # ─── PDV Analytics ───────────────────────────────────────────────────
 
 @router.get("/pdv-analytics")
-def pdv_analytics(db: Session = Depends(get_db)):
-    """Analytics de PDVs: estado, distribución, actividad."""
-    pdvs = db.query(PDVModel).all()
+def pdv_analytics(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Analytics de PDVs (filtrado por jerarquía): estado, distribución, actividad."""
+    pdv_q = db.query(PDVModel)
+    vpdv = visible_pdv_ids(db, current_user)
+    if vpdv is not None:
+        pdv_q = pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+    pdvs = pdv_q.all()
     zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
     channels = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
 
