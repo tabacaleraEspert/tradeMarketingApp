@@ -183,6 +183,24 @@ az webapp restart -n espert-trade-api -g Espert-Desarrollo
 ```
 (Nota: `gh workflow run` requiere admin del repo; sin eso, re-deploy = push que toque `backend/**` o `az acr build` manual. El 2026-06-25 Actions tuvo ~30 min de cola, no incidente permanente.)
 
+### 2026-06-25 (tarde) — INCIDENTE: "Failed to fetch" en alta de PDV (regresión propia)
+**Síntoma:** usuarios con señal/datos, pero las operaciones offline (alta PDV, foto, nota) fallaban
+al reintentar con "Failed to fetch". Empezó ~15:00 ART (≈18:00 UTC), justo tras deployar la instrumentación.
+
+**Causa raíz:** el commit `708ccc4` (instrumentación App Insights) agregó `FastAPIInstrumentor.instrument_app`,
+que **rompe el preflight CORS**: `OPTIONS /pdvs` devolvía **HTTP 500** (sin headers CORS) → el browser
+bloquea el POST → "Failed to fetch". Diagnóstico directo: `curl -X OPTIONS .../pdvs -H "Origin: <front>"
+-H "Access-Control-Request-Method: POST"` → 500 con la imagen instrumentada, 200 sin ella.
+
+**Resolución:** (1) rollback inmediato del container a la imagen previa buena `ee96cd86`
+(`az webapp config container set ... :ee96cd86` + restart); (2) `git revert 708ccc4` para sacar el bug de main.
+Prod quedó en `b00b98e` (N+1 + logs + db timeout, SIN instrumentación). OPTIONS vuelve a 200.
+
+**Lección:** `FastAPIInstrumentor` (opentelemetry-instrumentation-fastapi) puede romper el preflight OPTIONS
+con CORSMiddleware. Si se re-intenta instrumentar AppRequests, PROBAR `OPTIONS` (preflight CORS) en local
+ANTES de deployar — no alcanza con health/tests. `SQLAlchemyInstrumentor` no fue la causa (el 500 es en
+OPTIONS, que no toca DB) pero se revirtió junto por precaución.
+
 **Pendiente:**
 - ⚠️ **`startup.sh` corre `alembic upgrade head` que FALLA en cada arranque** (`Column 'BusinessName'
   in table 'PDV' specified more than once`) porque prod NO está trackeado por Alembic (ver
