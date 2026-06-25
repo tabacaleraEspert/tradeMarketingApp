@@ -152,12 +152,18 @@ az webapp update -n $APP -g $RG --set httpsOnly=true
 al saturarla (recurso compartido), todos los usuarios sienten la lentitud a la vez.
 
 **Acciones aplicadas:**
-- ✅ DB escalada **Basic 5 DTU → Standard S2 (50 DTU)** (online).
-- ✅ Silenciado del ruido de logs del SDK de Azure (`_silence_azure_sdk_logs`).
+- ✅ DB escalada **Basic 5 DTU → Standard S2 (50 DTU)** (online). Commit infra vía `az`.
+- ✅ Silenciado del ruido de logs del SDK de Azure (`_silence_azure_sdk_logs`) — commit `6ead34b`.
+- ✅ **N+1 de `reports.py` eliminados** (commit `ee96cd8`): smart-alerts (~500→~6 queries),
+  pdv-map (~500→1), route-analytics (~5×N→~5), territory-overview (N→1). Refactor a queries
+  batch + dict-lookup preservando semántica. 269 tests + 2 nuevos de equivalencia (pdv-map /
+  route-analytics) en verde. Sobre los índices: el schema YA estaba bien indexado
+  (Visit `ix_visit_pdvid_status` + PdvId, RoutePdv PK `(RouteId,PdvId)`, RouteDay/Route en FKs),
+  el problema eran los round-trips, no índices → no se tocó el schema de prod.
 
 **Pendiente (recomendado):**
-- Índices faltantes (ALTER quirúrgico) + batch de los N+1 de `reports.py`.
-- Instrumentar `AppRequests` + SQL en App Insights (dejar de estar ciegos).
+- Instrumentar `AppRequests` + SQL en App Insights (dejar de estar ciegos a la latencia por endpoint).
 - Quick wins frontend (autosave→debounce, paginar PDVs, N+1 del cache offline).
 - Confirmar y borrar el server SQL viejo `trademarketing` si no se usa.
 - `httpsOnly=true`.
+- Si tras medir siguiera lento un reporte puntual: índice `Visit(PdvId, OpenedAt)` (ALTER quirúrgico).
