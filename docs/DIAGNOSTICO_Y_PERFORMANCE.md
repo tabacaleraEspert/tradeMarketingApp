@@ -188,6 +188,6 @@ az webapp restart -n espert-trade-api -g Espert-Desarrollo
   in table 'PDV' specified more than once`) porque prod NO está trackeado por Alembic (ver
   [[project_prod_not_alembic_tracked]]). Es best-effort (gunicorn arranca igual) pero ensucia logs.
   Arreglar: estampar `alembic stamp head` en prod tras alinear el schema, o quitar el upgrade del startup.
-- Server SQL viejo `trademarketing` (0 conexiones/30d): borrar requiere decisión del usuario (irreversible,
-  sin credenciales para backup; serverless pausada cuesta poco).
+- ✅ Server SQL viejo `trademarketing` (NetworkWatcherRG, 0 conexiones/30d) **borrado** 2026-06-25
+  (decisión del usuario; el de prod es `trade-mkt-sql`, intacto).
 - Si algún reporte puntual siguiera lento: índice `Visit(PdvId, OpenedAt)` (ALTER quirúrgico).
