@@ -99,6 +99,12 @@ def init_app_insights() -> bool:
         connection_string=conn_str,
         enable_live_metrics=True,
     )
+    # configure_azure_monitor sube el root logger a INFO y engancha un handler de OTel
+    # que exporta TODO log INFO a App Insights. Re-silenciamos el ruido del propio SDK
+    # de Azure aquí (después de configurar el monitor) para que no se auto-alimente y
+    # genere cientos de miles de AppTraces/día.
+    from .middleware import _silence_azure_sdk_logs
+    _silence_azure_sdk_logs()
     logger.info("Application Insights inicializado")
     return True
 

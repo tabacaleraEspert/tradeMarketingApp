@@ -84,3 +84,21 @@ def configure_logging() -> None:
     # Bajar ruido de sqlalchemy/uvicorn access a WARN
     logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    _silence_azure_sdk_logs()
+
+
+# Loggers del SDK de Azure que en INFO loguean cada request/response HTTP (incluida la
+# propia transmisión de telemetría a App Insights). Como configure_azure_monitor engancha
+# un handler de OpenTelemetry que exporta TODO log INFO a App Insights, esto se auto-alimenta
+# y genera cientos de miles de AppTraces/día (ruido + costo de ingestión). Los bajamos a WARNING.
+_AZURE_NOISY_LOGGERS = (
+    "azure.core.pipeline.policies.http_logging_policy",
+    "azure.monitor.opentelemetry.exporter",
+    "azure.identity",
+    "urllib3.connectionpool",
+)
+
+
+def _silence_azure_sdk_logs() -> None:
+    for _name in _AZURE_NOISY_LOGGERS:
+        logging.getLogger(_name).setLevel(logging.WARNING)
