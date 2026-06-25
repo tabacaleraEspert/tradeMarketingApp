@@ -161,9 +161,33 @@ al saturarla (recurso compartido), todos los usuarios sienten la lentitud a la v
   (Visit `ix_visit_pdvid_status` + PdvId, RoutePdv PK `(RouteId,PdvId)`, RouteDay/Route en FKs),
   el problema eran los round-trips, no índices → no se tocó el schema de prod.
 
-**Pendiente (recomendado):**
-- Instrumentar `AppRequests` + SQL en App Insights (dejar de estar ciegos a la latencia por endpoint).
-- Quick wins frontend (autosave→debounce, paginar PDVs, N+1 del cache offline).
-- Confirmar y borrar el server SQL viejo `trademarketing` si no se usa.
-- `httpsOnly=true`.
-- Si tras medir siguiera lento un reporte puntual: índice `Visit(PdvId, OpenedAt)` (ALTER quirúrgico).
+**Segunda tanda (deployada 2026-06-25):**
+- ✅ **App Insights instrumentado** (commit `708ccc4`): FastAPI (`instrument_app`) + SQLAlchemy
+  (`instrument(engine)`), gated por connection string. Ahora hay tabla `AppRequests` (latencia por
+  endpoint) y dependencias SQL. Pin OTel `==0.61b0` + `azure-monitor==1.8.8` (si no, pip rompe el exporter).
+- ✅ **Timeout Azure SQL** (commit `174d2a6`): `connect_args` login_timeout=30 / timeout=60 en database.py.
+- ✅ **Frontend** (commit `dc35ca1`): autosave 30→60s, throttle visibilitychange (30s), reloj 1s aislado.
+- ✅ **httpsOnly=true** en el App Service.
+
+**Resultados MEDIDOS (App Insights workspace, post-deploy):**
+- Ruido AppTraces: **~9.850/h → 28/h** (-99.7%).
+- Latencia por endpoint: max **402ms**, todo sub-segundo (antes avg 0.8s / max 72s).
+- Queries SQL: visibles por primera vez, **p95 14ms** / max 185ms.
+
+**Deploy manual sin GitHub Actions (cuando Actions no dispara/está en cola):**
+```bash
+SHA=$(git rev-parse HEAD | cut -c1-8)
+az acr build --registry espertapi --image trade-marketing-api:$SHA --image trade-marketing-api:latest --platform linux/amd64 backend/
+az webapp config container set -n espert-trade-api -g Espert-Desarrollo --container-image-name espertapi.azurecr.io/trade-marketing-api:$SHA
+az webapp restart -n espert-trade-api -g Espert-Desarrollo
+```
+(Nota: `gh workflow run` requiere admin del repo; sin eso, re-deploy = push que toque `backend/**` o `az acr build` manual. El 2026-06-25 Actions tuvo ~30 min de cola, no incidente permanente.)
+
+**Pendiente:**
+- ⚠️ **`startup.sh` corre `alembic upgrade head` que FALLA en cada arranque** (`Column 'BusinessName'
+  in table 'PDV' specified more than once`) porque prod NO está trackeado por Alembic (ver
+  [[project_prod_not_alembic_tracked]]). Es best-effort (gunicorn arranca igual) pero ensucia logs.
+  Arreglar: estampar `alembic stamp head` en prod tras alinear el schema, o quitar el upgrade del startup.
+- Server SQL viejo `trademarketing` (0 conexiones/30d): borrar requiere decisión del usuario (irreversible,
+  sin credenciales para backup; serverless pausada cuesta poco).
+- Si algún reporte puntual siguiera lento: índice `Visit(PdvId, OpenedAt)` (ALTER quirúrgico).
