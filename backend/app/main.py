@@ -10,7 +10,7 @@ from .routers import zones, users, roles, distributors, channels, subchannels, p
 from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role, require_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
-from .observability import init_sentry, init_app_insights
+from .observability import init_sentry, init_app_insights, instrument_fastapi_and_sql
 from .config import settings
 
 configure_logging()
@@ -46,6 +46,10 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.add_middleware(RequestIdMiddleware)
+
+# Instrumentación explícita de requests entrantes + queries SQL para App Insights.
+# (configure_azure_monitor sólo capturaba dependencias salientes → faltaban AppRequests y SQL.)
+instrument_fastapi_and_sql(app, engine)
 
 # DB bootstrap.
 #
