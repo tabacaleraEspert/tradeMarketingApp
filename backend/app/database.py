@@ -4,7 +4,10 @@ from .config import settings
 
 _db_url = settings.resolved_database_url
 _is_sqlite = "sqlite" in _db_url
-_connect_args = {"check_same_thread": False} if _is_sqlite else {}
+# Para Azure SQL (pymssql): login_timeout evita que un request quede colgado esperando
+# conexión, y timeout es el techo de duración de query (con los reportes ya optimizados,
+# 60s es amplio; corta queries patológicas en vez de colgar el worker indefinidamente).
+_connect_args = {"check_same_thread": False} if _is_sqlite else {"timeout": 60, "login_timeout": 30}
 
 # Pool config:
 #   SQLite no soporta pool real (usa StaticPool internamente).
