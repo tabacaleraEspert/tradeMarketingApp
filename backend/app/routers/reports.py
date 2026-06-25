@@ -301,22 +301,27 @@ def pdv_map_data(
     for pdv_id, count, last_visit in visit_stats:
         visit_map[pdv_id] = {"count": count, "lastVisit": last_visit.isoformat() if last_visit else None}
 
-    # Assigned user per PDV (most recent RouteDay assignment)
-    # RouteDay -> Route -> RoutePdv -> PDV
+    # Assigned user per PDV (most recent RouteDay assignment), en 1 query (antes: 1 por PDV → N+1).
+    # RouteDay -> Route -> RoutePdv -> PDV. Ordenamos por PdvId, WorkDate desc y nos quedamos
+    # con la primera fila de cada PDV (= la asignación más reciente).
     from sqlalchemy import desc
     assigned_map: dict[int, dict] = {}
-    for pdv_id in pdv_ids:
-        row = (
-            db.query(RouteDayModel.AssignedUserId, UserModel.DisplayName)
-            .join(RouteModel, RouteModel.RouteId == RouteDayModel.RouteId)
-            .join(RoutePdvModel, RoutePdvModel.RouteId == RouteModel.RouteId)
-            .join(UserModel, UserModel.UserId == RouteDayModel.AssignedUserId)
-            .filter(RoutePdvModel.PdvId == pdv_id)
-            .order_by(desc(RouteDayModel.WorkDate))
-            .first()
+    assigned_rows = (
+        db.query(
+            RoutePdvModel.PdvId,
+            RouteDayModel.AssignedUserId,
+            UserModel.DisplayName,
         )
-        if row:
-            assigned_map[pdv_id] = {"userId": row[0], "userName": row[1]}
+        .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+        .join(RouteDayModel, RouteDayModel.RouteId == RouteModel.RouteId)
+        .join(UserModel, UserModel.UserId == RouteDayModel.AssignedUserId)
+        .filter(RoutePdvModel.PdvId.in_(pdv_ids))
+        .order_by(RoutePdvModel.PdvId, desc(RouteDayModel.WorkDate))
+        .all()
+    )
+    for pdv_id, user_id, user_name in assigned_rows:
+        if pdv_id not in assigned_map:
+            assigned_map[pdv_id] = {"userId": user_id, "userName": user_name}
 
     # PDVs that belong to at least one route (regardless of RouteDay assignment)
     route_pdv_rows = (
@@ -610,6 +615,15 @@ def territory_overview(
         .all()
     ) if all_rep_ids else []
 
+    # Ruta activa por rep, precargada en 1 query (antes: 1 query por rep → N+1).
+    rep_routes_map: dict[int, RouteModel] = {}
+    if all_rep_ids:
+        for rt in db.query(RouteModel).filter(
+            RouteModel.AssignedUserId.in_(all_rep_ids), RouteModel.IsActive == True
+        ).all():
+            if rt.AssignedUserId not in rep_routes_map:
+                rep_routes_map[rt.AssignedUserId] = rt
+
     # Build per-rep data
     rep_data = []
     for rep in reps:
@@ -625,8 +639,8 @@ def territory_overview(
                     rep_durations.append(d)
         avg_time = round(sum(rep_durations) / len(rep_durations)) if rep_durations else 0
 
-        # Route assigned
-        rep_route = db.query(RouteModel).filter(RouteModel.AssignedUserId == rep.UserId, RouteModel.IsActive== True).first()
+        # Route assigned (precargada arriba)
+        rep_route = rep_routes_map.get(rep.UserId)
 
         # Today status
         rep_today_rds = [rd for rd in today_route_days if rd.AssignedUserId == rep.UserId]
@@ -948,8 +962,15 @@ def smart_alerts(
     if vpdv is not None:
         active_pdv_q = active_pdv_q.filter(PDVModel.PdvId.in_(vpdv))
     active_pdvs = active_pdv_q.all()
+    # Última visita por PDV en una sola query (antes era 1 query por PDV → N+1).
+    # El GROUP BY colapsa toda la tabla a ~#PDVs filas (usa el índice de Visit.PdvId).
+    last_visit_map = dict(
+        db.query(VisitModel.PdvId, sqlfunc.max(VisitModel.OpenedAt))
+        .group_by(VisitModel.PdvId)
+        .all()
+    )
     for p in active_pdvs:
-        last_visit = db.query(sqlfunc.max(VisitModel.OpenedAt)).filter(VisitModel.PdvId == p.PdvId).scalar()
+        last_visit = last_visit_map.get(p.PdvId)
         if last_visit is None:
             alerts.append({
                 "type": "never_visited",
@@ -983,13 +1004,22 @@ def smart_alerts(
     if visible is not None:
         users_q = users_q.filter(UserModel.UserId.in_(visible))
     users = users_q.all()
+    # Conteos de visitas por usuario en 2 queries agrupadas (antes: 2 queries por usuario → N+1).
+    this_counts = dict(
+        db.query(VisitModel.UserId, sqlfunc.count(VisitModel.VisitId))
+        .filter(VisitModel.OpenedAt >= this_month_first, VisitModel.OpenedAt <= this_month_last)
+        .group_by(VisitModel.UserId)
+        .all()
+    )
+    prev_counts = dict(
+        db.query(VisitModel.UserId, sqlfunc.count(VisitModel.VisitId))
+        .filter(VisitModel.OpenedAt >= prev_month_first, VisitModel.OpenedAt <= prev_month_last)
+        .group_by(VisitModel.UserId)
+        .all()
+    )
     for u in users:
-        this_visits = db.query(VisitModel).filter(
-            VisitModel.UserId == u.UserId, VisitModel.OpenedAt >= this_month_first, VisitModel.OpenedAt <= this_month_last
-        ).count()
-        prev_visits = db.query(VisitModel).filter(
-            VisitModel.UserId == u.UserId, VisitModel.OpenedAt >= prev_month_first, VisitModel.OpenedAt <= prev_month_last
-        ).count()
+        this_visits = this_counts.get(u.UserId, 0)
+        prev_visits = prev_counts.get(u.UserId, 0)
         if prev_visits >= 5 and this_visits < prev_visits * 0.5:
             alerts.append({
                 "type": "declining_rep",
@@ -1001,27 +1031,38 @@ def smart_alerts(
 
     # 3. Channels losing coverage
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
+    # PDVs activos visibles agrupados por canal, en 1 query (antes: 1 query por canal).
+    ch_pdv_q = db.query(PDVModel.PdvId, PDVModel.ChannelId).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        ch_pdv_q = ch_pdv_q.filter(PDVModel.PdvId.in_(vpdv))
+    pdvs_by_channel: dict[int, list[int]] = {}
+    for pdv_id, channel_id in ch_pdv_q.all():
+        if channel_id is not None:
+            pdvs_by_channel.setdefault(channel_id, []).append(pdv_id)
+    # PdvId distintos visitados este mes / mes previo, en 1 query c/u (antes: 2 por canal).
+    # Traemos los visitados del período (distinct PdvId ≤ #PDVs) e intersectamos en Python
+    # con los PDVs de cada canal — equivalente al filtro por canal del original.
+    this_visited_set = {
+        r[0] for r in db.query(VisitModel.PdvId)
+        .filter(VisitModel.OpenedAt >= this_month_first).distinct().all()
+    }
+    prev_visited_set = {
+        r[0] for r in db.query(VisitModel.PdvId)
+        .filter(VisitModel.OpenedAt >= prev_month_first, VisitModel.OpenedAt <= prev_month_last).distinct().all()
+    }
     for ch_id, ch_name in ch_map.items():
-        ch_pdv_q = db.query(PDVModel).filter(PDVModel.ChannelId == ch_id, PDVModel.IsActive == True)
-        if vpdv is not None:
-            ch_pdv_q = ch_pdv_q.filter(PDVModel.PdvId.in_(vpdv))
-        ch_pdvs = ch_pdv_q.all()
-        if len(ch_pdvs) < 3:
+        ch_pdv_ids = pdvs_by_channel.get(ch_id, [])
+        if len(ch_pdv_ids) < 3:
             continue
-        ch_pdv_ids = [p.PdvId for p in ch_pdvs]
-        this_visited = db.query(sqlfunc.count(sqlfunc.distinct(VisitModel.PdvId))).filter(
-            VisitModel.PdvId.in_(ch_pdv_ids), VisitModel.OpenedAt >= this_month_first
-        ).scalar() or 0
-        prev_visited = db.query(sqlfunc.count(sqlfunc.distinct(VisitModel.PdvId))).filter(
-            VisitModel.PdvId.in_(ch_pdv_ids), VisitModel.OpenedAt >= prev_month_first, VisitModel.OpenedAt <= prev_month_last
-        ).scalar() or 0
-        this_cov = round(this_visited / len(ch_pdvs) * 100)
+        this_visited = sum(1 for pid in ch_pdv_ids if pid in this_visited_set)
+        prev_visited = sum(1 for pid in ch_pdv_ids if pid in prev_visited_set)
+        this_cov = round(this_visited / len(ch_pdv_ids) * 100)
         if prev_visited > 0 and this_cov < 50:
             alerts.append({
                 "type": "low_channel_coverage",
                 "severity": "high",
                 "title": f"Canal {ch_name}: cobertura {this_cov}%",
-                "detail": f"{this_visited}/{len(ch_pdvs)} PDVs visitados este mes",
+                "detail": f"{this_visited}/{len(ch_pdv_ids)} PDVs visitados este mes",
                 "channel": ch_name,
             })
 
@@ -1244,36 +1285,57 @@ def route_analytics(
     zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
     users = {u.UserId: u.DisplayName for u in db.query(UserModel).all()}
 
-    result = []
-    for r in routes:
-        # PDV count
-        pdv_count = db.query(sqlfunc.count(RoutePdvModel.PdvId)).filter(RoutePdvModel.RouteId == r.RouteId).scalar() or 0
+    # ---- Precarga batch para evitar N+1 (antes: ~5 queries por ruta) ----
+    route_ids = [r.RouteId for r in routes]
+    thirty_days_dt = datetime.combine(thirty_days_ago, datetime.min.time()).replace(tzinfo=timezone.utc)
 
-        # Route days in last 30 days
-        days = db.query(RouteDayModel).filter(
-            RouteDayModel.RouteId == r.RouteId,
+    # PDVs por ruta (RouteId -> [PdvId])
+    route_pdv_map: dict[int, list[int]] = {}
+    if route_ids:
+        for route_id, pdv_id in db.query(RoutePdvModel.RouteId, RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId.in_(route_ids)).all():
+            route_pdv_map.setdefault(route_id, []).append(pdv_id)
+
+    # RouteDays últimos 30 días por ruta
+    days_by_route: dict[int, list] = {}
+    if route_ids:
+        for rd in db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId.in_(route_ids),
             RouteDayModel.WorkDate >= thirty_days_ago,
             RouteDayModel.WorkDate <= today,
-        ).all()
+        ).all():
+            days_by_route.setdefault(rd.RouteId, []).append(rd)
+
+    # Días futuros planificados por ruta (RouteId -> count)
+    future_days_map: dict[int, int] = {}
+    if route_ids:
+        future_days_map = dict(
+            db.query(RouteDayModel.RouteId, sqlfunc.count(RouteDayModel.RouteDayId)).filter(
+                RouteDayModel.RouteId.in_(route_ids),
+                RouteDayModel.WorkDate > today,
+                RouteDayModel.Status == "PLANNED",
+            ).group_by(RouteDayModel.RouteId).all()
+        )
+
+    # Visitas cerradas (30d) por PdvId — luego se suman por ruta
+    visit_counts_by_pdv = dict(
+        db.query(VisitModel.PdvId, sqlfunc.count(VisitModel.VisitId)).filter(
+            VisitModel.OpenedAt >= thirty_days_dt,
+            VisitModel.Status.in_(["CLOSED", "COMPLETED"]),
+        ).group_by(VisitModel.PdvId).all()
+    )
+
+    result = []
+    for r in routes:
+        route_pdv_ids = route_pdv_map.get(r.RouteId, [])
+        pdv_count = len(route_pdv_ids)
+
+        days = days_by_route.get(r.RouteId, [])
         total_days = len(days)
         completed_days = sum(1 for d in days if d.Status in ("COMPLETED", "CLOSED"))
 
-        # Future planned days
-        future_days = db.query(sqlfunc.count(RouteDayModel.RouteDayId)).filter(
-            RouteDayModel.RouteId == r.RouteId,
-            RouteDayModel.WorkDate > today,
-            RouteDayModel.Status == "PLANNED",
-        ).scalar() or 0
+        future_days = future_days_map.get(r.RouteId, 0)
 
-        # Visits in last 30 days for this route's PDVs
-        route_pdv_ids = [row[0] for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == r.RouteId).all()]
-        visit_count = 0
-        if route_pdv_ids:
-            visit_count = db.query(sqlfunc.count(VisitModel.VisitId)).filter(
-                VisitModel.PdvId.in_(route_pdv_ids),
-                VisitModel.OpenedAt >= datetime.combine(thirty_days_ago, datetime.min.time()).replace(tzinfo=timezone.utc),
-                VisitModel.Status.in_(["CLOSED", "COMPLETED"]),
-            ).scalar() or 0
+        visit_count = sum(visit_counts_by_pdv.get(pid, 0) for pid in route_pdv_ids)
 
         compliance = round(completed_days / total_days * 100) if total_days > 0 else 0
 
