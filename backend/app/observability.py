@@ -109,31 +109,6 @@ def init_app_insights() -> bool:
     return True
 
 
-def instrument_fastapi_and_sql(app, engine) -> None:
-    """Instrumenta requests ENTRANTES de FastAPI (→ tabla AppRequests) y queries de
-    SQLAlchemy (→ dependencias SQL) en App Insights.
-
-    `configure_azure_monitor` ya captura las dependencias salientes (blob/HTTP) pero no
-    estaba generando AppRequests ni queries SQL, así que instrumentamos explícitamente.
-    No hace nada si App Insights está desactivado (dev/local sin connection string)."""
-    if not settings.applicationinsights_connection_string:
-        return
-
-    try:
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        FastAPIInstrumentor.instrument_app(app)
-        logger.info("FastAPI instrumentado para App Insights (AppRequests)")
-    except Exception as exc:  # ya instrumentada o paquete ausente: no es fatal
-        logger.warning("No se pudo instrumentar FastAPI para App Insights: %s", exc)
-
-    try:
-        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-        SQLAlchemyInstrumentor().instrument(engine=engine)
-        logger.info("SQLAlchemy instrumentado para App Insights (dependencias SQL)")
-    except Exception as exc:
-        logger.warning("No se pudo instrumentar SQLAlchemy para App Insights: %s", exc)
-
-
 def capture_request_id(request_id: str, user_id: int | None = None) -> None:
     """Adjunta el request_id (y opcionalmente el user_id) al scope actual de Sentry,
     para que cualquier excepción capturada incluya estos tags."""
