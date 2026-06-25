@@ -336,7 +336,7 @@ export function SurveyForm() {
         answersChangedSinceLastSave.current = false;
         toast.success("Borrador guardado automáticamente", { duration: 2000 });
       } catch { /* silent autosave failure */ }
-    }, 30_000);
+    }, 60_000);
     return () => clearInterval(interval);
   }, [visitId, visitIdFromState, flushFormTimes]);
 

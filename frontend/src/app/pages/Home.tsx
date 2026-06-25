@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { DateSelector } from "../components/DateSelector";
@@ -130,9 +130,16 @@ export function Home() {
       .filter((p: any) => !nearbySearch || p.Name.toLowerCase().includes(nearbySearch.toLowerCase()) || (p.Address || "").toLowerCase().includes(nearbySearch.toLowerCase()));
   }, [userCoords, nearbyPdvList, nearbySearch, distanceMetersBetween]);
 
-  // Refetch when user comes back to this page
+  // Refetch when user comes back to this page (throttled: skip if refetched <30s ago)
+  const lastVisibleRefetchRef = useRef(0);
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === "visible") refetchHome(); };
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastVisibleRefetchRef.current < 30_000) return;
+      lastVisibleRefetchRef.current = now;
+      refetchHome();
+    };
     document.addEventListener("visibilitychange", onVisible);
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [refetchHome]);

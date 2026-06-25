@@ -4,9 +4,10 @@ import { Factory, RefreshCw } from "lucide-react";
 import { Badge } from "../../components/ui/badge";
 import { getCurrentShift } from "./data/mockData";
 
-export function PlantLayout() {
+// Isolated clock: holds its own 1s interval so only this component re-renders
+// every second, not the whole PlantLayout subtree (Outlet + child routes).
+function HeaderClock() {
   const [time, setTime] = useState(new Date());
-  const shift = getCurrentShift();
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -25,6 +26,17 @@ export function PlantLayout() {
     minute: "2-digit",
     second: "2-digit",
   });
+
+  return (
+    <div className="text-right">
+      <p className="text-2xl font-mono font-bold tracking-wider leading-none">{timeStr}</p>
+      <p className="text-xs text-white/40 capitalize mt-0.5">{dateStr}</p>
+    </div>
+  );
+}
+
+export function PlantLayout() {
+  const shift = getCurrentShift();
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
@@ -47,10 +59,7 @@ export function PlantLayout() {
         </div>
 
         <div className="flex items-center gap-6">
-          <div className="text-right">
-            <p className="text-2xl font-mono font-bold tracking-wider leading-none">{timeStr}</p>
-            <p className="text-xs text-white/40 capitalize mt-0.5">{dateStr}</p>
-          </div>
+          <HeaderClock />
           <button
             onClick={() => window.location.reload()}
             className="w-12 h-12 rounded-xl bg-white/5 hover:bg-white/10 active:bg-white/20 flex items-center justify-center transition-colors"
