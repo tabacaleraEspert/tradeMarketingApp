@@ -10,7 +10,7 @@ from .routers import zones, users, roles, distributors, channels, subchannels, p
 from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role, require_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
-from .observability import init_sentry, init_app_insights
+from .observability import init_sentry, init_app_insights, instrument_sql
 from .config import settings
 
 configure_logging()
@@ -46,6 +46,11 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.add_middleware(RequestIdMiddleware)
+
+# Instrumentación de queries SQL para App Insights (dependencias SQL). La latencia por
+# endpoint la registra RequestIdMiddleware (→ AppTraces). NO instrumentamos FastAPI con
+# OTel: rompe el preflight CORS con estas versiones (incidente 2026-06-25).
+instrument_sql(engine)
 
 # DB bootstrap.
 #

@@ -109,6 +109,27 @@ def init_app_insights() -> bool:
     return True
 
 
+def instrument_sql(engine) -> None:
+    """Instrumenta queries de SQLAlchemy (→ dependencias SQL en App Insights).
+
+    ⚠️ NO usamos FastAPIInstrumentor (opentelemetry-instrumentation-fastapi). Con la
+    combinación de versiones del proyecto (fastapi/starlette + otel 0.61b0) su
+    `_get_route_details` rompe el manejo ASGI y devolvía HTTP 500 en el preflight CORS
+    (incidente 2026-06-25 → "Failed to fetch" en alta de PDV). La latencia POR ENDPOINT
+    la cubre `RequestIdMiddleware` (loguea method/path/status/dur_ms → AppTraces), que es
+    robusto y testeable. SQLAlchemy sí es seguro (no toca el request handling ASGI).
+    No hace nada si App Insights está desactivado (dev/local sin connection string)."""
+    if not settings.applicationinsights_connection_string:
+        return
+
+    try:
+        from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+        SQLAlchemyInstrumentor().instrument(engine=engine)
+        logger.info("SQLAlchemy instrumentado para App Insights (dependencias SQL)")
+    except Exception as exc:
+        logger.warning("No se pudo instrumentar SQLAlchemy para App Insights: %s", exc)
+
+
 def capture_request_id(request_id: str, user_id: int | None = None) -> None:
     """Adjunta el request_id (y opcionalmente el user_id) al scope actual de Sentry,
     para que cualquier excepción capturada incluya estos tags."""

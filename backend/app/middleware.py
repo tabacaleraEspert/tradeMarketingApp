@@ -11,6 +11,7 @@ Middlewares para la app.
   "Error del servidor. Código: abc-123"
 """
 import logging
+import time
 import traceback
 import uuid
 
@@ -39,6 +40,7 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
         except Exception:
             pass
 
+        start = time.perf_counter()
         try:
             response = await call_next(request)
         except Exception as exc:
@@ -71,6 +73,16 @@ class RequestIdMiddleware(BaseHTTPMiddleware):
                 headers=cors_headers,
             )
         response.headers["X-Request-ID"] = rid
+
+        # Latencia por endpoint → AppTraces (reemplaza AppRequests; ver observability.instrument_sql).
+        # Saltamos /health (probe de la plataforma, alto volumen y sin valor).
+        path = request.url.path
+        if path != "/health":
+            dur_ms = (time.perf_counter() - start) * 1000
+            logger.info(
+                "request | method=%s path=%s status=%s dur_ms=%.0f | rid=%s",
+                request.method, path, response.status_code, dur_ms, rid,
+            )
         return response
 
 

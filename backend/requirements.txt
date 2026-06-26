@@ -12,4 +12,8 @@ alembic>=1.13
 azure-storage-blob>=12.19
 pillow>=10.0
 sentry-sdk[fastapi]>=2.0
-azure-monitor-opentelemetry>=1.6
+# Pin exacto: azure-monitor 1.8.8 fija toda la serie OTel en 0.61b0 / api 1.40. La
+# instrumentación de SQLAlchemy (no viene como dep transitiva) DEBE ir en la misma serie,
+# si no pip arrastra 0.64b0/api 1.43 y rompe al exporter (requiere api==1.40). Subir las dos juntas.
+azure-monitor-opentelemetry==1.8.8
+opentelemetry-instrumentation-sqlalchemy==0.61b0
