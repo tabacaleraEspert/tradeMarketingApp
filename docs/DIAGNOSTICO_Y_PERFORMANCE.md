@@ -201,6 +201,24 @@ con CORSMiddleware. Si se re-intenta instrumentar AppRequests, PROBAR `OPTIONS` 
 ANTES de deployar — no alcanza con health/tests. `SQLAlchemyInstrumentor` no fue la causa (el 500 es en
 OPTIONS, que no toca DB) pero se revirtió junto por precaución.
 
+**Causa raíz exacta (logs de prod):** `opentelemetry/instrumentation/fastapi/__init__.py:490 _get_route_details`
+fallaba en el ciclo ASGI (incompat de `opentelemetry-instrumentation-fastapi 0.61b0` con el fastapi/starlette
+del build) → "Exception in ASGI application" en cada request → 500.
+
+### 2026-06-26 — RESUELTO: observabilidad re-habilitada sin romper CORS (commit `256c471`)
+Se re-introdujo la observabilidad de forma robusta, validando OPTIONS antes de deployar:
+- ❌ **NO** se usa `FastAPIInstrumentor` (la pieza que rompía).
+- ✅ `instrument_sql(engine)` → `SQLAlchemyInstrumentor` (dependencias SQL; no toca el ASGI).
+- ✅ Latencia POR ENDPOINT vía `RequestIdMiddleware`: loguea `request | method/path/status/dur_ms` →
+  tabla `AppTraces` (queryable: `AppTraces | where Message startswith "request |"`), excluye `/health`.
+
+**Validación:** uvicorn real local → OPTIONS /pdvs 200, timing logueado, SQL instrumentado, sin "Exception in ASGI".
+Post-deploy en prod: `OPTIONS /pdvs` (y /visits, /files/photos, /visit-coverage) → **200** con headers CORS. 269 tests OK.
+
+**Repro local del bug de instrumentación** (clave: usar uvicorn REAL, no TestClient, que no lo reproduce):
+`APPLICATIONINSIGHTS_CONNECTION_STRING="InstrumentationKey=...;IngestionEndpoint=https://..." USE_SQLITE=true
+FRONTEND_ORIGIN="http://front" python -m uvicorn app.main:app --port 8011` + `curl -X OPTIONS .../pdvs -H "Origin: http://front" -H "Access-Control-Request-Method: POST"`.
+
 **Pendiente:**
 - ⚠️ **`startup.sh` corre `alembic upgrade head` que FALLA en cada arranque** (`Column 'BusinessName'
   in table 'PDV' specified more than once`) porque prod NO está trackeado por Alembic (ver
