@@ -402,7 +402,7 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
     return _pdv_to_response(pdv, db)
 
 
-@router.delete("/{pdv_id}", status_code=204, dependencies=[Depends(require_role("admin"))])
+@router.delete("/{pdv_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
 def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
     if not pdv:

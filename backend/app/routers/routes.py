@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
@@ -441,10 +442,13 @@ def list_routes(
     if assigned_user_id is not None:
         q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
 
-    # Filtro de sub-árbol para no-admin: solo rutas asignadas a alguien visible.
-    # Las rutas sin asignar quedan solo para admins (decisión de producto).
+    # Filtro de sub-árbol para no-admin: rutas asignadas a alguien visible O las que
+    # creó el propio usuario (aunque estén sin asignar — así ve lo que da de alta).
     if visible_ids is not None:
-        q = q.filter(RouteModel.AssignedUserId.in_(visible_ids))
+        q = q.filter(or_(
+            RouteModel.AssignedUserId.in_(visible_ids),
+            RouteModel.CreatedByUserId == current_user.UserId,
+        ))
 
     routes = q.order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
     return [_route_to_response(r, db) for r in routes]
@@ -459,13 +463,15 @@ def get_route(route_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=Route, status_code=201, dependencies=[Depends(require_role("vendedor"))])
-def create_route(data: RouteCreate, db: Session = Depends(get_db)):
+def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     r = RouteModel(
         Name=data.Name,
         ZoneId=data.ZoneId,
         FormId=data.FormId,
         IsActive=data.IsActive,
-        CreatedByUserId=data.CreatedByUserId,
+        # Si el front no manda CreatedByUserId, lo derivamos del usuario logueado para que
+        # el creador siempre pueda ver su ruta (ver filtro en list_routes).
+        CreatedByUserId=data.CreatedByUserId or current_user.UserId,
         AssignedUserId=data.AssignedUserId,
         BejermanZone=data.BejermanZone,
         FrequencyType=data.FrequencyType,
