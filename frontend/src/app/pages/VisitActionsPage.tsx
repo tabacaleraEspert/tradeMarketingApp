@@ -48,6 +48,19 @@ const OTRA_ICONS: Record<string, React.ElementType> = {
 const NEGOCIACION_TYPES = ["Quiosco nuevo", "Difícil penetración", "Extensión por desarrollo de marca"];
 const BRAND_FAMILIES = ["Milenio", "Mill", "Melbourne", "Van Kiff", "Lebonn"];
 
+/** Cálculos derivados del canje de sueltos. Compartido por el form (render) y la validación
+ *  del guardado, para que no diverjan. `llenos` = atados llenos que corresponde entregar. */
+function computeCanje(formData: Record<string, unknown>) {
+  const modalidad = (formData.modalidad as string) || "10+1";
+  const divisor = modalidad === "5+1" ? 5 : 10;
+  const cantidades = (formData.cantidades as Record<string, number>) || {};
+  const entregados = (formData.entregados as Record<string, number>) || {};
+  const totalVacios = Object.values(cantidades).reduce((s, v) => s + (v || 0), 0);
+  const llenos = Math.floor(totalVacios / divisor);
+  const totalEntregados = Object.values(entregados).reduce((s, v) => s + (v || 0), 0);
+  return { modalidad, divisor, totalVacios, llenos, totalEntregados };
+}
+
 export function VisitActionsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -294,18 +307,14 @@ export function VisitActionsPage() {
   // ── CANJE DE SUELTOS ──
   const renderCanjeForm = () => {
     const cigaretteProducts = ownProducts.filter((p) => p.Category?.toLowerCase() === "cigarrillos");
-    const modalidad = fd("modalidad") || "10+1";
-    const divisor = modalidad === "5+1" ? 5 : 10;
+    const { modalidad, divisor, totalVacios, llenos, totalEntregados } = computeCanje(formData);
     const step = divisor; // 5+1 suma de 5, 10+1 suma de 10
     const cantidades = (formData.cantidades as Record<string, number>) || {};
-    const totalVacios = Object.values(cantidades).reduce((s, v) => s + v, 0);
-    const llenos = Math.floor(totalVacios / divisor);
     const filledProducts = cigaretteProducts.filter((p) => p.Name in cantidades && cantidades[p.Name] !== undefined);
     const emptyProducts = cigaretteProducts.filter((p) => !(p.Name in cantidades) || cantidades[p.Name] === undefined);
 
     // Atados a entregar (llenos) — por marca, de a 1
     const entregados = (formData.entregados as Record<string, number>) || {};
-    const totalEntregados = Object.values(entregados).reduce((s, v) => s + v, 0);
     const filledEntregados = cigaretteProducts.filter((p) => p.Name in entregados && entregados[p.Name] !== undefined);
     const emptyEntregados = cigaretteProducts.filter((p) => !(p.Name in entregados) || entregados[p.Name] === undefined);
     return (
@@ -595,9 +604,15 @@ export function VisitActionsPage() {
     const details = { ...formData };
 
     if (type === "canje_sueltos") {
-      const cant = (formData.cantidades as Record<string, number>) || {};
-      const total = Object.values(cant).reduce((s, v) => s + v, 0);
-      desc = `Canje ${fd("modalidad") || "5+1"} · ${total} vacíos · ${fd("marcaEntregada")}`;
+      const { totalVacios, llenos, totalEntregados } = computeCanje(formData);
+      if (!fd("negociacion")) { toast.error("Elegí el tipo de negociación"); return; }
+      if (totalVacios <= 0) { toast.error("Cargá los atados vacíos recibidos"); return; }
+      if (llenos <= 0) { toast.error("Los vacíos recibidos no alcanzan para un atado lleno"); return; }
+      if (totalEntregados !== llenos) {
+        toast.error(`Asigná los ${llenos} atados llenos a entregar (llevás ${totalEntregados})`);
+        return;
+      }
+      desc = `Canje ${fd("modalidad") || "5+1"} · ${totalVacios} vacíos · ${totalEntregados} llenos`;
     } else if (type === "pop") {
       desc = `${fd("material")} · ${((formData.companies as string[]) || []).join(", ")} · ${fd("ubicacion")}`;
     } else if (type === "promo") {
@@ -609,6 +624,13 @@ export function VisitActionsPage() {
     }
 
     handleSaveAction(type, desc, details);
+  };
+
+  // El canje exige negociación + vacíos recibidos + todos los llenos asignados (regla estricta).
+  const canSaveCanje = () => {
+    if (activeForm !== "canje_sueltos") return true;
+    const { totalVacios, llenos, totalEntregados } = computeCanje(formData);
+    return !!fd("negociacion") && totalVacios > 0 && llenos > 0 && totalEntregados === llenos;
   };
 
   // ── MAIN RENDER ──
@@ -636,7 +658,7 @@ export function VisitActionsPage() {
           {activeForm === "otra" && renderOtraForm()}
         </div>
         <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] z-20">
-          <Button onClick={handleSave} disabled={saving} className="w-full h-11 font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white">
+          <Button onClick={handleSave} disabled={saving || !canSaveCanje()} className="w-full h-11 font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white">
             {saving ? "Guardando..." : "Guardar acción"}
           </Button>
         </div>
