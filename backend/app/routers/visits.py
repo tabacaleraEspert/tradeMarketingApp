@@ -442,6 +442,17 @@ def create_visit(
     db.commit()
     db.refresh(v)
 
+    # Auto-resolver RouteDayId si el front no lo mandó: atar la visita a la ruta
+    # de HOY del usuario si este PDV está en ella. El front lo pasa por navigation
+    # state y se pierde fácil (buscar PDV, kiosco cercano, reload, sync offline);
+    # sin esto la visita queda huérfana y el progreso de la ruta no avanza.
+    if not v.RouteDayId:
+        resolved = _resolve_route_day_id(v.UserId, v.PdvId, db)
+        if resolved:
+            v.RouteDayId = resolved
+            db.commit()
+            db.refresh(v)
+
     # Mark RouteDayPdv as IN_PROGRESS when visit is opened
     if v.RouteDayId:
         from ..models.route import RouteDayPdv as RouteDayPdvModel
@@ -611,15 +622,40 @@ def update_visit(
     return v
 
 
+def _resolve_route_day_id(user_id: int, pdv_id: int, db: Session):
+    """Busca la ruta de HOY del usuario que contenga este PDV, para atar visitas
+    que llegaron sin RouteDayId (el front lo pasa por navigation state y se pierde
+    fácil: buscar PDV, kiosco cercano, reload, sync offline). Devuelve el
+    RouteDayId o None."""
+    from datetime import date
+    from ..models.route import RouteDayPdv as RouteDayPdvModel
+    row = (
+        db.query(RouteDayModel.RouteDayId)
+        .join(RouteDayPdvModel, RouteDayPdvModel.RouteDayId == RouteDayModel.RouteDayId)
+        .filter(
+            RouteDayModel.AssignedUserId == user_id,
+            RouteDayModel.WorkDate == date.today(),
+            RouteDayPdvModel.PdvId == pdv_id,
+        )
+        .first()
+    )
+    return row[0] if row else None
+
+
 def _update_route_day_pdv_status(visit: VisitModel, db: Session):
-    """Al cerrar la visita, marca el RouteDayPdv correspondiente como DONE."""
-    if not visit.RouteDayId:
+    """Al cerrar la visita, marca el RouteDayPdv correspondiente como DONE.
+    Si la visita llegó sin RouteDayId, intenta resolverlo (visita huérfana) para
+    que igual cuente en el progreso de la ruta."""
+    route_day_id = visit.RouteDayId or _resolve_route_day_id(visit.UserId, visit.PdvId, db)
+    if not route_day_id:
         return
+    if not visit.RouteDayId:
+        visit.RouteDayId = route_day_id  # persistir el vínculo resuelto
     from ..models.route import RouteDayPdv as RouteDayPdvModel
     rdp = (
         db.query(RouteDayPdvModel)
         .filter(
-            RouteDayPdvModel.RouteDayId == visit.RouteDayId,
+            RouteDayPdvModel.RouteDayId == route_day_id,
             RouteDayPdvModel.PdvId == visit.PdvId,
         )
         .first()
