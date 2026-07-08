@@ -375,10 +375,14 @@ interface PaginatedResponse<T> {
   limit: number;
 }
 
-const PDV_PAGE_SIZE = 50;
+const PDV_PAGE_SIZE = 500;
+// Máximo de páginas pedidas a la vez. Sin esto, un padrón grande dispara
+// todas las páginas en un solo Promise.all y satura el backend (cada request
+// recalcula visibilidad jerárquica).
+const PDV_PAGE_CONCURRENCY = 3;
 
 export const pdvsApi = {
-  /** Fetches all PDVs matching filters, auto-paginating in chunks of 50. */
+  /** Fetches all PDVs matching filters, auto-paginating in chunks of 500. */
   list: async (params?: {
     skip?: number;
     limit?: number;
@@ -390,17 +394,18 @@ export const pdvsApi = {
       skip: 0, limit: PDV_PAGE_SIZE, zone_id, distributor_id,
     });
     const all: Pdv[] = [...first.items];
-    // Fetch remaining pages in parallel
     if (first.total > PDV_PAGE_SIZE) {
       const remaining = Math.ceil((first.total - PDV_PAGE_SIZE) / PDV_PAGE_SIZE);
-      const pages = await Promise.all(
-        Array.from({ length: remaining }, (_, i) =>
-          api.get<PaginatedResponse<Pdv>>("/pdvs", {
-            skip: (i + 1) * PDV_PAGE_SIZE, limit: PDV_PAGE_SIZE, zone_id, distributor_id,
-          })
-        )
-      );
-      for (const page of pages) all.push(...page.items);
+      for (let start = 0; start < remaining; start += PDV_PAGE_CONCURRENCY) {
+        const batch = Array.from(
+          { length: Math.min(PDV_PAGE_CONCURRENCY, remaining - start) },
+          (_, i) =>
+            api.get<PaginatedResponse<Pdv>>("/pdvs", {
+              skip: (start + i + 1) * PDV_PAGE_SIZE, limit: PDV_PAGE_SIZE, zone_id, distributor_id,
+            })
+        );
+        for (const page of await Promise.all(batch)) all.push(...page.items);
+      }
     }
     return all;
   },

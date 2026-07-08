@@ -187,7 +187,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
 @router.get("")
 def list_pdvs(
     skip: int = 0,
-    limit: int = Query(default=50, le=200),
+    limit: int = Query(default=50, le=1000),
     zone_id: int | None = None,
     distributor_id: int | None = None,
     current_user: UserModel = Depends(get_current_user),
