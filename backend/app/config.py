@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 60 * 8  # 8 horas
     jwt_refresh_expire_minutes: int = 60 * 24 * 7  # 7 días
 
+    # --- SSO (Command Center Espert) ---
+    # Secret compartido para validar tickets de autologin (HS256). DISTINTO del
+    # jwt_secret_key propio. Vacío = /auth/sso deshabilitado (503).
+    sso_shared_secret: str = ""
+
     # --- Observability / Sentry ---
     # Si está vacío, no se activa Sentry. La app sigue logueando localmente.
     sentry_dsn: str = ""

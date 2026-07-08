@@ -29,6 +29,7 @@ from .app_setting import AppSetting
 from .supplier_type import SupplierType
 from .supplier_product_type import SupplierProductType
 from .pdv_supplier import PdvSupplier
+from .sso import SsoUsedJti
 
 __all__ = [
     "Zone",
@@ -79,4 +80,5 @@ __all__ = [
     "SupplierType",
     "SupplierProductType",
     "PdvSupplier",
+    "SsoUsedJti",
 ]

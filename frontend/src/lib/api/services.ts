@@ -49,6 +49,8 @@ export const authApi = {
   /** Admin-only: obtiene una sesión como otro usuario (impersonation). */
   impersonate: (userId: number) =>
     api.post<LoginResponse>(`/auth/impersonate/${userId}`, {}),
+  /** Autologin con ticket firmado del Command Center Espert. */
+  sso: (ticket: string) => api.post<LoginResponse>("/auth/sso", { ticket }),
 };
 
 // --- Visit Photos ---

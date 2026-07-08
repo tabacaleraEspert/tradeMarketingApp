@@ -1,6 +1,7 @@
 import { lazy, Suspense, Component, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router";
 import { Login } from "./pages/Login";
+import { SsoLogin } from "./pages/SsoLogin";
 import { Home } from "./pages/Home";
 import { Layout } from "./components/Layout";
 import { getCurrentUser } from "./lib/auth";
@@ -124,6 +125,10 @@ export const router = createBrowserRouter([
   {
     path: "/login",
     Component: Login,
+  },
+  {
+    path: "/sso",
+    Component: SsoLogin,
   },
   {
     path: "/",

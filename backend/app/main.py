@@ -299,6 +299,89 @@ def impersonate(
     )
 
 
+class SsoRequest(BaseModel):
+    ticket: str
+
+
+@app.post("/auth/sso", response_model=LoginResponse, tags=["Auth"])
+def sso_login(data: SsoRequest, db: Session = Depends(get_db)):
+    """Autologin desde el Command Center Espert.
+
+    Recibe un ticket JWT firmado HS256 con SSO_SHARED_SECRET (secret compartido,
+    DISTINTO del JWT_SECRET_KEY propio). Claims esperados: dni, aud="trade",
+    exp (~60s), iat, jti (un solo uso). Si todo valida, emite la misma sesión
+    que /auth/login. Todos los rechazos son 401 genérico para no filtrar si un
+    DNI existe.
+    """
+    from datetime import datetime, timedelta, timezone
+    from jose import jwt as jose_jwt, JWTError
+    from sqlalchemy.exc import IntegrityError
+    from .models.sso import SsoUsedJti
+
+    if not settings.sso_shared_secret:
+        raise HTTPException(status_code=503, detail="SSO no configurado")
+
+    _invalid = HTTPException(status_code=401, detail="Ticket inválido")
+
+    try:
+        payload = jose_jwt.decode(
+            data.ticket,
+            settings.sso_shared_secret,
+            algorithms=["HS256"],
+            audience="trade",
+            options={"require_exp": True, "require_iat": True, "leeway": 10},
+        )
+    except JWTError:
+        raise _invalid
+
+    dni = str(payload.get("dni") or "").strip()
+    jti = str(payload.get("jti") or "").strip()
+    if not dni or not jti or len(jti) > 64:
+        raise _invalid
+    # El contrato es exp ≈ iat + 60s; un ticket más longevo está mal emitido.
+    if int(payload["exp"]) - int(payload["iat"]) > 300:
+        raise _invalid
+
+    # jti de un solo uso: el insert (PK) falla ante replay, incluso concurrente.
+    # Se consume ANTES del lookup: un ticket usado queda quemado aunque falle.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    exp_dt = datetime.fromtimestamp(int(payload["exp"]), tz=timezone.utc).replace(tzinfo=None)
+    try:
+        db.query(SsoUsedJti).filter(
+            SsoUsedJti.ExpiresAt < now - timedelta(minutes=10)
+        ).delete(synchronize_session=False)
+        db.add(SsoUsedJti(Jti=jti, ExpiresAt=exp_dt))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise _invalid
+
+    user = db.query(UserModel).filter(UserModel.DNI == dni).first()
+    if not user or not user.IsActive:
+        raise _invalid
+
+    # Auditoría — best-effort, mismo patrón que impersonate.
+    try:
+        import json
+        from .models.audit import AuditEvent
+        db.add(AuditEvent(
+            UserId=user.UserId,
+            Entity="User",
+            EntityId=str(user.UserId),
+            Action="SSO_LOGIN",
+            PayloadJson=json.dumps({
+                "dni": dni,
+                "jti": jti,
+                "source": "command-center",
+            }, ensure_ascii=False),
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return _build_login_response(user, db)
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str

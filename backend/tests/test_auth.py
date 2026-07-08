@@ -379,3 +379,127 @@ class TestImpersonation:
         client.patch(f"/users/{target['UserId']}", json={"IsActive": False})
         resp = client.post(f"/auth/impersonate/{target['UserId']}")
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# SSO (autologin desde Command Center Espert)
+# ---------------------------------------------------------------------------
+
+SSO_TEST_SECRET = "test-sso-shared-secret"
+
+
+@pytest.fixture()
+def sso_secret():
+    """Habilita el SSO seteando el secret compartido en la settings global."""
+    old = settings.sso_shared_secret
+    settings.sso_shared_secret = SSO_TEST_SECRET
+    yield SSO_TEST_SECRET
+    settings.sso_shared_secret = old
+
+
+def _make_ticket(dni, secret=SSO_TEST_SECRET, aud="trade", exp_delta=60,
+                 jti=..., omit=()):
+    """Genera un ticket SSO como lo emitiría el Command Center."""
+    import uuid
+    now = int(datetime.now(timezone.utc).timestamp())
+    payload = {
+        "dni": dni,
+        "aud": aud,
+        "iat": now,
+        "exp": now + exp_delta,
+        "jti": uuid.uuid4().hex if jti is ... else jti,
+    }
+    for claim in omit:
+        payload.pop(claim, None)
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _make_sso_user(client, dni, email, active=True):
+    resp = client.post("/users", json={
+        "Email": email,
+        "DisplayName": f"SSO {dni}",
+        "Password": "Pass123!",
+        "DNI": dni,
+    })
+    assert resp.status_code == 201, resp.text
+    user = resp.json()
+    if not active:
+        client.patch(f"/users/{user['UserId']}", json={"IsActive": False})
+    return user
+
+
+class TestSso:
+    def test_sso_valid_ticket_returns_session(self, client, sso_secret):
+        user = _make_sso_user(client, dni="30111222", email="sso_ok@test.com")
+        resp = client.post("/auth/sso", json={"ticket": _make_ticket("30111222")})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["UserId"] == user["UserId"]
+        assert data["Email"] == "sso_ok@test.com"
+        assert "access_token" in data and "refresh_token" in data
+        assert data["token_type"] == "bearer"
+        # El access token emitido es de la app (JWT_SECRET_KEY), no del ticket
+        payload = decode_token(data["access_token"])
+        assert payload["sub"] == str(user["UserId"])
+        assert payload["type"] == "access"
+
+    def test_sso_token_works_against_me(self, client, sso_secret):
+        user = _make_sso_user(client, dni="30111223", email="sso_me@test.com")
+        data = client.post("/auth/sso", json={"ticket": _make_ticket("30111223")}).json()
+        me = client.get("/auth/me", headers=_auth_header(data["access_token"]))
+        assert me.status_code == 200
+        assert me.json()["UserId"] == user["UserId"]
+
+    def test_sso_jti_single_use(self, client, sso_secret):
+        _make_sso_user(client, dni="30111224", email="sso_replay@test.com")
+        ticket = _make_ticket("30111224")
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 200
+        # Replay del mismo ticket → rechazado
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_wrong_secret(self, client, sso_secret):
+        _make_sso_user(client, dni="30111225", email="sso_badsig@test.com")
+        ticket = _make_ticket("30111225", secret=settings.jwt_secret_key)
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_expired_ticket(self, client, sso_secret):
+        _make_sso_user(client, dni="30111226", email="sso_exp@test.com")
+        ticket = _make_ticket("30111226", exp_delta=-60)  # venció hace 1 min (> leeway 10s)
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_wrong_audience(self, client, sso_secret):
+        _make_sso_user(client, dni="30111227", email="sso_aud@test.com")
+        ticket = _make_ticket("30111227", aud="otra-app")
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_missing_jti(self, client, sso_secret):
+        _make_sso_user(client, dni="30111228", email="sso_nojti@test.com")
+        ticket = _make_ticket("30111228", omit=("jti",))
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_missing_dni(self, client, sso_secret):
+        ticket = _make_ticket("ignored", omit=("dni",))
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_unknown_dni(self, client, sso_secret):
+        ticket = _make_ticket("99999999")
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_inactive_user(self, client, sso_secret):
+        _make_sso_user(client, dni="30111229", email="sso_inactive@test.com", active=False)
+        ticket = _make_ticket("30111229")
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_ticket_too_long_lived(self, client, sso_secret):
+        _make_sso_user(client, dni="30111230", email="sso_long@test.com")
+        ticket = _make_ticket("30111230", exp_delta=3600)  # exp - iat > 300s
+        assert client.post("/auth/sso", json={"ticket": ticket}).status_code == 401
+
+    def test_sso_disabled_without_secret(self, client):
+        old = settings.sso_shared_secret
+        settings.sso_shared_secret = ""
+        try:
+            resp = client.post("/auth/sso", json={"ticket": _make_ticket("30111222")})
+            assert resp.status_code == 503
+        finally:
+            settings.sso_shared_secret = old
