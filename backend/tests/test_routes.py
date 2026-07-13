@@ -193,6 +193,14 @@ class TestRoutePdv:
         resp = client.delete(f"/routes/{route['RouteId']}/pdvs/{pdv['PdvId']}")
         assert resp.status_code == 204
 
+    def test_remove_pdv_from_route_keeps_assigned_user(self, client, user, pdv):
+        route = _make_route(client, assigned_user_id=user["UserId"])
+        client.post(f"/routes/{route['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 0, "Priority": 3})
+        resp = client.delete(f"/routes/{route['RouteId']}/pdvs/{pdv['PdvId']}")
+        assert resp.status_code == 204
+        updated_pdv = client.get(f"/pdvs/{pdv['PdvId']}").json()
+        assert updated_pdv["AssignedUserId"] == user["UserId"]
+
     def test_remove_nonexistent_pdv_from_route_returns_404(self, client, route):
         resp = client.delete(f"/routes/{route['RouteId']}/pdvs/999999")
         assert resp.status_code == 404

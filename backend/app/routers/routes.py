@@ -677,10 +677,7 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="PDV no encontrado en la ruta")
     db.delete(rp)
 
-    # Limpiar el TM Rep asignado al PDV (task 13)
-    pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
-    if pdv:
-        pdv.AssignedUserId = None
+    # NO tocar pdv.AssignedUserId: quitar un PDV de la ruta no desasigna al Trade Rep.
 
     # Limpiar RouteDayPdv de días futuros para este PDV
     future_day_ids = [
