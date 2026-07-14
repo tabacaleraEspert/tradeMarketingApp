@@ -193,6 +193,44 @@ class TestRoutePdv:
         resp = client.delete(f"/routes/{route['RouteId']}/pdvs/{pdv['PdvId']}")
         assert resp.status_code == 204
 
+    def test_admin_list_paginated_envelope(self, client, user):
+        name = f"AdmList_{_uid()}"
+        _make_route(client, name=name, assigned_user_id=user["UserId"])
+        resp = client.get("/routes/admin-list", params={"page": 1, "page_size": 5})
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body) == {"items", "total", "page", "page_size", "has_more"}
+        assert body["page"] == 1 and body["page_size"] == 5
+        assert len(body["items"]) <= 5
+        assert body["total"] >= 1
+
+    def test_admin_list_q_searches_name_and_tm(self, client, user):
+        name = f"Zorro_{_uid()}"
+        _make_route(client, name=name, assigned_user_id=user["UserId"])
+        # match por nombre de ruta
+        body = client.get("/routes/admin-list", params={"q": name}).json()
+        assert [r["Name"] for r in body["items"]] == [name]
+        # match por nombre del TM asignado
+        body = client.get("/routes/admin-list", params={"q": user["DisplayName"]}).json()
+        assert name in [r["Name"] for r in body["items"]]
+        # sin match
+        body = client.get("/routes/admin-list", params={"q": "no-existe-xyz"}).json()
+        assert body["total"] == 0 and body["items"] == []
+
+    def test_route_stats(self, client, channel):
+        r_active = _make_route(client, is_active=True)
+        _make_route(client, is_active=False)
+        pdv = _make_pdv(client, channel["ChannelId"])
+        client.post(f"/routes/{r_active['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 0, "Priority": 3})
+        resp = client.get("/routes/stats")
+        assert resp.status_code == 200, resp.text
+        s = resp.json()
+        assert s["total_routes"] >= 2
+        assert s["active_routes"] >= 1
+        assert s["total_routes"] > s["active_routes"] - 1  # inactiva cuenta en total
+        assert s["total_pdvs_in_routes"] >= 1
+        assert s["avg_pdvs_per_route"] == round(s["total_pdvs_in_routes"] / s["total_routes"])
+
     def test_remove_pdv_from_route_keeps_assigned_user(self, client, user, pdv):
         route = _make_route(client, assigned_user_id=user["UserId"])
         client.post(f"/routes/{route['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 0, "Priority": 3})

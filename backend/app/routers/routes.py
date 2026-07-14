@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
@@ -14,6 +14,7 @@ from ..models import (
     User as UserModel,
 )
 from ..models.channel import Channel as ChannelModel
+from ..utils.pagination import Page, PageParams, make_page, paginate
 from ..schemas.route import (
     Route,
     RouteCreate,
@@ -63,6 +64,58 @@ def _route_to_response(r: RouteModel, db: Session) -> Route:
         "CreatedAt": r.CreatedAt,
     }
     return Route.model_validate(data)
+
+
+def _routes_to_response_batch(rs: list[RouteModel], db: Session) -> list[Route]:
+    """Como _route_to_response pero con 2 queries totales en vez de 2 por ruta."""
+    if not rs:
+        return []
+    ids = [r.RouteId for r in rs]
+    counts = dict(
+        db.query(RoutePdvModel.RouteId, func.count())
+        .filter(RoutePdvModel.RouteId.in_(ids))
+        .group_by(RoutePdvModel.RouteId)
+        .all()
+    )
+    user_ids = {r.AssignedUserId for r in rs if getattr(r, "AssignedUserId", None)}
+    names = dict(
+        db.query(UserModel.UserId, UserModel.DisplayName)
+        .filter(UserModel.UserId.in_(user_ids))
+        .all()
+    ) if user_ids else {}
+    return [
+        Route.model_validate({
+            "RouteId": r.RouteId,
+            "Name": r.Name,
+            "ZoneId": r.ZoneId,
+            "FormId": r.FormId,
+            "IsActive": r.IsActive,
+            "BejermanZone": getattr(r, "BejermanZone", None),
+            "FrequencyType": getattr(r, "FrequencyType", None),
+            "FrequencyConfig": getattr(r, "FrequencyConfig", None),
+            "EstimatedMinutes": getattr(r, "EstimatedMinutes", None),
+            "AssignedUserId": getattr(r, "AssignedUserId", None),
+            "AssignedUserName": names.get(getattr(r, "AssignedUserId", None)),
+            "IsOptimized": bool(getattr(r, "IsOptimized", False)),
+            "CreatedByUserId": getattr(r, "CreatedByUserId", None),
+            "PdvCount": counts.get(r.RouteId, 0),
+            "CreatedAt": r.CreatedAt,
+        })
+        for r in rs
+    ]
+
+
+def _visible_routes_query(db: Session, current_user):
+    """Query base de rutas filtrada por la sub-jerarquía del usuario (admin → todas)."""
+    role_name = get_user_role(db, current_user.UserId)
+    visible_ids = get_visible_user_ids(db, current_user, role_name)
+    q = db.query(RouteModel)
+    if visible_ids is not None:
+        q = q.filter(or_(
+            RouteModel.AssignedUserId.in_(visible_ids),
+            RouteModel.CreatedByUserId == current_user.UserId,
+        ))
+    return q
 
 
 # --- Zonas Bejerman ---
@@ -433,25 +486,64 @@ def list_routes(
     - territory_manager / ejecutivo → ve las asignadas a sí mismo o sus subordinados
     - vendedor (TM Rep) → sólo las asignadas a sí mismo
     """
-    role_name = get_user_role(db, current_user.UserId)
-    visible_ids = get_visible_user_ids(db, current_user, role_name)
-
-    q = db.query(RouteModel)
+    q = _visible_routes_query(db, current_user)
     if created_by is not None:
         q = q.filter(RouteModel.CreatedByUserId == created_by)
     if assigned_user_id is not None:
         q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
 
-    # Filtro de sub-árbol para no-admin: rutas asignadas a alguien visible O las que
-    # creó el propio usuario (aunque estén sin asignar — así ve lo que da de alta).
-    if visible_ids is not None:
-        q = q.filter(or_(
-            RouteModel.AssignedUserId.in_(visible_ids),
-            RouteModel.CreatedByUserId == current_user.UserId,
-        ))
-
     routes = q.order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
-    return [_route_to_response(r, db) for r in routes]
+    return _routes_to_response_batch(routes, db)
+
+
+@router.get("/admin-list", response_model=Page[Route])
+def admin_list_routes(
+    p: PageParams = Depends(),
+    assigned_user_id: int | None = None,
+    is_active: bool | None = None,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """Lista paginada de rutas para /admin/routes (Gestión).
+
+    Devuelve envelope {items, total, page, page_size, has_more}. ``q`` busca en
+    nombre de ruta, TM asignado y zona Bejerman (ILIKE). Respeta jerarquía.
+    """
+    q = _visible_routes_query(db, current_user)
+    if assigned_user_id is not None:
+        q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
+    if is_active is not None:
+        q = q.filter(RouteModel.IsActive == is_active)
+    if p.q:
+        like = f"%{p.q}%"
+        q = q.outerjoin(UserModel, RouteModel.AssignedUserId == UserModel.UserId).filter(or_(
+            RouteModel.Name.ilike(like),
+            RouteModel.BejermanZone.ilike(like),
+            UserModel.DisplayName.ilike(like),
+        ))
+    items, total = paginate(q.order_by(RouteModel.RouteId), p)
+    return make_page(_routes_to_response_batch(items, db), total, p)
+
+
+@router.get("/stats")
+def route_stats(db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    """Totales para las cards de /admin/routes — sin traer todas las rutas."""
+    base = _visible_routes_query(db, current_user)
+    total = base.count()
+    active = base.filter(RouteModel.IsActive == True).count()  # noqa: E712
+    visible_route_ids = base.with_entities(RouteModel.RouteId).scalar_subquery()
+    total_pdvs = (
+        db.query(func.count())
+        .select_from(RoutePdvModel)
+        .filter(RoutePdvModel.RouteId.in_(visible_route_ids))
+        .scalar()
+    ) or 0
+    return {
+        "total_routes": total,
+        "active_routes": active,
+        "total_pdvs_in_routes": total_pdvs,
+        "avg_pdvs_per_route": round(total_pdvs / total) if total else 0,
+    }
 
 
 @router.get("/{route_id}", response_model=Route)

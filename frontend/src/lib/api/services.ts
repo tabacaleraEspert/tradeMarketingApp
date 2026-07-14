@@ -96,6 +96,7 @@ import type {
   Channel,
   SubChannel,
   Route,
+  RouteStats,
   RoutePdv,
   RouteFormWithForm,
   RouteFormRead,
@@ -463,6 +464,8 @@ export const routesApi = {
     return all;
   },
   get: (id: number) => api.get<Route>(`/routes/${id}`),
+  /** Totales para las cards de admin (no requiere traer todas las rutas). */
+  stats: () => api.get<RouteStats>("/routes/stats"),
   getBejermanZones: () => api.get<{ zones: string[] }>("/routes/bejerman-zones"),
   create: (data: {
     Name: string;

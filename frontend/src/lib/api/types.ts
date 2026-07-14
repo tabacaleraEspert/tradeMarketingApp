@@ -218,6 +218,13 @@ export interface Route {
   CreatedAt: string;
 }
 
+export interface RouteStats {
+  total_routes: number;
+  active_routes: number;
+  total_pdvs_in_routes: number;
+  avg_pdvs_per_route: number;
+}
+
 export interface RoutePdv {
   RouteId: number;
   PdvId: number;

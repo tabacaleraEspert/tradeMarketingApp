@@ -5,3 +5,4 @@ export * from "./types";
 export * from "./adapters";
 export * from "./hooks";
 export { useQuery } from "./useQuery";
+export { usePaginated } from "./usePaginated";

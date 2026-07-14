@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -26,7 +26,9 @@ import {
   Search,
   ArrowUpDown,
 } from "lucide-react";
-import { useApiList, routesApi, useZones, useUsers, useForms, BEJERMAN_ZONES, reportsApi } from "@/lib/api";
+import { routesApi, useZones, useUsers, useForms, usePaginated, BEJERMAN_ZONES, reportsApi } from "@/lib/api";
+import type { Route, RouteStats } from "@/lib/api";
+import { SearchInput } from "../../components/ui/search-input";
 import { RouteCalendar } from "../../components/RouteCalendar";
 import { api } from "@/lib/api/client";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-google-maps/api";
@@ -227,8 +229,8 @@ export function RouteManagement() {
   const canManage = canDelete; // same permission for reassign/unassign
 
   // Confirmation modals
-  const [deleteRoute, setDeleteRoute] = useState<typeof routes[0] | null>(null);
-  const [unassignRoute, setUnassignRoute] = useState<typeof routes[0] | null>(null);
+  const [deleteRoute, setDeleteRoute] = useState<Route | null>(null);
+  const [unassignRoute, setUnassignRoute] = useState<Route | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -254,7 +256,32 @@ export function RouteManagement() {
   const [showPolygons, setShowPolygons] = useState(true);
   const [showLines, setShowLines] = useState(true);
 
-  const { data: routes, loading, refetch } = useApiList(() => routesApi.list());
+  // Lista paginada server-side (envelope /routes/admin-list) — no baja todas las rutas
+  const {
+    items: routes,
+    total: routesTotal,
+    page,
+    totalPages,
+    loading,
+    q: searchQ,
+    setQ: setSearchQ,
+    setPage,
+    refetch: refetchRoutes,
+  } = usePaginated<Route>({ endpoint: "/routes/admin-list", pageSize: 50 });
+
+  // Totales para las cards — vienen de /routes/stats, no de la página actual
+  const [stats, setStats] = useState<RouteStats | null>(null);
+  const loadStats = useCallback(() => {
+    routesApi.stats().then(setStats).catch(() => {});
+  }, []);
+  useEffect(() => { loadStats(); }, [loadStats]);
+
+  // Las mutaciones refrescan lista + totales
+  const refetch = useCallback(() => {
+    refetchRoutes();
+    loadStats();
+  }, [refetchRoutes, loadStats]);
+
   const { data: zones } = useZones();
   const { data: users } = useUsers();
   const { data: forms } = useForms();
@@ -422,7 +449,7 @@ export function RouteManagement() {
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground mb-1">Rutas Activas</p>
             <p className="text-3xl font-bold text-espert-gold">
-              {routes.filter((r) => r.IsActive).length}
+              {stats?.active_routes ?? "—"}
             </p>
           </CardContent>
         </Card>
@@ -430,25 +457,21 @@ export function RouteManagement() {
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground mb-1">Total PDV en Rutas</p>
             <p className="text-3xl font-bold text-green-600">
-              {routes.reduce((acc, r) => acc + (r.PdvCount ?? 0), 0)}
+              {stats?.total_pdvs_in_routes ?? "—"}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground mb-1">Total Rutas</p>
-            <p className="text-3xl font-bold text-espert-gold">{routes.length}</p>
+            <p className="text-3xl font-bold text-espert-gold">{stats?.total_routes ?? "—"}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-muted-foreground mb-1">Promedio PDV/Ruta</p>
             <p className="text-3xl font-bold text-muted-foreground">
-              {routes.length > 0
-                ? Math.round(
-                    routes.reduce((acc, r) => acc + (r.PdvCount ?? 0), 0) / routes.length
-                  )
-                : 0}
+              {stats?.avg_pdvs_per_route ?? "—"}
             </p>
           </CardContent>
         </Card>
@@ -760,9 +783,15 @@ export function RouteManagement() {
       {/* Routes List */}
       {viewMode === "list" && (
         <>
-          {loading && (
-            <p className="text-muted-foreground">Cargando rutas...</p>
-          )}
+          <div className="flex items-center gap-3 flex-wrap">
+            <SearchInput
+              value={searchQ}
+              onChange={setSearchQ}
+              placeholder="Buscar por ruta, trade marketer o zona..."
+              className="w-full md:w-80"
+            />
+            {loading && <p className="text-sm text-muted-foreground">Cargando rutas...</p>}
+          </div>
           <Card>
             <CardContent className="p-0">
               {/* Table header */}
@@ -780,8 +809,8 @@ export function RouteManagement() {
               {routes.length === 0 && !loading && (
                 <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
                   <MapPin size={40} className="opacity-30 mb-2" />
-                  <p className="font-medium">No hay rutas creadas</p>
-                  <p className="text-sm">Creá una nueva ruta para empezar</p>
+                  <p className="font-medium">{searchQ ? "Sin resultados" : "No hay rutas creadas"}</p>
+                  <p className="text-sm">{searchQ ? "Probá con otro término de búsqueda" : "Creá una nueva ruta para empezar"}</p>
                 </div>
               )}
               {routes.map((route) => (
@@ -896,6 +925,23 @@ export function RouteManagement() {
               ))}
             </CardContent>
           </Card>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <p className="text-sm text-muted-foreground">
+                Página {page} de {totalPages} · {routesTotal} rutas
+              </p>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage(page - 1)}>
+                  Anterior
+                </Button>
+                <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage(page + 1)}>
+                  Siguiente
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
 
