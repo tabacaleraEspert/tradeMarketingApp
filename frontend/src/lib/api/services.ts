@@ -451,8 +451,17 @@ export const pdvNotesApi = {
 export const BEJERMAN_ZONES = ["Litoral", "GBA Sur", "GBA Norte", "Patagonia"] as const;
 
 export const routesApi = {
-  list: (params?: { skip?: number; limit?: number; created_by?: number; assigned_user_id?: number }) =>
-    api.get<Route[]>("/routes", params as Record<string, number | undefined>),
+  /** Fetches all routes matching filters, auto-paginating (backend caps at 500/página). */
+  list: async (params?: { created_by?: number; assigned_user_id?: number }): Promise<Route[]> => {
+    const PAGE = 500;
+    const all: Route[] = [];
+    for (let skip = 0; ; skip += PAGE) {
+      const page = await api.get<Route[]>("/routes", { ...params, skip, limit: PAGE });
+      all.push(...page);
+      if (page.length < PAGE) break;
+    }
+    return all;
+  },
   get: (id: number) => api.get<Route>(`/routes/${id}`),
   getBejermanZones: () => api.get<{ zones: string[] }>("/routes/bejerman-zones"),
   create: (data: {
