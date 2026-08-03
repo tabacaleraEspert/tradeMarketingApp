@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -27,6 +27,9 @@ class Route(Base):
     AssignedUserId = Column(Integer, ForeignKey("User.UserId", ondelete="SET NULL"), nullable=True, index=True)
     # Indica si el orden de los PDVs fue optimizado (por distancia/tiempo)
     IsOptimized = Column(Boolean, default=False, nullable=False)
+    # Ruta foco: universo de PDVs sobre el que se miden los KPIs del tablero TMR.
+    # Default true: hoy todas las rutas activas asignadas se consideran foco (comportamiento actual intacto).
+    IsFocus = Column(Boolean, nullable=False, server_default=text("1"))
 
 
 class RouteForm(Base):

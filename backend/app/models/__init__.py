@@ -30,6 +30,11 @@ from .supplier_type import SupplierType
 from .supplier_product_type import SupplierProductType
 from .pdv_supplier import PdvSupplier
 from .sso import SsoUsedJti
+from .kpi_definition import KpiDefinition
+from .kpi_config import KpiConfig
+from .scoring_coverage_rule import ScoringCoverageRule
+from .scoring_communication_rule import ScoringCommunicationRule
+from .kpi_monthly_snapshot import KpiMonthlySnapshot
 
 __all__ = [
     "Zone",
@@ -81,4 +86,9 @@ __all__ = [
     "SupplierProductType",
     "PdvSupplier",
     "SsoUsedJti",
+    "KpiDefinition",
+    "KpiConfig",
+    "ScoringCoverageRule",
+    "ScoringCommunicationRule",
+    "KpiMonthlySnapshot",
 ]

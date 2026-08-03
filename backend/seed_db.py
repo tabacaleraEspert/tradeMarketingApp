@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.database import engine, SessionLocal, Base
 from app.models import Zone, User, Role, UserRole, Distributor, Form, FormQuestion, FormOption, Channel, SubChannel, Product
 from app.config import settings
+from app.kpi_defaults import apply_kpi_defaults
 
 
 
@@ -489,6 +490,8 @@ def main():
         seed_forms(db)
         print("\nCreando catálogo de productos...")
         seed_products(db)
+        print("\nCreando configuración default de KPIs (tablero TMR)...")
+        apply_kpi_defaults(db)
         print("\n" + "=" * 50)
         print("Usuarios de prueba para login:")
         print("  Admin:      {email} / {password}".format(**ADMIN_USER))
