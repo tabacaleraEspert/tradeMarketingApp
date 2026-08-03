@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
 
@@ -451,13 +451,20 @@ def report_avg_time_by_tm_pdv(
     pdv_id: int | None = Query(default=None),
     days: int | None = Query(default=None, description="Sólo visitas de los últimos N días"),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Tiempo promedio (en minutos) que cada TM Rep pasa en cada PDV.
+    """Tiempo promedio (en minutos) que cada TM Rep pasa en cada PDV (filtrado por jerarquía).
 
     Sólo cuenta visitas cerradas (con ClosedAt). Calcula los promedios en Python para
     ser portable entre SQLite y SQL Server (evita julianday/DATEDIFF).
     """
+    visible = visible_user_ids(db, current_user)
+    if user_id is not None and visible is not None and user_id not in visible:
+        raise HTTPException(403, "No tenés acceso a los datos de este usuario")
+
     q = db.query(VisitModel).filter(VisitModel.ClosedAt.isnot(None))
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
     if user_id is not None:
         q = q.filter(VisitModel.UserId == user_id)
     if pdv_id is not None:
@@ -513,17 +520,21 @@ def report_form_times(
     year: int = Query(default=None),
     month: int = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
 ):
-    """Tiempos promedio por formulario en el mes."""
+    """Tiempos promedio por formulario en el mes (filtrado por jerarquía)."""
     now = datetime.now(timezone.utc)
     y = year or now.year
     m = month or now.month
     first, last = _date_range(y, m)
 
+    visible = visible_user_ids(db, current_user)
     visit_ids_q = (
         db.query(VisitModel.VisitId)
         .filter(VisitModel.OpenedAt >= first, VisitModel.OpenedAt <= last)
     )
+    if visible is not None:
+        visit_ids_q = visit_ids_q.filter(VisitModel.UserId.in_(visible))
     visit_ids = [r[0] for r in visit_ids_q.all()]
     if not visit_ids:
         return []
@@ -1082,13 +1093,19 @@ def smart_alerts(
 # ─── Product Analytics ───────────────────────────────────────────────
 
 @router.get("/product-analytics")
-def product_analytics(db: Session = Depends(get_db)):
-    """Analytics de productos basado en datos de cobertura de visitas.
+def product_analytics(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Analytics de productos basado en datos de cobertura de visitas (filtrado por jerarquía).
 
     Para cada producto, calcula métricas del último relevamiento por PDV
     (evita duplicar si un PDV fue visitado múltiples veces).
     """
     import statistics
+
+    visible = visible_user_ids(db, current_user)
+    vpdv = visible_pdv_ids(db, current_user)
 
     # Subquery: último VisitCoverageId por (ProductId, PdvId)
     # = la entrada de cobertura más reciente para cada producto en cada PDV
@@ -1099,9 +1116,10 @@ def product_analytics(db: Session = Depends(get_db)):
             sqlfunc.max(VisitCoverageModel.VisitCoverageId).label("latest_id"),
         )
         .join(VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId)
-        .group_by(VisitCoverageModel.ProductId, VisitModel.PdvId)
-        .subquery()
     )
+    if visible is not None:
+        latest_sq = latest_sq.filter(VisitModel.UserId.in_(visible))
+    latest_sq = latest_sq.group_by(VisitCoverageModel.ProductId, VisitModel.PdvId).subquery()
 
     # Fetch all latest coverage rows with product info
     rows = (
@@ -1171,7 +1189,10 @@ def product_analytics(db: Session = Depends(get_db)):
         cat_map.setdefault(bp["Category"] or "Sin categoría", []).append(bp)
 
     by_category = []
-    total_pdvs = db.query(PDVModel).filter(PDVModel.IsActive == True).count()
+    total_pdvs_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        total_pdvs_q = total_pdvs_q.filter(PDVModel.PdvId.in_(vpdv))
+    total_pdvs = total_pdvs_q.count()
     for cat, items in sorted(cat_map.items()):
         pdvs_with_cat = set()
         for item in items:
@@ -1190,9 +1211,12 @@ def product_analytics(db: Session = Depends(get_db)):
         for e in entries:
             all_pdv_ids.add(e.PdvId)
 
-    total_visits_with_coverage = (
-        db.query(sqlfunc.count(sqlfunc.distinct(VisitCoverageModel.VisitId))).scalar() or 0
+    tv_q = db.query(sqlfunc.count(sqlfunc.distinct(VisitCoverageModel.VisitId))).join(
+        VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId
     )
+    if visible is not None:
+        tv_q = tv_q.filter(VisitModel.UserId.in_(visible))
+    total_visits_with_coverage = tv_q.scalar() or 0
 
     return {
         "byProduct": by_product,
@@ -1205,11 +1229,21 @@ def product_analytics(db: Session = Depends(get_db)):
 # ─── Supplier Analytics ──────────────────────────────────────────────
 
 @router.get("/supplier-analytics")
-def supplier_analytics(db: Session = Depends(get_db)):
-    """Analytics de proveedores censados por PDV."""
+def supplier_analytics(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Analytics de proveedores censados por PDV (filtrado por jerarquía)."""
     import json as _json
 
-    suppliers = db.query(PdvSupplierModel).filter(PdvSupplierModel.IsActive == True).all()
+    vpdv = visible_pdv_ids(db, current_user)
+    suppliers_q = db.query(PdvSupplierModel).filter(PdvSupplierModel.IsActive == True)
+    if vpdv is not None:
+        # PdvId NULL = entrada de catálogo de zona (no censa un PDV puntual, se deja visible)
+        suppliers_q = suppliers_q.filter(
+            (PdvSupplierModel.PdvId.in_(vpdv)) | (PdvSupplierModel.PdvId.is_(None))
+        )
+    suppliers = suppliers_q.all()
     types = {t.SupplierTypeId: t.Name for t in db.query(SupplierTypeModel).all()}
     zones = {z.ZoneId: z.Name for z in db.query(ZoneModel).all()}
 
