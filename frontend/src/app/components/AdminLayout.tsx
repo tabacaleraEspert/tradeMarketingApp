@@ -19,6 +19,7 @@ import {
   Shield,
   Truck,
   Gift,
+  Gauge,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -75,6 +76,7 @@ export function AdminLayout() {
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
+    { path: "/tablero", icon: Gauge, label: "Tablero" },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/supplier-config", icon: Truck, label: "Proveedores" },

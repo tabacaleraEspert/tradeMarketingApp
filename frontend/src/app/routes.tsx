@@ -51,6 +51,7 @@ const PlantDashboard = lazy(() => import("./pages/plant/PlantDashboard").then(m 
 const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m => ({ default: m.AuditTimeline })));
 const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
 const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").then(m => ({ default: m.ProductDeliveries })));
+const TableroPage = lazy(() => import("./pages/tablero/TableroPage").then(m => ({ default: m.TableroPage })));
 
 function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
@@ -196,6 +197,14 @@ export const router = createBrowserRouter([
     Component: AdminGuard,
     children: [
       { index: true, element: <SuspenseWrap><PlantDashboard /></SuspenseWrap> },
+      { path: "*", element: <Navigate to="/login" replace /> },
+    ],
+  },
+  {
+    path: "/tablero",
+    Component: AdminGuard,
+    children: [
+      { index: true, element: <SuspenseWrap><TableroPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },

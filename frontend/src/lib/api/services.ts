@@ -927,6 +927,71 @@ export const reportsApi = {
     }>("/reports/pdv-analytics"),
 };
 
+// --- KPI / Tablero TMR ---
+export interface KpiItem {
+  key: string;
+  name: string;
+  actual: number;
+  target: number;
+  weight: number;
+  achieved: boolean;
+  numerator: number;
+  denominator: number;
+  scopeApplied: string;
+}
+
+export interface KpiVariableRow {
+  userId: number;
+  name: string | null;
+  partial: boolean;
+  day: number;
+  kpis: KpiItem[];
+  variableTotal: number;
+  configWarning: string | null;
+}
+
+export interface PdvScoringItem {
+  pdvId: number;
+  name: string;
+  route: string | null;
+  coverageScore: string;
+  communicationScore: string;
+  lastVisit: string | null;
+}
+
+export interface PdvScoringResponse {
+  items: PdvScoringItem[];
+  total: number;
+  page: number;
+  pageSize: number;
+  scoreDist: {
+    coverage: Record<string, number>;
+    communication: Record<string, number>;
+  };
+}
+
+export interface RouteSummaryRow {
+  routeId: number;
+  name: string;
+  pdvs: number;
+  planned: number;
+  visited: number;
+  effectiveness: number;
+  actions: number;
+  withMaterial: number;
+  sellsLoose: number;
+  withExchange: number;
+}
+
+export const kpiApi = {
+  variable: (params: { year: number; month: number; user_id?: number }) =>
+    api.get<KpiVariableRow[]>("/kpi/variable", params as Record<string, number | undefined>),
+  pdvScoring: (params: { year: number; month: number; user_id: number; route_id?: number; page?: number; page_size?: number }) =>
+    api.get<PdvScoringResponse>("/kpi/pdv-scoring", params as Record<string, number | undefined>),
+  routeSummary: (params: { year: number; month: number; user_id?: number }) =>
+    api.get<RouteSummaryRow[]>("/kpi/route-summary", params as Record<string, number | undefined>),
+};
+
 // --- Supplier Types (admin lookup) ---
 export const supplierTypesApi = {
   list: () => api.get<SupplierType[]>("/supplier-types"),
