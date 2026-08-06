@@ -132,6 +132,19 @@ def test_variable_happy_path_estructura(client, db):
     assert "partial" in row
 
 
+def test_variable_incluye_manager_por_fila(client, db):
+    manager, mgr_token = _user_with_role(db, "territory_manager")
+    sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    hdr = {"Authorization": f"Bearer {mgr_token}"}
+    resp = client.get("/kpi/variable", params={"year": YEAR, "month": MONTH}, headers=hdr)
+    assert resp.status_code == 200
+    rows = {row["userId"]: row for row in resp.json()}
+    assert rows[sub.UserId]["managerUserId"] == manager.UserId
+    assert rows[sub.UserId]["managerName"] == manager.DisplayName
+    assert rows[manager.UserId]["managerUserId"] is None
+    assert rows[manager.UserId]["managerName"] is None
+
+
 def test_pdv_scoring_happy_path_estructura(client, db):
     user, token = _user_with_role(db, "vendedor")
     hdr = {"Authorization": f"Bearer {token}"}

@@ -6,17 +6,25 @@ import { formatDateCompact } from "../../lib/dateUtils";
 import { PdvsScoreDonut } from "./PdvsScoreDonut";
 import { levelLabel, levelStyle } from "./pdvs-utils";
 
+interface VendorOption {
+  userId: number;
+  name: string | null;
+}
+
 interface Props {
   year: number;
   month: number;
   userId: number | null;
+  managerId: number | null;
+  vendors: VendorOption[];
+  onSelectUser: (userId: number) => void;
 }
 
 const PAGE_SIZE = 50;
 
 // /kpi/pdv-scoring requiere user_id (no soporta "Todos" a nivel backend), así que
 // esta pestaña pide seleccionar un TM Rep antes de traer datos.
-export function PdvsTab({ year, month, userId }: Props) {
+export function PdvsTab({ year, month, userId, managerId, vendors, onSelectUser }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [data, setData] = useState<PdvScoringResponse | null>(null);
@@ -39,6 +47,30 @@ export function PdvsTab({ year, month, userId }: Props) {
 
   useEffect(() => { setPage(1); }, [year, month, userId]);
   useEffect(() => { load(); }, [load]);
+
+  if (userId == null && managerId != null) {
+    return (
+      <Card>
+        <CardContent className="p-10 flex flex-col items-center gap-3 text-center">
+          <Users size={28} className="text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">Elegí un vendedor del territorio para ver sus PDVs.</p>
+          {vendors.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-center">
+              {vendors.map((v) => (
+                <button
+                  key={v.userId}
+                  onClick={() => onSelectUser(v.userId)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/70"
+                >
+                  {v.name ?? `Usuario #${v.userId}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (userId == null) {
     return (

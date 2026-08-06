@@ -115,7 +115,7 @@ function SuspenseWrap({ children }: { children: React.ReactNode }) {
 
 function AdminGuard() {
   const user = getCurrentUser();
-  const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo"];
+  const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo", "supervisor"];
   if (!adminRoles.includes(user.role)) {
     return <Navigate to="/" replace />;
   }

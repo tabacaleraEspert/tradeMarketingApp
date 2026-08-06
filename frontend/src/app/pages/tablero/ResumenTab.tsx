@@ -1,37 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw, Users } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Badge } from "../../components/ui/badge";
-import { kpiApi, type KpiVariableRow } from "@/lib/api";
+import type { KpiVariableRow } from "@/lib/api";
 import { VariableRing } from "./VariableRing";
 import { KpiCard } from "./KpiCard";
-import { formatPct, toneFor, toneClasses } from "./resumen-utils";
+import { formatPct, toneFor, toneClasses, groupByTerritory, NO_MANAGER_ID, type TerritoryGroup } from "./resumen-utils";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
 interface Props {
+  rows: KpiVariableRow[];
+  loading: boolean;
+  error: boolean;
+  onRetry: () => void;
   year: number;
   month: number;
+  managerId: number | null;
   userId: number | null;
-  onSelectUser?: (userId: number) => void;
+  onSelectManager: (managerId: number) => void;
+  onSelectUser: (userId: number) => void;
 }
 
-export function ResumenTab({ year, month, userId, onSelectUser }: Props) {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-  const [rows, setRows] = useState<KpiVariableRow[]>([]);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(false);
-    kpiApi.variable({ year, month, user_id: userId ?? undefined })
-      .then(setRows)
-      .catch(() => setError(true))
-      .finally(() => setLoading(false));
-  }, [year, month, userId]);
-
-  useEffect(() => { load(); }, [load]);
-
+export function ResumenTab({ rows, loading, error, onRetry, year, month, managerId, userId, onSelectManager, onSelectUser }: Props) {
   if (loading) {
     return (
       <Card>
@@ -50,7 +40,7 @@ export function ResumenTab({ year, month, userId, onSelectUser }: Props) {
         <CardContent className="p-6 text-center space-y-3">
           <p className="text-sm text-muted-foreground">No se pudo cargar el resumen de KPIs.</p>
           <button
-            onClick={load}
+            onClick={onRetry}
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-espert-gold hover:underline"
           >
             <RefreshCw size={12} /> Reintentar
@@ -73,10 +63,27 @@ export function ResumenTab({ year, month, userId, onSelectUser }: Props) {
   }
 
   if (userId != null) {
-    return <IndividualView row={rows[0]} year={year} month={month} />;
+    const row = rows.find((r) => r.userId === userId);
+    if (!row) {
+      return (
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Sin datos de KPIs para este vendedor en el período seleccionado.
+            </p>
+          </CardContent>
+        </Card>
+      );
+    }
+    return <IndividualView row={row} year={year} month={month} />;
   }
 
-  return <TeamView rows={rows} onSelectUser={onSelectUser} />;
+  if (managerId != null) {
+    const vendors = rows.filter((r) => (r.managerUserId ?? NO_MANAGER_ID) === managerId);
+    return <TerritoryView vendors={vendors} onSelectUser={onSelectUser} />;
+  }
+
+  return <GeneralView groups={groupByTerritory(rows)} onSelectManager={onSelectManager} />;
 }
 
 function IndividualView({ row, year, month }: { row: KpiVariableRow; year: number; month: number }) {
@@ -117,12 +124,62 @@ function IndividualView({ row, year, month }: { row: KpiVariableRow; year: numbe
   );
 }
 
-function TeamView({ rows, onSelectUser }: { rows: KpiVariableRow[]; onSelectUser?: (userId: number) => void }) {
-  const sorted = [...rows].sort((a, b) => b.variableTotal - a.variableTotal);
-  const avg = rows.length ? rows.reduce((s, r) => s + r.variableTotal, 0) / rows.length : 0;
-  const highCount = rows.filter((r) => r.variableTotal >= 80).length;
-  const lowCount = rows.filter((r) => r.variableTotal < 50).length;
-  const kpiHeaders = rows[0]?.kpis.map((k) => ({ key: k.key, name: k.name })) ?? [];
+// Nivel General: una tarjeta por territorio (agrupado por managerUserId), click entra al territorio.
+function GeneralView({ groups, onSelectManager }: { groups: TerritoryGroup[]; onSelectManager: (managerId: number) => void }) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {groups.map((g) => (
+        <Card
+          key={g.managerId}
+          onClick={() => onSelectManager(g.managerId)}
+          className="cursor-pointer hover:border-espert-gold transition-colors"
+        >
+          <CardContent className="p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <Users size={16} className="text-muted-foreground shrink-0" />
+              <h3 className="font-bold text-foreground truncate">{g.managerName}</h3>
+            </div>
+            <p className="text-xs text-muted-foreground">{g.vendors.length} vendedor{g.vendors.length === 1 ? "" : "es"}</p>
+            <div className="flex items-center justify-between pt-1">
+              <div className="text-center">
+                <p className="text-xl font-black text-foreground">{formatPct(g.avg)}%</p>
+                <p className="text-[10px] text-muted-foreground">Promedio</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-black text-green-600">{g.highCount}</p>
+                <p className="text-[10px] text-muted-foreground">≥80%</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xl font-black text-red-600">{g.lowCount}</p>
+                <p className="text-[10px] text-muted-foreground">&lt;50%</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+// Nivel Territorio: cards de resumen + ranking de vendedores de ese manager, click entra al vendedor.
+function TerritoryView({ vendors, onSelectUser }: { vendors: KpiVariableRow[]; onSelectUser?: (userId: number) => void }) {
+  const sorted = [...vendors].sort((a, b) => b.variableTotal - a.variableTotal);
+  const avg = vendors.length ? vendors.reduce((s, r) => s + r.variableTotal, 0) / vendors.length : 0;
+  const highCount = vendors.filter((r) => r.variableTotal >= 80).length;
+  const lowCount = vendors.filter((r) => r.variableTotal < 50).length;
+  const kpiHeaders = vendors[0]?.kpis.map((k) => ({ key: k.key, name: k.name })) ?? [];
+
+  if (vendors.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <p className="text-sm text-muted-foreground text-center py-8">
+            Sin vendedores con datos de KPIs en este territorio para el período seleccionado.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -130,7 +187,7 @@ function TeamView({ rows, onSelectUser }: { rows: KpiVariableRow[]; onSelectUser
         <Card>
           <CardContent className="p-4 text-center">
             <p className="text-3xl font-black text-foreground">{formatPct(avg)}%</p>
-            <p className="text-xs text-muted-foreground mt-1">Promedio de variable del equipo</p>
+            <p className="text-xs text-muted-foreground mt-1">Promedio de variable del territorio</p>
           </CardContent>
         </Card>
         <Card>

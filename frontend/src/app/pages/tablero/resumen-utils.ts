@@ -1,4 +1,48 @@
 // Helpers compartidos por ResumenTab y sus subcomponentes (anillo, tarjetas KPI).
+import type { KpiVariableRow } from "@/lib/api";
+
+// Sentinel para el grupo "Sin territorio asignado" (managerUserId null en el KPI row).
+// Los ids reales de manager son positivos, así que -1 no colisiona.
+export const NO_MANAGER_ID = -1;
+
+export interface TerritoryGroup {
+  managerId: number;
+  managerName: string;
+  vendors: KpiVariableRow[];
+  avg: number;
+  highCount: number;
+  lowCount: number;
+}
+
+// Agrupa las filas de /kpi/variable por managerUserId para el nivel General del tablero.
+export function groupByTerritory(rows: KpiVariableRow[]): TerritoryGroup[] {
+  const map = new Map<number, KpiVariableRow[]>();
+  for (const r of rows) {
+    const key = r.managerUserId ?? NO_MANAGER_ID;
+    const list = map.get(key);
+    if (list) list.push(r);
+    else map.set(key, [r]);
+  }
+
+  const groups: TerritoryGroup[] = [];
+  for (const [managerId, vendors] of map) {
+    const avg = vendors.length ? vendors.reduce((s, v) => s + v.variableTotal, 0) / vendors.length : 0;
+    const highCount = vendors.filter((v) => v.variableTotal >= 80).length;
+    const lowCount = vendors.filter((v) => v.variableTotal < 50).length;
+    const managerName =
+      managerId === NO_MANAGER_ID
+        ? "Sin territorio asignado"
+        : vendors.find((v) => v.managerName)?.managerName ?? `Territorio #${managerId}`;
+    groups.push({ managerId, managerName, vendors, avg, highCount, lowCount });
+  }
+
+  groups.sort((a, b) => {
+    if (a.managerId === NO_MANAGER_ID) return 1;
+    if (b.managerId === NO_MANAGER_ID) return -1;
+    return a.managerName.localeCompare(b.managerName);
+  });
+  return groups;
+}
 
 export function formatPct(n: number): string {
   const rounded = Math.round(n * 10) / 10;

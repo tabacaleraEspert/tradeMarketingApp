@@ -61,7 +61,7 @@ export function AdminLayout() {
   useEffect(() => {
     authApi.me().then((me) => {
       setCurrentUser(me);
-      const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo"];
+      const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo", "supervisor"];
       if (!adminRoles.includes(me.Role || "")) {
         setRoleKicked(true);
       }
@@ -76,7 +76,7 @@ export function AdminLayout() {
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/tablero", icon: Gauge, label: "Tablero" },
+    { path: "/tablero", icon: Gauge, label: "Objetivos TMR" },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/supplier-config", icon: Truck, label: "Proveedores" },

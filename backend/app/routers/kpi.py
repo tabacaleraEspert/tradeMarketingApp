@@ -113,13 +113,22 @@ def get_kpi_variable(
 
     users = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(target_ids)).all()}
 
+    manager_ids = {u.ManagerUserId for u in users.values() if u.ManagerUserId is not None}
+    managers = {
+        m.UserId: m
+        for m in (db.query(UserModel).filter(UserModel.UserId.in_(manager_ids)).all() if manager_ids else [])
+    }
+
     result = []
     for uid in target_ids:
         r = compute_kpis(db, uid, year, month)
         u = users.get(uid)
+        manager = managers.get(u.ManagerUserId) if u and u.ManagerUserId is not None else None
         result.append({
             "userId": uid,
             "name": u.DisplayName if u else None,
+            "managerUserId": u.ManagerUserId if u else None,
+            "managerName": manager.DisplayName if manager else None,
             "partial": r.partial,
             "day": r.day,
             "kpis": [

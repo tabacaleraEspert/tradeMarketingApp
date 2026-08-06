@@ -1,13 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, RefreshCw } from "lucide-react";
+import { ArrowDown, ArrowUp, RefreshCw, Users } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { kpiApi, type RouteSummaryRow } from "@/lib/api";
 import { formatPct, toneFor, toneClasses } from "./resumen-utils";
+
+interface VendorOption {
+  userId: number;
+  name: string | null;
+}
 
 interface Props {
   year: number;
   month: number;
   userId: number | null;
+  managerId: number | null;
+  vendors: VendorOption[];
+  onSelectUser: (userId: number) => void;
 }
 
 type SortKey = keyof Pick<
@@ -38,20 +46,28 @@ const COLUMNS: Column[] = [
   { key: "withExchange", label: "Con canje", align: "center", defaultDir: "desc" },
 ];
 
-export function RutasTab({ year, month, userId }: Props) {
+export function RutasTab({ year, month, userId, managerId, vendors, onSelectUser }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [rows, setRows] = useState<RouteSummaryRow[]>([]);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "effectiveness", dir: "desc" });
 
+  // Con territorio seleccionado pero sin vendedor no se pide nada al backend:
+  // se muestra el mensaje de "elegí un vendedor" (ver render más abajo).
   const load = useCallback(() => {
+    if (managerId != null && userId == null) {
+      setRows([]);
+      setLoading(false);
+      setError(false);
+      return;
+    }
     setLoading(true);
     setError(false);
     kpiApi.routeSummary({ year, month, user_id: userId ?? undefined })
       .then(setRows)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [year, month, userId]);
+  }, [year, month, userId, managerId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -93,6 +109,30 @@ export function RutasTab({ year, month, userId }: Props) {
       return { key, dir: COLUMNS.find((c) => c.key === key)?.defaultDir ?? "desc" };
     });
   };
+
+  if (managerId != null && userId == null) {
+    return (
+      <Card>
+        <CardContent className="p-10 flex flex-col items-center gap-3 text-center">
+          <Users size={28} className="text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">Elegí un vendedor del territorio para ver sus rutas.</p>
+          {vendors.length > 0 && (
+            <div className="flex flex-wrap gap-2 justify-center">
+              {vendors.map((v) => (
+                <button
+                  key={v.userId}
+                  onClick={() => onSelectUser(v.userId)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/70"
+                >
+                  {v.name ?? `Usuario #${v.userId}`}
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (loading) {
     return (

@@ -943,6 +943,8 @@ export interface KpiItem {
 export interface KpiVariableRow {
   userId: number;
   name: string | null;
+  managerUserId: number | null;
+  managerName: string | null;
   partial: boolean;
   day: number;
   kpis: KpiItem[];
