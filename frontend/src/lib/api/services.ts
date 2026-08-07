@@ -1041,6 +1041,23 @@ export interface SuspiciousPriceItem {
   date: string;
 }
 
+export interface ClosedMonth {
+  year: number;
+  month: number;
+  snapshots: number;
+  users: number;
+  frozenAt: string | null;
+}
+
+export interface CloseMonthResult {
+  year: number;
+  month: number;
+  usersClosed: number;
+  snapshotsCreated: number;
+  forced: boolean;
+  usersSkipped: number[];
+}
+
 // --- Config del ABM de KPIs (pestaña Objetivos, PascalCase igual que backend/app/schemas/kpi.py) ---
 export interface KpiDefinition {
   KpiDefinitionId: number;
@@ -1157,6 +1174,13 @@ export const kpiApi = {
     api.get<PriceMatrixItem[]>("/kpi/price-matrix", params as Record<string, string | number | undefined>),
   suspiciousPrices: (params: { year: number; month: number; user_id?: number }) =>
     api.get<SuspiciousPriceItem[]>("/kpi/suspicious-prices", params as Record<string, number | undefined>),
+  // --- Cierre mensual (T5) ---
+  closedMonths: () => api.get<ClosedMonth[]>("/kpi/closed-months"),
+  closeMonth: (params: { year: number; month: number; force?: boolean }) => {
+    const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) });
+    if (params.force) qs.set("force", "true");
+    return api.post<CloseMonthResult>(`/kpi/close-month?${qs.toString()}`, {});
+  },
   // --- Config (ABM de KPIs, pestaña Objetivos) ---
   definitions: () => api.get<KpiDefinition[]>("/kpi/definitions"),
   config: (params?: { scope_type?: string; scope_id?: number }) =>

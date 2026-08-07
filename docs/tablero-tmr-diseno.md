@@ -101,6 +101,17 @@ Es decir: "agregar un objetivo" = agregar una fila a las rúbricas (un artículo
 - **`scoring_coverage_rule`** — `(marca/artículo, nivel, min_skus, scope_type, scope_id, valid_from, valid_to, created_by)` y **`scoring_communication_rule`** — `(material, nivel, requerido/cantidad, …)`. Rúbricas §4 como filas de datos: agregar un artículo o material nuevo es un alta por UI. Mismo esquema de alcance y vigencia que `kpi_config` (el cliente podría querer exigencias distintas por región). Las marcas/artículos referencian el catálogo `Product` cuando corresponde, para que la matriz de cobertura y la rúbrica hablen el mismo idioma.
 - **`kpi_monthly_snapshot`** — `(user_id, year, month, kpi_definition_id, actual, meta, peso, scope_aplicado, achieved, numerador, denominador, frozen_at)`. Guarda **la config que se usó**, no una referencia: el snapshot es autocontenido aunque la config cambie después.
 
+### 5.2.1 Cierre mensual automático (implementado en fase 4)
+
+El backend corre con 4 workers de Gunicorn y sin scheduler, así que un job en proceso se ejecutaría N veces. El cierre usa **lazy trigger idempotente**:
+
+- Se dispara al inicio de `GET /kpi/variable` (el primer request al abrir el tablero) mediante `ensure_previous_month_closed()`.
+- Marca de control en `AppSetting` (`kpi_last_auto_close = "YYYY-MM"`): si ya procesó el mes anterior, corta con una sola query.
+- Seguro ante concurrencia (unique de snapshot + rollback en `IntegrityError`) y **nunca hace fallar el request**: cualquier error se loguea y el tablero sigue respondiendo.
+- Si el mes anterior **no tiene config vigente** (caso típico del primer mes tras el deploy: el seed crea la config con `ValidFrom` = mes de instalación), no congela nada, escribe la marca igual y loguea un warning — no reintenta en cada request.
+- El cierre manual (`POST /kpi/close-month`, admin) sigue disponible para cerrar meses viejos o regenerar con `force=true`.
+- `GET /kpi/closed-months` lista los meses congelados (snapshots, usuarios, fecha de congelamiento) — alimenta el badge de estado y el indicador del selector de mes en el tablero.
+
 ### 5.3 Permisos de administración
 
 **Resuelto (P11, 03-08): la configuración la administra solo el admin.** El territory_manager no edita metas, pesos ni rúbricas — solo lectura de la configuración de su equipo.
@@ -212,6 +223,13 @@ Reglas de UI:
 ## 10. Estado de implementación — Fase 1 (04-08-2026)
 
 **Backend completo y auditado** (ver [tablero-tmr-plan-fase1.md](tablero-tmr-plan-fase1.md)): migración `0021`, motor `app/services/kpi_engine.py`, router `/kpi` (variable, pdv-scoring, route-summary, CRUD config, close-month), fix de jerarquía en 4 endpoints de reports, 338 tests en verde. Auditoría de correctitud y permisos realizada; bloqueantes corregidos con tests de regresión.
+
+**Fases 2 a 4 completas (07-08-2026)** — sección "Objetivos TMR" en el panel:
+- Drill-down por jerarquía: General (resumen por territorio) → Territorio (ranking de vendedores) → Vendedor (variable + 5 KPIs), con breadcrumb; el TM/supervisor arranca en su territorio. Estado persistido en la URL.
+- Pestañas: Resumen, Rutas, PDVs, **Objetivos** (ABM de metas/pesos por alcance con guardado en lote y suma en vivo + rúbricas + config resuelta), **Precios** (matriz por producto × ruta/vendedor con valores completos + precios sospechosos), **Actividad** (semanal con detalle diario).
+- Cierre mensual automático (§5.2.1) con badge de estado del mes, indicador de meses cerrados en el selector y cierre manual para admin.
+- Endpoints agregados: `price-matrix`, `suspicious-prices`, `weekly-activity`, `config/bulk`, `closed-months`. `Route.IsFocus` editable desde el ABM de rutas.
+- 365 tests backend / 59 frontend en verde.
 
 **Limitaciones conocidas v1 (deuda aceptada, documentada):**
 - **Bordes de mes en UTC**: las visitas se bucketizan por `OpenedAt` UTC — una visita después de las ~21:00 ART del último día del mes cae en el mes siguiente. Es coherente con el resto del sistema de reportes; corregirlo es un cambio transversal de timezone, fuera del alcance del tablero.

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
-import { kpiApi, type KpiVariableRow } from "@/lib/api";
+import { kpiApi, type KpiVariableRow, type ClosedMonth } from "@/lib/api";
 import { getCurrentUser } from "../../lib/auth";
 import { ResumenTab } from "./ResumenTab";
 import { RutasTab } from "./RutasTab";
@@ -11,6 +11,7 @@ import { ActividadTab } from "./ActividadTab";
 import { PreciosTab } from "./PreciosTab";
 import { ObjetivosTab } from "./ObjetivosTab";
 import { TableroBreadcrumb } from "./TableroBreadcrumb";
+import { TableroMonthStatus } from "./TableroMonthStatus";
 import { NO_MANAGER_ID } from "./resumen-utils";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
@@ -30,6 +31,7 @@ export function TableroPage() {
   // jerárquico equivalente en instalaciones que no usan "territory_manager"
   // (backend/app/hierarchy.py trata ambos como supervisores).
   const isTerritoryManager = ["territory_manager", "supervisor"].includes(currentUser.role);
+  const isAdmin = currentUser.role === "admin";
   const ownManagerId = Number(currentUser.id) || NO_MANAGER_ID;
 
   const [searchParams, setSearchParams] = useSearchParams();
@@ -101,6 +103,31 @@ export function TableroPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Meses ya cerrados (todos los años, T5): se piden una sola vez y se filtran
+  // client-side por año/mes donde hagan falta (badge de estado, indicador en el
+  // selector de mes).
+  const [closedMonths, setClosedMonths] = useState<ClosedMonth[]>([]);
+  const loadClosedMonths = useCallback(() => {
+    kpiApi.closedMonths().then(setClosedMonths).catch(() => {});
+  }, []);
+  useEffect(() => { loadClosedMonths(); }, [loadClosedMonths]);
+
+  const handleMonthClosed = () => {
+    load();
+    loadClosedMonths();
+  };
+
+  const closedMonthNumbersInYear = useMemo(
+    () => new Set(closedMonths.filter((cm) => cm.year === year).map((cm) => cm.month)),
+    [closedMonths, year]
+  );
+
+  // partial/day del mes seleccionado (mismo criterio que backend/app/services/kpi_engine.py:
+  // partial=True solo si (year, month) es el mes calendario actual); con fallback
+  // client-side si rows viene vacío (sin usuarios visibles para ese período).
+  const partial = rows[0]?.partial ?? (year === now.getFullYear() && month === now.getMonth() + 1);
+  const day = rows[0]?.day ?? now.getDate();
+
   const handleSelectManager = (managerId: number) => {
     if (isTerritoryManager) return; // no puede navegar fuera de su propio territorio
     setSelectedManagerId(managerId);
@@ -144,15 +171,35 @@ export function TableroPage() {
           <h1 className="text-3xl font-bold text-foreground mb-1">Objetivos TMR</h1>
           <p className="text-muted-foreground text-sm">Seguimiento de KPIs y variable de TM Reps</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>
             <SelectTrigger className="w-[130px]"><SelectValue /></SelectTrigger>
-            <SelectContent>{MONTH_NAMES.map((n, i) => <SelectItem key={i} value={String(i + 1)}>{n}</SelectItem>)}</SelectContent>
+            <SelectContent>
+              {MONTH_NAMES.map((n, i) => (
+                <SelectItem key={i} value={String(i + 1)}>
+                  <span className="flex items-center gap-1.5">
+                    {n}
+                    {closedMonthNumbersInYear.has(i + 1) && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" aria-label="Mes cerrado" />
+                    )}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <Select value={String(year)} onValueChange={(v) => setYear(Number(v))}>
             <SelectTrigger className="w-[90px]"><SelectValue /></SelectTrigger>
             <SelectContent>{years.map((y) => <SelectItem key={y} value={String(y)}>{y}</SelectItem>)}</SelectContent>
           </Select>
+          <TableroMonthStatus
+            year={year}
+            month={month}
+            closedMonths={closedMonths}
+            partial={partial}
+            day={day}
+            isAdmin={isAdmin}
+            onClosed={handleMonthClosed}
+          />
         </div>
       </div>
 

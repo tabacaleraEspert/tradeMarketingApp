@@ -20,11 +20,13 @@ Usa vigencias (ValidFrom/ValidTo) en vez de borrado físico, igual que el resto 
 motor. `/config/resolved` es de solo lectura para cualquier rol, con la misma
 validación de visibilidad.
 """
+import logging
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_role
@@ -47,6 +49,7 @@ from ..models import (
     KpiMonthlySnapshot as KpiMonthlySnapshotModel,
     ScoringCoverageRule as ScoringCoverageRuleModel,
     ScoringCommunicationRule as ScoringCommunicationRuleModel,
+    AppSetting as AppSettingModel,
 )
 from ..services.kpi_engine import (
     GOOD_OR_BETTER,
@@ -67,6 +70,8 @@ from ..schemas.kpi import (
     ScoringCommunicationRuleCreate,
     ScoringCommunicationRuleOut,
 )
+
+logger = logging.getLogger("app.kpi")
 
 router = APIRouter(prefix="/kpi", tags=["Tablero TMR"])
 
@@ -130,6 +135,8 @@ def get_kpi_variable(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
+    ensure_previous_month_closed(db)
+
     target_ids = _resolve_target_user_ids(db, current_user, user_id)
     if not target_ids:
         return []
@@ -670,21 +677,23 @@ def get_suspicious_prices(
 
 
 # ---------------------------------------------------------------------------
-# POST /kpi/close-month — snapshot de cierre mensual (solo admin, T5)
+# POST /kpi/close-month — snapshot de cierre mensual (solo admin, T5) y cierre
+# automático lazy trigger del mes anterior (T4, fase 4)
 # ---------------------------------------------------------------------------
 
-@router.post("/close-month", dependencies=[Depends(require_role("admin"))])
-def close_month(
-    year: int = Query(...),
-    month: int = Query(..., ge=1, le=12),
-    force: bool = Query(default=False),
-    db: Session = Depends(get_db),
-):
-    """Congela `KpiMonthlySnapshot` para todos los usuarios con ≥1 ruta foco activa
-    asignada. Solo meses ya terminados (mes en curso o futuro -> 422). Idempotente:
-    si ya hay snapshots de ese (year, month) -> 409, salvo `force=true` que los borra
-    y recalcula en vivo (al no quedar snapshot previo, `compute_kpis` calcula en vivo
-    aunque el mes esté cerrado — ver kpi_engine.compute_kpis).
+KPI_AUTO_CLOSE_SETTING_KEY = "kpi_last_auto_close"
+"""`AppSetting.Key` con la marca de control de `ensure_previous_month_closed`
+(valor "YYYY-MM" del último mes procesado, cerrado o no)."""
+
+
+def _close_month_core(db: Session, year: int, month: int, force: bool = False) -> dict:
+    """Lógica de cierre de mes compartida por `POST /kpi/close-month` (manual, admin)
+    y `ensure_previous_month_closed` (automático, T4). Congela `KpiMonthlySnapshot`
+    para todos los usuarios con ≥1 ruta foco activa asignada. Solo meses ya
+    terminados (mes en curso o futuro -> 422). Idempotente: si ya hay snapshots de
+    ese (year, month) -> 409, salvo `force=true` que los borra y recalcula en vivo
+    (al no quedar snapshot previo, `compute_kpis` calcula en vivo aunque el mes esté
+    cerrado — ver kpi_engine.compute_kpis).
 
     Antes de tocar cualquier snapshot existente (incluso con `force=true`) se valida
     que al menos un usuario tenga config vigente (`resolve_config` no vacío) para ese
@@ -748,6 +757,106 @@ def close_month(
         "forced": force,
         "usersSkipped": users_skipped,
     }
+
+
+@router.post("/close-month", dependencies=[Depends(require_role("admin"))])
+def close_month(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    force: bool = Query(default=False),
+    db: Session = Depends(get_db),
+):
+    """Ver docstring de `_close_month_core` — este endpoint es un wrapper admin de
+    esa lógica, sin comportamiento propio."""
+    return _close_month_core(db, year, month, force)
+
+
+def _previous_month(today: date) -> tuple[int, int]:
+    return (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
+
+
+def ensure_previous_month_closed(db: Session) -> None:
+    """Cierre automático lazy del mes calendario anterior — disparado desde
+    `GET /kpi/variable` en cada request (T4, fase 4). En prod corren 4 workers
+    gunicorn sin scheduler en proceso, por eso el mecanismo es "quien primero abre
+    el tablero en el mes nuevo dispara el cierre del mes anterior", con una marca
+    de control en `AppSetting` (`KPI_AUTO_CLOSE_SETTING_KEY`, valor "YYYY-MM" del
+    último mes procesado) para que las siguientes llamadas del mismo mes corten en
+    una sola query — barato para el caso común (marca ya al día).
+
+    Reusa `_close_month_core` (misma lógica que el cierre manual admin, T5). Casos:
+    - Ya había snapshots de ese mes (409 de `_close_month_core`) -> no duplica,
+      solo actualiza la marca.
+    - Sin config vigente para nadie ese mes (422) -> NO cierra, pero actualiza la
+      marca igual (para no reintentar en cada request) y loguea warning.
+    - Éxito -> escribe la marca.
+
+    Nunca propaga: corre inline en `GET /kpi/variable`, así que cualquier
+    excepción (carrera entre workers al escribir la marca o el snapshot, o
+    cualquier otro error) se loguea y se descarta sin romper el request del
+    usuario que abrió el tablero."""
+    today = date.today()
+    prev_year, prev_month = _previous_month(today)
+    target_key = f"{prev_year:04d}-{prev_month:02d}"
+
+    try:
+        mark = db.query(AppSettingModel).filter(AppSettingModel.Key == KPI_AUTO_CLOSE_SETTING_KEY).first()
+        if mark is not None and mark.Value == target_key:
+            return
+
+        try:
+            _close_month_core(db, prev_year, prev_month)
+        except HTTPException as exc:
+            if exc.status_code == 422:
+                logger.warning(
+                    "Cierre automático de KPIs %s: no se cerró (%s)", target_key, exc.detail,
+                )
+            elif exc.status_code != 409:
+                raise
+
+        if mark is None:
+            db.add(AppSettingModel(Key=KPI_AUTO_CLOSE_SETTING_KEY, Value=target_key))
+        else:
+            mark.Value = target_key
+        db.commit()
+    except (IntegrityError, SQLAlchemyError) as exc:
+        db.rollback()
+        logger.error("Cierre automático de KPIs %s falló (error de DB): %s", target_key, exc)
+    except Exception as exc:  # noqa: BLE001 — nunca debe romper /kpi/variable
+        db.rollback()
+        logger.error("Cierre automático de KPIs %s falló: %s", target_key, exc)
+
+
+@router.get("/closed-months")
+def get_closed_months(
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Meses con `KpiMonthlySnapshot`, orden desc. Metadata global (no hay scoping
+    por usuario/equipo): requiere auth como el resto del router, pero cualquier rol
+    autenticado puede consultarla."""
+    rows = (
+        db.query(
+            KpiMonthlySnapshotModel.Year,
+            KpiMonthlySnapshotModel.Month,
+            func.count(KpiMonthlySnapshotModel.SnapshotId).label("snapshots"),
+            func.count(func.distinct(KpiMonthlySnapshotModel.UserId)).label("users"),
+            func.max(KpiMonthlySnapshotModel.FrozenAt).label("frozenAt"),
+        )
+        .group_by(KpiMonthlySnapshotModel.Year, KpiMonthlySnapshotModel.Month)
+        .order_by(KpiMonthlySnapshotModel.Year.desc(), KpiMonthlySnapshotModel.Month.desc())
+        .all()
+    )
+    return [
+        {
+            "year": r.Year,
+            "month": r.Month,
+            "snapshots": r.snapshots,
+            "users": r.users,
+            "frozenAt": r.frozenAt.isoformat() if r.frozenAt else None,
+        }
+        for r in rows
+    ]
 
 
 # ---------------------------------------------------------------------------
