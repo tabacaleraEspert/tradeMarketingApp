@@ -14,6 +14,7 @@ class RouteBase(BaseModel):
     EstimatedMinutes: int | None = None
     AssignedUserId: int | None = None
     IsOptimized: bool = False
+    IsFocus: bool = True
 
 
 class RouteCreate(RouteBase):
@@ -31,6 +32,7 @@ class RouteUpdate(BaseModel):
     EstimatedMinutes: int | None = None
     AssignedUserId: int | None = None
     IsOptimized: bool | None = None
+    IsFocus: bool | None = None
 
 
 class Route(RouteBase):

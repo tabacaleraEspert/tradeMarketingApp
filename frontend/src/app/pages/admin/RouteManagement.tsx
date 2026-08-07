@@ -834,6 +834,14 @@ export function RouteManagement() {
                           ⚡ Optimizada
                         </Badge>
                       )}
+                      {route.IsFocus && (
+                        <Badge
+                          className="bg-amber-100 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0 shrink-0"
+                          title="Ruta foco: define el universo de PDVs para los objetivos de TMR"
+                        >
+                          Foco
+                        </Badge>
+                      )}
                     </div>
                     {route.FormId && (
                       <p className="text-xs text-muted-foreground truncate mt-0.5">

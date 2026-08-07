@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
 import { kpiApi, type KpiVariableRow } from "@/lib/api";
@@ -6,10 +7,19 @@ import { getCurrentUser } from "../../lib/auth";
 import { ResumenTab } from "./ResumenTab";
 import { RutasTab } from "./RutasTab";
 import { PdvsTab } from "./PdvsTab";
+import { ActividadTab } from "./ActividadTab";
+import { PreciosTab } from "./PreciosTab";
+import { ObjetivosTab } from "./ObjetivosTab";
 import { TableroBreadcrumb } from "./TableroBreadcrumb";
 import { NO_MANAGER_ID } from "./resumen-utils";
 
 const MONTH_NAMES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+const TABLERO_TABS = ["resumen", "rutas", "pdvs", "objetivos", "precios", "actividad"] as const;
+type TableroTab = (typeof TABLERO_TABS)[number];
+function isTableroTab(v: string | null): v is TableroTab {
+  return !!v && (TABLERO_TABS as readonly string[]).includes(v);
+}
 
 export function TableroPage() {
   const now = new Date();
@@ -22,10 +32,55 @@ export function TableroPage() {
   const isTerritoryManager = ["territory_manager", "supervisor"].includes(currentUser.role);
   const ownManagerId = Number(currentUser.id) || NO_MANAGER_ID;
 
-  const [year, setYear] = useState(now.getFullYear());
-  const [month, setMonth] = useState(now.getMonth() + 1);
-  const [selectedManagerId, setSelectedManagerId] = useState<number | null>(isTerritoryManager ? ownManagerId : null);
-  const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Estado inicial: desde la URL si trae params válidos, si no los defaults de siempre.
+  const initialYear = (() => {
+    const n = Number(searchParams.get("year"));
+    return Number.isInteger(n) && n > 0 ? n : now.getFullYear();
+  })();
+  const initialMonth = (() => {
+    const n = Number(searchParams.get("month"));
+    return Number.isInteger(n) && n >= 1 && n <= 12 ? n : now.getMonth() + 1;
+  })();
+  const initialTab = isTableroTab(searchParams.get("tab")) ? (searchParams.get("tab") as TableroTab) : "resumen";
+  const initialManagerId = (() => {
+    // El territory_manager/supervisor no puede navegar fuera de su propio territorio.
+    if (isTerritoryManager) return ownManagerId;
+    const raw = searchParams.get("manager");
+    if (raw === "none") return NO_MANAGER_ID;
+    if (raw != null) {
+      const n = Number(raw);
+      if (Number.isInteger(n)) return n;
+    }
+    return null;
+  })();
+  const initialUserId = (() => {
+    const n = Number(searchParams.get("user"));
+    return Number.isInteger(n) ? n : null;
+  })();
+
+  const [year, setYear] = useState(initialYear);
+  const [month, setMonth] = useState(initialMonth);
+  const [tab, setTab] = useState<TableroTab>(initialTab);
+  const [selectedManagerId, setSelectedManagerId] = useState<number | null>(initialManagerId);
+  const [selectedUserId, setSelectedUserId] = useState<number | null>(initialUserId);
+
+  // Cada cambio de mes/año, pestaña o drill-down se refleja en la URL (sin apilar historial).
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set("year", String(year));
+    params.set("month", String(month));
+    params.set("tab", tab);
+    if (selectedManagerId != null) {
+      params.set("manager", selectedManagerId === NO_MANAGER_ID ? "none" : String(selectedManagerId));
+    }
+    if (selectedUserId != null) {
+      params.set("user", String(selectedUserId));
+    }
+    setSearchParams(params, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month, tab, selectedManagerId, selectedUserId]);
 
   const [rows, setRows] = useState<KpiVariableRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,11 +167,14 @@ export function TableroPage() {
       />
 
       {/* Tabs */}
-      <Tabs defaultValue="resumen">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TableroTab)}>
         <TabsList>
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="rutas">Rutas</TabsTrigger>
           <TabsTrigger value="pdvs">PDVs</TabsTrigger>
+          <TabsTrigger value="actividad">Actividad</TabsTrigger>
+          <TabsTrigger value="precios">Precios</TabsTrigger>
+          <TabsTrigger value="objetivos">Objetivos</TabsTrigger>
         </TabsList>
         <TabsContent value="resumen">
           <ResumenTab
@@ -151,6 +209,23 @@ export function TableroPage() {
             vendors={territoryVendors}
             onSelectUser={handleSelectUser}
           />
+        </TabsContent>
+        <TabsContent value="actividad">
+          <ActividadTab
+            year={year}
+            month={month}
+            userId={selectedUserId}
+            managerId={selectedManagerId}
+            userName={userName}
+            vendors={territoryVendors}
+            onSelectUser={handleSelectUser}
+          />
+        </TabsContent>
+        <TabsContent value="precios">
+          <PreciosTab year={year} month={month} userId={selectedUserId} userName={userName} />
+        </TabsContent>
+        <TabsContent value="objetivos">
+          <ObjetivosTab />
         </TabsContent>
       </Tabs>
     </div>

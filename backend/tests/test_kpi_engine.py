@@ -649,3 +649,29 @@ class TestPriceOutliers:
         valid, discarded = filter_price_outliers(prices)
         assert all(p["product"] != "TEST_Producto" for p in valid)
         assert any(p["product"] == "TEST_Producto" for p in discarded)
+
+    def test_muestra_chica_n2_no_descarta_nada(self, db):
+        """Caso degenerado: con 2 precios [2100, 21000] la mediana (11550) descartaría
+        el precio legítimo (2100) y aceptaría el outlier (21000). Con n<MIN_PRICE_SAMPLES
+        no hay evidencia suficiente para juzgar, así que no se descarta nada."""
+        prices = [
+            {"price": 2100, "pdv": 1, "user": 1, "date": "2026-03-01", "product": "Milenio Red"},
+            {"price": 21000, "pdv": 2, "user": 1, "date": "2026-03-02", "product": "Milenio Red"},
+        ]
+        valid, discarded = filter_price_outliers(prices)
+        assert len(discarded) == 0
+        assert len(valid) == 2
+
+    def test_muestra_n3_si_descarta_outlier(self, db):
+        """Con 3 precios ya hay evidencia suficiente: la regla de mediana vuelve a aplicar
+        y descarta el outlier (21000), conservando los dos legítimos."""
+        prices = [
+            {"price": 2100, "pdv": 1, "user": 1, "date": "2026-03-01", "product": "Milenio Red"},
+            {"price": 2200, "pdv": 2, "user": 1, "date": "2026-03-02", "product": "Milenio Red"},
+            {"price": 21000, "pdv": 3, "user": 1, "date": "2026-03-03", "product": "Milenio Red"},
+        ]
+        valid, discarded = filter_price_outliers(prices)
+        assert len(discarded) == 1
+        assert discarded[0]["price"] == 21000
+        assert len(valid) == 2
+        assert {p["price"] for p in valid} == {2100, 2200}

@@ -134,6 +134,17 @@ class TestRouteCRUD:
     def test_route_pdv_count_starts_at_zero(self, client, route):
         assert route["PdvCount"] == 0
 
+    def test_create_route_without_is_focus_defaults_true(self, client):
+        r = _make_route(client)
+        assert r["IsFocus"] is True
+
+    def test_update_route_is_focus_false_persists(self, client, route):
+        resp = client.patch(f"/routes/{route['RouteId']}", json={"IsFocus": False})
+        assert resp.status_code == 200
+        assert resp.json()["IsFocus"] is False
+        get_resp = client.get(f"/routes/{route['RouteId']}")
+        assert get_resp.json()["IsFocus"] is False
+
     def test_create_route_requires_auth(self, client):
         resp = client.post("/routes", json={"Name": "No Auth"}, headers={"Authorization": ""})
         assert resp.status_code == 401

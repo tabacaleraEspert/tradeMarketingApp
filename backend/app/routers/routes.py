@@ -59,6 +59,7 @@ def _route_to_response(r: RouteModel, db: Session) -> Route:
         "AssignedUserId": assigned_user_id,
         "AssignedUserName": assigned_user_name,
         "IsOptimized": bool(getattr(r, "IsOptimized", False)),
+        "IsFocus": bool(getattr(r, "IsFocus", True)),
         "CreatedByUserId": getattr(r, "CreatedByUserId", None),
         "PdvCount": pdv_count,
         "CreatedAt": r.CreatedAt,
@@ -97,6 +98,7 @@ def _routes_to_response_batch(rs: list[RouteModel], db: Session) -> list[Route]:
             "AssignedUserId": getattr(r, "AssignedUserId", None),
             "AssignedUserName": names.get(getattr(r, "AssignedUserId", None)),
             "IsOptimized": bool(getattr(r, "IsOptimized", False)),
+            "IsFocus": bool(getattr(r, "IsFocus", True)),
             "CreatedByUserId": getattr(r, "CreatedByUserId", None),
             "PdvCount": counts.get(r.RouteId, 0),
             "CreatedAt": r.CreatedAt,
@@ -569,6 +571,7 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user 
         FrequencyType=data.FrequencyType,
         FrequencyConfig=data.FrequencyConfig,
         EstimatedMinutes=data.EstimatedMinutes,
+        IsFocus=data.IsFocus,
     )
     db.add(r)
     db.flush()

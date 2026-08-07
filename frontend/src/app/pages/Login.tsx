@@ -46,7 +46,7 @@ export function Login() {
       toast.error("Por favor complete todos los campos");
       return;
     }
-    await doLogin(email, password);
+    await doLogin(email.trim(), password);
   };
 
   // Acceso rápido DEV — solo para desarrollo local
@@ -91,6 +91,10 @@ export function Login() {
               placeholder="Ingrese su DNI o email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              inputMode="email"
               className="h-12 bg-[#252520] border-white/10 text-white placeholder:text-[#53565A] focus:border-[#A48242] focus:ring-[#A48242]/20"
             />
           </div>

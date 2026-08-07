@@ -683,6 +683,7 @@ export function RouteEditorPage() {
     FrequencyType?: string | null;
     FrequencyConfig?: string | null;
     AssignedUserId?: number | null;
+    IsFocus?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -695,6 +696,7 @@ export function RouteEditorPage() {
         FrequencyType: route.FrequencyType ?? null,
         FrequencyConfig: route.FrequencyConfig ?? null,
         AssignedUserId: route.AssignedUserId ?? null,
+        IsFocus: route.IsFocus ?? true,
       });
     } else if (isCreateMode) {
       // Initialize empty draft for create mode
@@ -706,6 +708,7 @@ export function RouteEditorPage() {
         FrequencyType: null,
         FrequencyConfig: null,
         AssignedUserId: isMyRoute ? Number(getCurrentUser().id) : null,
+        IsFocus: true,
       });
     } else {
       setRouteDraft(null);
@@ -766,7 +769,8 @@ export function RouteEditorPage() {
       (routeDraft.EstimatedMinutes ?? null) !== (route.EstimatedMinutes ?? null) ||
       (routeDraft.FrequencyType ?? "") !== (route.FrequencyType ?? "") ||
       (routeDraft.FrequencyConfig ?? "") !== (route.FrequencyConfig ?? "") ||
-      (routeDraft.AssignedUserId ?? null) !== (route.AssignedUserId ?? null));
+      (routeDraft.AssignedUserId ?? null) !== (route.AssignedUserId ?? null) ||
+      (routeDraft.IsFocus ?? true) !== (route.IsFocus ?? true));
 
   const handleSaveRouteMetadata = async () => {
     if (!id || !routeDraft) return;
@@ -787,6 +791,7 @@ export function RouteEditorPage() {
         // y dispare el cascadeo a los PDVs de la ruta en el backend (update_route).
         // Con undefined el campo se omitía del PATCH y no pasaba nada.
         AssignedUserId: routeDraft.AssignedUserId ?? null,
+        IsFocus: routeDraft.IsFocus ?? true,
       });
       setRoute(updated);
       setRouteDraft({
@@ -797,6 +802,7 @@ export function RouteEditorPage() {
         FrequencyType: updated.FrequencyType ?? null,
         FrequencyConfig: updated.FrequencyConfig ?? null,
         AssignedUserId: updated.AssignedUserId ?? null,
+        IsFocus: updated.IsFocus ?? true,
       });
       toast.success("Ruta guardada");
 
@@ -848,6 +854,7 @@ export function RouteEditorPage() {
         AssignedUserId: isMyRoute ? Number(currentUser.id) : (routeDraft.AssignedUserId ?? undefined),
         FrequencyType: routeDraft.FrequencyType ?? undefined,
         FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
+        IsFocus: routeDraft.IsFocus ?? true,
       };
 
       const result = await executeOrEnqueue({
@@ -1066,6 +1073,25 @@ export function RouteEditorPage() {
                   }}
                   placeholder="Ej: 120"
                 />
+              </div>
+            )}
+            {!isMyRoute && (
+              <div className="md:col-span-2 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  id="route-is-focus"
+                  className="mt-1 h-4 w-4 rounded border-border"
+                  checked={routeDraft?.IsFocus ?? true}
+                  onChange={(e) =>
+                    setRouteDraft((d) => (d ? { ...d, IsFocus: e.target.checked } : null))
+                  }
+                />
+                <label htmlFor="route-is-focus" className="text-sm">
+                  <span className="font-medium text-foreground">Ruta foco</span>
+                  <p className="text-muted-foreground">
+                    Las rutas foco definen el universo de PDVs para los objetivos de TMR
+                  </p>
+                </label>
               </div>
             )}
             {!isMyRoute && <><div className="md:col-span-2">

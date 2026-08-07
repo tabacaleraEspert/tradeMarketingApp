@@ -4,6 +4,8 @@ Los endpoints de consulta (`/variable`, `/pdv-scoring`, `/route-summary`) reusan
 motor de `app/services/kpi_engine.py` (no reimplementan cálculo de KPI); solo agregan
 las queries de conteo que el motor no expone (planificado/visitado/acciones por ruta
 para `/route-summary`, nombre de ruta y última visita por PDV para `/pdv-scoring`).
+`/weekly-activity` es una vista de detalle individual (entrada/salida por PDV agrupada
+en semana/día, DD.visits_semanal del prototipo) — `user_id` es obligatorio.
 
 Todos pasan por `visible_user_ids()` (app/hierarchy.py), mismo patrón que audit.py:
 - sin `user_id`: si el rol ve todo (admin, `visible=None`) se calcula para todos los
@@ -18,7 +20,8 @@ Usa vigencias (ValidFrom/ValidTo) en vez de borrado físico, igual que el resto 
 motor. `/config/resolved` es de solo lectura para cualquier rol, con la misma
 validación de visibilidad.
 """
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from statistics import median
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy import func
@@ -30,6 +33,7 @@ from ..hierarchy import visible_user_ids
 from ..models import (
     User as UserModel,
     PDV as PDVModel,
+    Product as ProductModel,
     Route as RouteModel,
     RoutePdv as RoutePdvModel,
     RouteDay as RouteDayModel,
@@ -47,6 +51,7 @@ from ..models import (
 from ..services.kpi_engine import (
     GOOD_OR_BETTER,
     compute_kpis,
+    filter_price_outliers,
     focus_universe,
     pdv_coverage_scores,
     pdv_communication_scores,
@@ -55,6 +60,7 @@ from ..services.kpi_engine import (
 from ..schemas.kpi import (
     KpiDefinitionOut,
     KpiConfigCreate,
+    KpiConfigBulkCreate,
     KpiConfigOut,
     ScoringCoverageRuleCreate,
     ScoringCoverageRuleOut,
@@ -73,6 +79,23 @@ def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
     start = datetime(year, month, 1)
     end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
     return start, end
+
+
+_MONTH_ABBR_ES = [
+    "", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+]
+_WEEKDAY_ABBR_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+
+
+def _day_short(d: date) -> str:
+    """`'4 Ago'` — sin depender del locale del SO (T3, DD.visits_semanal)."""
+    return f"{d.day} {_MONTH_ABBR_ES[d.month]}"
+
+
+def _week_start(d: date) -> date:
+    """Lunes de la semana ISO que contiene `d`."""
+    return d - timedelta(days=d.weekday())
 
 
 def _resolve_target_user_ids(db: Session, current_user: UserModel, user_id: int | None) -> list[int]:
@@ -249,6 +272,112 @@ def get_pdv_scoring(
 
 
 # ---------------------------------------------------------------------------
+# GET /kpi/weekly-activity
+# ---------------------------------------------------------------------------
+
+def _visit_is_effective(db: Session, visit_id: int) -> bool:
+    """Las 3 condiciones de visita efectiva (KPI 2, docs/tablero-tmr-diseno.md):
+    cobertura + relevamiento POP + ≥1 acción DONE. A diferencia de
+    `kpi_engine._kpi2_efectividad`, acá NO se exige que sea el día planificado —
+    esta vista de actividad lista todas las visitas del mes, planificadas o no."""
+    has_cov = db.query(VisitCoverageModel).filter(VisitCoverageModel.VisitId == visit_id).first() is not None
+    has_pop = db.query(VisitPOPItemModel).filter(VisitPOPItemModel.VisitId == visit_id).first() is not None
+    has_action = db.query(VisitActionModel).filter(
+        VisitActionModel.VisitId == visit_id, VisitActionModel.Status == "DONE"
+    ).first() is not None
+    return has_cov and has_pop and has_action
+
+
+@router.get("/weekly-activity")
+def get_weekly_activity(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    user_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Actividad de visitas del mes agrupada por semana y día, con detalle por PDV
+    (referencia funcional: DD.visits_semanal, docs/tablero-tmr-diseno.md). Todas las
+    visitas del usuario en el mes, planificadas o no, en orden cronológico. Solo se
+    devuelven semanas/días con al menos una visita."""
+    visible = visible_user_ids(db, current_user)
+    if visible is not None and user_id not in visible:
+        raise HTTPException(403, "No tenés acceso a los datos de este usuario")
+
+    user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+
+    start, end = _month_bounds(year, month)
+    visits = (
+        db.query(VisitModel)
+        .filter(VisitModel.UserId == user_id, VisitModel.OpenedAt >= start, VisitModel.OpenedAt < end)
+        .order_by(VisitModel.OpenedAt)
+        .all()
+    )
+
+    pdv_ids = {v.PdvId for v in visits}
+    pdv_names = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
+
+    # weekStart (lunes) -> dayDate -> lista de visitas de ese día, en orden cronológico
+    weeks: dict[date, dict[date, list[VisitModel]]] = {}
+    for v in visits:
+        day = v.OpenedAt.date()
+        week_start = _week_start(day)
+        weeks.setdefault(week_start, {}).setdefault(day, []).append(v)
+
+    result_weeks = []
+    for week_start in sorted(weeks.keys()):
+        days_map = weeks[week_start]
+        # Lunes a domingo: los TMRs también visitan fines de semana; una etiqueta
+        # Lun-Vie confunde cuando las visitas de la semana caen en sábado/domingo.
+        week_end = week_start + timedelta(days=6)
+
+        result_days = []
+        total_visits = 0
+        for day in sorted(days_map.keys()):
+            day_visits = days_map[day]
+            total_visits += len(day_visits)
+
+            closed_at_list = [v.ClosedAt for v in day_visits if v.ClosedAt is not None]
+            durations = [
+                (v.ClosedAt - v.OpenedAt).total_seconds() / 60.0
+                for v in day_visits if v.ClosedAt is not None
+            ]
+
+            result_days.append({
+                "date": day.isoformat(),
+                "dayLabel": f"{_WEEKDAY_ABBR_ES[day.weekday()]} {_day_short(day)}",
+                "count": len(day_visits),
+                "firstOpen": day_visits[0].OpenedAt.strftime("%H:%M"),
+                "lastClose": max(closed_at_list).strftime("%H:%M") if closed_at_list else None,
+                "avgDurationMin": round(sum(durations) / len(durations), 1) if durations else None,
+                "visits": [
+                    {
+                        "pdvId": v.PdvId,
+                        "pdvName": pdv_names.get(v.PdvId, f"PDV #{v.PdvId}"),
+                        "openedAt": v.OpenedAt.strftime("%H:%M"),
+                        "closedAt": v.ClosedAt.strftime("%H:%M") if v.ClosedAt else None,
+                        "status": v.Status,
+                        "effective": _visit_is_effective(db, v.VisitId),
+                    }
+                    for v in day_visits
+                ],
+            })
+
+        result_weeks.append({
+            "weekStart": week_start.isoformat(),
+            "label": f"{_day_short(week_start)} – {_day_short(week_end)}",
+            "totalVisits": total_visits,
+            "days": result_days,
+        })
+
+    return {
+        "userId": user_id,
+        "name": user.DisplayName if user else None,
+        "weeks": result_weeks,
+    }
+
+
+# ---------------------------------------------------------------------------
 # GET /kpi/route-summary
 # ---------------------------------------------------------------------------
 
@@ -381,6 +510,166 @@ def get_route_summary(
 
 
 # ---------------------------------------------------------------------------
+# Higiene de precios — /kpi/price-matrix, /kpi/suspicious-prices
+# ---------------------------------------------------------------------------
+
+def _price_rows_for_users(db: Session, user_ids: list[int], year: int, month: int) -> list[dict]:
+    """Precios relevados (`VisitCoverage.Price`) del mes para los usuarios dados, en
+    el formato que espera `filter_price_outliers` (`price`/`product`), enriquecido
+    con lo necesario para las dos respuestas de este router (`pdvId`/`pdvName`/
+    `userId`/`userName`/`productId`/`date`)."""
+    if not user_ids:
+        return []
+    start, end = _month_bounds(year, month)
+
+    rows = (
+        db.query(VisitCoverageModel, VisitModel, ProductModel)
+        .join(VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId)
+        .join(ProductModel, ProductModel.ProductId == VisitCoverageModel.ProductId)
+        .filter(
+            VisitModel.UserId.in_(user_ids),
+            VisitModel.OpenedAt >= start, VisitModel.OpenedAt < end,
+            VisitCoverageModel.Price.isnot(None),
+        )
+        .all()
+    )
+    if not rows:
+        return []
+
+    pdv_ids = {v.PdvId for _cov, v, _p in rows}
+    pdv_names = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()}
+    row_user_ids = {v.UserId for _cov, v, _p in rows}
+    user_names = {u.UserId: u.DisplayName for u in db.query(UserModel).filter(UserModel.UserId.in_(row_user_ids)).all()}
+
+    return [
+        {
+            "price": float(cov.Price),
+            "product": product.Name,
+            "productId": product.ProductId,
+            "pdvId": visit.PdvId,
+            "pdvName": pdv_names.get(visit.PdvId),
+            "userId": visit.UserId,
+            "userName": user_names.get(visit.UserId),
+            "date": visit.OpenedAt,
+        }
+        for cov, visit, product in rows
+    ]
+
+
+def _focus_route_by_user_pdv(db: Session, user_ids: list[int]) -> dict[tuple[int, int], tuple[int, str]]:
+    """(userId, pdvId) -> (routeId, routeName) de la ruta foco activa de ese usuario
+    que incluye ese PDV (misma convención que `route_by_pdv` de `/pdv-scoring`: si un
+    PDV está en más de una ruta foco del mismo usuario, gana la primera)."""
+    if not user_ids:
+        return {}
+    rows = (
+        db.query(RoutePdvModel.PdvId, RouteModel.RouteId, RouteModel.Name, RouteModel.AssignedUserId)
+        .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+        .filter(
+            RouteModel.IsFocus == True, RouteModel.IsActive == True,  # noqa: E712
+            RouteModel.AssignedUserId.in_(user_ids),
+        )
+        .all()
+    )
+    result: dict[tuple[int, int], tuple[int, str]] = {}
+    for pdv_id, route_id, route_name, assigned_user_id in rows:
+        result.setdefault((assigned_user_id, pdv_id), (route_id, route_name))
+    return result
+
+
+@router.get("/price-matrix")
+def get_price_matrix(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    group_by: str = Query(default="user"),
+    user_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Matriz de precios relevados por producto x grupo (`route` = ruta foco del
+    vendedor que incluye el PDV relevado, `user` = vendedor), con outliers y
+    productos `TEST_` descartados por `filter_price_outliers` (motor de KPIs)."""
+    if group_by not in ("route", "user"):
+        raise HTTPException(422, "group_by debe ser route o user")
+
+    target_ids = _resolve_target_user_ids(db, current_user, user_id)
+    if not target_ids:
+        return []
+
+    price_rows = _price_rows_for_users(db, target_ids, year, month)
+    valid, _discarded = filter_price_outliers(price_rows)
+
+    route_by_user_pdv = _focus_route_by_user_pdv(db, target_ids) if group_by == "route" else {}
+
+    agg: dict[tuple[int, str, int | None, str | None], list[float]] = {}
+    for row in valid:
+        if group_by == "route":
+            group = route_by_user_pdv.get((row["userId"], row["pdvId"]))
+            if group is None:
+                continue
+            group_id, group_name = group
+        else:
+            group_id, group_name = row["userId"], row["userName"]
+        key = (row["productId"], row["product"], group_id, group_name)
+        agg.setdefault(key, []).append(row["price"])
+
+    items = [
+        {
+            "productId": product_id,
+            "productName": product_name,
+            "groupId": group_id,
+            "groupName": group_name,
+            "avg": round(sum(prices) / len(prices), 2),
+            "min": min(prices),
+            "max": max(prices),
+            "n": len(prices),
+        }
+        for (product_id, product_name, group_id, group_name), prices in agg.items()
+    ]
+    items.sort(key=lambda it: (it["productName"], it["groupName"] or ""))
+    return items
+
+
+@router.get("/suspicious-prices")
+def get_suspicious_prices(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    user_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Precios descartados por `filter_price_outliers` (fuera de `[0.25x, 4x]` la
+    mediana de su producto, o producto `TEST_`), enriquecidos con PDV/vendedor/fecha
+    y la mediana contra la que se descartaron."""
+    target_ids = _resolve_target_user_ids(db, current_user, user_id)
+    if not target_ids:
+        return []
+
+    price_rows = _price_rows_for_users(db, target_ids, year, month)
+    _valid, discarded = filter_price_outliers(price_rows)
+
+    by_product: dict[str, list[float]] = {}
+    for row in price_rows:
+        by_product.setdefault(row["product"], []).append(row["price"])
+    medians = {product: median(prices) for product, prices in by_product.items()}
+
+    items = [
+        {
+            "productName": row["product"],
+            "price": row["price"],
+            "medianPrice": round(medians[row["product"]], 2),
+            "pdvId": row["pdvId"],
+            "pdvName": row["pdvName"],
+            "userId": row["userId"],
+            "userName": row["userName"],
+            "date": row["date"].isoformat(),
+        }
+        for row in sorted(discarded, key=lambda r: r["date"], reverse=True)
+    ]
+    return items
+
+
+# ---------------------------------------------------------------------------
 # POST /kpi/close-month — snapshot de cierre mensual (solo admin, T5)
 # ---------------------------------------------------------------------------
 
@@ -497,26 +786,36 @@ def _affected_user_ids(db: Session, scope_type: str, scope_id: int | None) -> li
     return [u.UserId for u in db.query(UserModel.UserId).all()]
 
 
-@router.post("/config", response_model=KpiConfigOut, status_code=201, dependencies=[Depends(require_role("admin"))])
-def create_kpi_config(
-    data: KpiConfigCreate,
-    db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user),
-):
-    if data.ScopeType not in ("global", "zone", "user"):
+def _validate_scope_type(scope_type: str, scope_id: int | None) -> None:
+    if scope_type not in ("global", "zone", "user"):
         raise HTTPException(422, "ScopeType debe ser global, zone o user")
-    if data.ScopeType in ("zone", "user") and data.ScopeId is None:
-        raise HTTPException(422, f"ScopeId es requerido para ScopeType={data.ScopeType}")
+    if scope_type in ("zone", "user") and scope_id is None:
+        raise HTTPException(422, f"ScopeId es requerido para ScopeType={scope_type}")
 
-    definition = db.query(KpiDefinitionModel).filter(KpiDefinitionModel.KpiDefinitionId == data.KpiDefinitionId).first()
+
+def _close_and_create_kpi_config(
+    db: Session,
+    definition_id: int,
+    weight: int,
+    target: float,
+    scope_type: str,
+    scope_id: int | None,
+    created_by_user_id: int,
+) -> KpiConfigModel:
+    """Cierra la vigencia previa de (definition_id, scope) y crea la fila nueva —
+    NO valida suma=100 (eso lo hace el caller, una sola vez, al final: así el POST
+    individual valida tras un solo cambio y el bulk (`/config/bulk`) puede aplicar
+    varios cambios del mismo alcance como una unidad sin que el estado intermedio
+    entre items rompa la validación)."""
+    definition = db.query(KpiDefinitionModel).filter(KpiDefinitionModel.KpiDefinitionId == definition_id).first()
     if not definition:
         raise HTTPException(404, "KPI no encontrado")
 
     today = date.today()
-    scope_filter = KpiConfigModel.ScopeId.is_(None) if data.ScopeId is None else KpiConfigModel.ScopeId == data.ScopeId
+    scope_filter = KpiConfigModel.ScopeId.is_(None) if scope_id is None else KpiConfigModel.ScopeId == scope_id
     existing = db.query(KpiConfigModel).filter(
-        KpiConfigModel.KpiDefinitionId == data.KpiDefinitionId,
-        KpiConfigModel.ScopeType == data.ScopeType,
+        KpiConfigModel.KpiDefinitionId == definition_id,
+        KpiConfigModel.ScopeType == scope_type,
         scope_filter,
         KpiConfigModel.ValidTo.is_(None),
     ).all()
@@ -524,21 +823,40 @@ def create_kpi_config(
         row.ValidTo = today
 
     new_row = KpiConfigModel(
-        KpiDefinitionId=data.KpiDefinitionId, Weight=data.Weight, Target=data.Target,
-        ScopeType=data.ScopeType, ScopeId=data.ScopeId, ValidFrom=today, ValidTo=None,
-        CreatedByUserId=current_user.UserId,
+        KpiDefinitionId=definition_id, Weight=weight, Target=target,
+        ScopeType=scope_type, ScopeId=scope_id, ValidFrom=today, ValidTo=None,
+        CreatedByUserId=created_by_user_id,
     )
     db.add(new_row)
     db.flush()
+    return new_row
 
-    affected = _affected_user_ids(db, data.ScopeType, data.ScopeId)
+
+def _bad_sum_100_users(db: Session, scope_type: str, scope_id: int | None) -> list[dict]:
+    today = date.today()
+    affected = _affected_user_ids(db, scope_type, scope_id)
     bad = []
     for uid in affected:
         configs, _warning = resolve_config(db, uid, today.year, today.month)
         total = sum(c.weight for c in configs)
         if total != 100:
             bad.append({"userId": uid, "total": total})
+    return bad
 
+
+@router.post("/config", response_model=KpiConfigOut, status_code=201, dependencies=[Depends(require_role("admin"))])
+def create_kpi_config(
+    data: KpiConfigCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    _validate_scope_type(data.ScopeType, data.ScopeId)
+
+    new_row = _close_and_create_kpi_config(
+        db, data.KpiDefinitionId, data.Weight, data.Target, data.ScopeType, data.ScopeId, current_user.UserId,
+    )
+
+    bad = _bad_sum_100_users(db, data.ScopeType, data.ScopeId)
     if bad:
         db.rollback()
         raise HTTPException(422, detail={
@@ -549,6 +867,49 @@ def create_kpi_config(
     db.commit()
     db.refresh(new_row)
     return new_row
+
+
+@router.post("/config/bulk", response_model=list[KpiConfigOut], status_code=201, dependencies=[Depends(require_role("admin"))])
+def create_kpi_config_bulk(
+    data: KpiConfigBulkCreate,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Aplica varios cambios de peso/meta del MISMO alcance en una sola transacción:
+    por cada item cierra la vigencia previa y crea la fila nueva (mismo helper que el
+    POST individual), y valida suma=100 una única vez al final, contra el set
+    resuelto de todos los usuarios afectados por el alcance. Pensado para permitir
+    intercambiar peso entre 2+ KPIs sin que el primer cambio, evaluado aislado, deje
+    la suma intermedia != 100 (ver docs/tablero-tmr-plan-fase1.md). Si algo falla
+    (item con KPI inexistente o suma final != 100), rollback completo: nada queda
+    aplicado."""
+    _validate_scope_type(data.ScopeType, data.ScopeId)
+    if not data.items:
+        raise HTTPException(422, "items no puede estar vacío")
+
+    try:
+        new_rows = [
+            _close_and_create_kpi_config(
+                db, item.KpiDefinitionId, item.Weight, item.Target, data.ScopeType, data.ScopeId, current_user.UserId,
+            )
+            for item in data.items
+        ]
+    except HTTPException:
+        db.rollback()
+        raise
+
+    bad = _bad_sum_100_users(db, data.ScopeType, data.ScopeId)
+    if bad:
+        db.rollback()
+        raise HTTPException(422, detail={
+            "message": "La suma de pesos resuelta no da 100% para algunos usuarios afectados",
+            "users": bad,
+        })
+
+    db.commit()
+    for row in new_rows:
+        db.refresh(row)
+    return new_rows
 
 
 @router.delete("/config/{config_id}", status_code=204, dependencies=[Depends(require_role("admin"))])

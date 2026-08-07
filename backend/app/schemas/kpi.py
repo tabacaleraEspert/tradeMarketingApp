@@ -29,6 +29,18 @@ class KpiConfigCreate(BaseModel):
     ScopeId: int | None = None
 
 
+class KpiConfigBulkItem(BaseModel):
+    KpiDefinitionId: int
+    Weight: int = Field(..., ge=0, le=100)
+    Target: float = Field(..., ge=0, le=100)
+
+
+class KpiConfigBulkCreate(BaseModel):
+    ScopeType: str  # global | zone | user
+    ScopeId: int | None = None
+    items: list[KpiConfigBulkItem]
+
+
 class KpiConfigOut(BaseModel):
     KpiConfigId: int
     KpiDefinitionId: int

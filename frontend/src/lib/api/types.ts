@@ -213,6 +213,7 @@ export interface Route {
   AssignedUserId: number | null;
   AssignedUserName: string | null;
   IsOptimized: boolean;
+  IsFocus: boolean;
   CreatedByUserId: number | null;
   PdvCount: number;
   CreatedAt: string;

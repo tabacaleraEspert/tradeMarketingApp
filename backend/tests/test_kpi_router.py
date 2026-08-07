@@ -347,6 +347,123 @@ def test_delete_config_valido_vuelve_a_global_el_mismo_dia(client, db):
 
 
 # ---------------------------------------------------------------------------
+# POST /kpi/config/bulk — guardado en lote (intercambio de pesos entre 2+ KPIs)
+# ---------------------------------------------------------------------------
+
+def _seed_baseline_configs(db, user, kpi_a, kpi_b, kpi_c):
+    """Baseline a=30+b=20+c=50=100 sembrada directo en DB (como
+    test_post_config_edicion_mismo_dia_valida_contra_la_nueva): las 3 vía POST
+    individual no serviría porque cada POST valida la suma tras SU cambio solo."""
+    today = date.today()
+    for kpi_id, weight in ((kpi_a, 30), (kpi_b, 20), (kpi_c, 50)):
+        db.add(KpiConfigModel(
+            KpiDefinitionId=kpi_id, Weight=weight, Target=50, ScopeType="user", ScopeId=user.UserId,
+            ValidFrom=today, ValidTo=None,
+        ))
+    db.commit()
+
+
+def test_bulk_intercambia_pesos_entre_dos_kpis_200(client, db):
+    user, _ = _user_with_role(db, "vendedor")
+    defs = _kpi_definitions(db)
+    kpi_a = defs["cobertura_skus"].KpiDefinitionId
+    kpi_b = defs["efectividad_visitas"].KpiDefinitionId
+    kpi_c = defs["pop_colocado"].KpiDefinitionId
+    _seed_baseline_configs(db, user, kpi_a, kpi_b, kpi_c)
+
+    # Cambiar 30->25 y 20->25 a la vez: el primero aislado dejaría la suma en 95.
+    resp = client.post(
+        "/kpi/config/bulk",
+        json={
+            "ScopeType": "user",
+            "ScopeId": user.UserId,
+            "items": [
+                {"KpiDefinitionId": kpi_a, "Weight": 25, "Target": 50},
+                {"KpiDefinitionId": kpi_b, "Weight": 25, "Target": 50},
+            ],
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert len(resp.json()) == 2
+
+    resolved = client.get("/kpi/config/resolved", params={"user_id": user.UserId}).json()
+    weights = {c["kpiKey"]: c["weight"] for c in resolved["configs"]}
+    assert weights["cobertura_skus"] == 25
+    assert weights["efectividad_visitas"] == 25
+    assert weights["pop_colocado"] == 50
+
+
+def test_bulk_rompe_suma_100_422_no_aplica_nada(client, db):
+    user, _ = _user_with_role(db, "vendedor")
+    defs = _kpi_definitions(db)
+    kpi_a = defs["cobertura_skus"].KpiDefinitionId
+    kpi_b = defs["efectividad_visitas"].KpiDefinitionId
+    kpi_c = defs["pop_colocado"].KpiDefinitionId
+    _seed_baseline_configs(db, user, kpi_a, kpi_b, kpi_c)
+
+    resp = client.post(
+        "/kpi/config/bulk",
+        json={
+            "ScopeType": "user",
+            "ScopeId": user.UserId,
+            "items": [
+                {"KpiDefinitionId": kpi_a, "Weight": 25, "Target": 50},
+                {"KpiDefinitionId": kpi_b, "Weight": 35, "Target": 50},
+            ],
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    assert "100" in str(resp.json()["detail"])
+
+    resolved = client.get("/kpi/config/resolved", params={"user_id": user.UserId}).json()
+    weights = {c["kpiKey"]: c["weight"] for c in resolved["configs"]}
+    assert weights["cobertura_skus"] == 30  # config previa sigue vigente
+    assert weights["efectividad_visitas"] == 20
+
+
+def test_bulk_no_admin_403(client, db):
+    _, token = _user_with_role(db, "vendedor")
+    defs = _kpi_definitions(db)
+    kpi_id = defs["cobertura_skus"].KpiDefinitionId
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.post(
+        "/kpi/config/bulk",
+        json={"ScopeType": "global", "ScopeId": None, "items": [{"KpiDefinitionId": kpi_id, "Weight": 100, "Target": 50}]},
+        headers=hdr,
+    )
+    assert resp.status_code == 403
+
+
+def test_bulk_kpi_inexistente_no_aplica_nada(client, db):
+    user, _ = _user_with_role(db, "vendedor")
+    defs = _kpi_definitions(db)
+    kpi_a = defs["cobertura_skus"].KpiDefinitionId
+
+    created = client.post(
+        "/kpi/config",
+        json={"KpiDefinitionId": kpi_a, "Weight": 100, "Target": 50, "ScopeType": "user", "ScopeId": user.UserId},
+    )
+    assert created.status_code == 201, created.text
+
+    resp = client.post(
+        "/kpi/config/bulk",
+        json={
+            "ScopeType": "user",
+            "ScopeId": user.UserId,
+            "items": [
+                {"KpiDefinitionId": kpi_a, "Weight": 50, "Target": 50},
+                {"KpiDefinitionId": 999999, "Weight": 50, "Target": 50},
+            ],
+        },
+    )
+    assert resp.status_code == 404, resp.text
+
+    resolved = client.get("/kpi/config/resolved", params={"user_id": user.UserId}).json()
+    weights = {c["kpiKey"]: c["weight"] for c in resolved["configs"]}
+    assert weights["cobertura_skus"] == 100  # config previa sigue vigente, nada aplicado
+
+
+# ---------------------------------------------------------------------------
 # M6 — lectura de definitions/config/scoring-rules: admin + territory_manager
 # ---------------------------------------------------------------------------
 

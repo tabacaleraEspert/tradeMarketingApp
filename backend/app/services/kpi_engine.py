@@ -691,9 +691,22 @@ def compute_kpis(db: Session, user_id: int, year: int, month: int) -> KpiResult:
 # Higiene de precios
 # ---------------------------------------------------------------------------
 
+MIN_PRICE_SAMPLES = 3
+"""Mínimo de precios de un producto para que la regla de mediana sea confiable.
+Con n<3 la mediana puede coincidir con uno de los dos únicos valores (o directamente
+ser un extremo), volviendo la regla `[0.25x, 4x]` degenerada: p.ej. con precios
+[2100, 21000] la mediana es 11550 y descarta el precio legítimo (2100) mientras
+acepta el outlier (21000). Por eso, por debajo de este umbral no hay evidencia
+suficiente para juzgar y no se descarta ningún precio del producto."""
+
+
 def filter_price_outliers(prices: list) -> tuple[list, list]:
     """Descarta precios fuera de `[0.25x, 4x]` la mediana de su producto y
     excluye productos de prueba (`Name` empieza con `TEST_`).
+
+    Si un producto tiene menos de `MIN_PRICE_SAMPLES` precios en la muestra, no se
+    le aplica la regla de mediana (se conservan todos sus precios sin marcar
+    ninguno como sospechoso) — ver docstring de `MIN_PRICE_SAMPLES`.
 
     `prices`: lista de dicts con keys `price`, `pdv`, `user`, `date`, `product`
     (nombre del producto). Devuelve `(validos, descartados)`; los descartados
@@ -710,6 +723,9 @@ def filter_price_outliers(prices: list) -> tuple[list, list]:
         product = row["product"]
         if product.startswith("TEST_"):
             discarded.append(row)
+            continue
+        if len(by_product[product]) < MIN_PRICE_SAMPLES:
+            valid.append(row)
             continue
         med = medians[product]
         price = row["price"]

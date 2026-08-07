@@ -478,6 +478,7 @@ export const routesApi = {
     FrequencyConfig?: string;
     EstimatedMinutes?: number;
     AssignedUserId?: number;
+    IsFocus?: boolean;
   }) => api.post<Route>("/routes", data),
   update: (
     id: number,
@@ -492,6 +493,7 @@ export const routesApi = {
       EstimatedMinutes?: number;
       AssignedUserId?: number | null;
       IsOptimized?: boolean;
+      IsFocus?: boolean;
     }
   ) => api.patch<Route>(`/routes/${id}`, data),
   delete: (id: number) => api.delete(`/routes/${id}`),
@@ -985,6 +987,163 @@ export interface RouteSummaryRow {
   withExchange: number;
 }
 
+export interface WeeklyActivityVisit {
+  pdvId: number;
+  pdvName: string;
+  openedAt: string;
+  closedAt: string | null;
+  status: string;
+  effective: boolean;
+}
+
+export interface WeeklyActivityDay {
+  date: string;
+  dayLabel: string;
+  count: number;
+  firstOpen: string;
+  lastClose: string | null;
+  avgDurationMin: number | null;
+  visits: WeeklyActivityVisit[];
+}
+
+export interface WeeklyActivityWeek {
+  weekStart: string;
+  label: string;
+  totalVisits: number;
+  days: WeeklyActivityDay[];
+}
+
+export interface WeeklyActivityResponse {
+  userId: number;
+  name: string | null;
+  weeks: WeeklyActivityWeek[];
+}
+
+export interface PriceMatrixItem {
+  productId: number;
+  productName: string;
+  groupId: number;
+  groupName: string;
+  avg: number;
+  min: number;
+  max: number;
+  n: number;
+}
+
+export interface SuspiciousPriceItem {
+  productName: string;
+  price: number;
+  medianPrice: number;
+  pdvId: number;
+  pdvName: string | null;
+  userId: number;
+  userName: string | null;
+  date: string;
+}
+
+// --- Config del ABM de KPIs (pestaña Objetivos, PascalCase igual que backend/app/schemas/kpi.py) ---
+export interface KpiDefinition {
+  KpiDefinitionId: number;
+  KpiKey: string;
+  Name: string;
+  Description: string | null;
+  IsActive: boolean;
+}
+
+export interface KpiConfig {
+  KpiConfigId: number;
+  KpiDefinitionId: number;
+  Weight: number;
+  Target: number;
+  ScopeType: string; // global | zone | user
+  ScopeId: number | null;
+  ValidFrom: string;
+  ValidTo: string | null;
+  CreatedByUserId: number | null;
+  CreatedAt: string;
+}
+
+export interface KpiConfigCreate {
+  KpiDefinitionId: number;
+  Weight: number;
+  Target: number;
+  ScopeType: string;
+  ScopeId?: number | null;
+}
+
+export interface KpiConfigBulkItem {
+  KpiDefinitionId: number;
+  Weight: number;
+  Target: number;
+}
+
+export interface KpiConfigBulkCreate {
+  ScopeType: string;
+  ScopeId?: number | null;
+  items: KpiConfigBulkItem[];
+}
+
+export interface ScoringCoverageRule {
+  RuleId: number;
+  Brand: string;
+  Level: string;
+  MinSkus: number;
+  ScopeType: string;
+  ScopeId: number | null;
+  ValidFrom: string;
+  ValidTo: string | null;
+  CreatedByUserId: number | null;
+  CreatedAt: string;
+}
+
+export interface ScoringCoverageRuleCreate {
+  Brand: string;
+  Level: string;
+  MinSkus: number;
+  ScopeType: string;
+  ScopeId?: number | null;
+}
+
+export interface ScoringCommunicationRule {
+  RuleId: number;
+  MaterialType: string;
+  Level: string;
+  Required: boolean | null;
+  MinElements: number | null;
+  ScopeType: string;
+  ScopeId: number | null;
+  ValidFrom: string;
+  ValidTo: string | null;
+  CreatedByUserId: number | null;
+  CreatedAt: string;
+}
+
+export interface ScoringCommunicationRuleCreate {
+  MaterialType: string;
+  Level: string;
+  Required?: boolean | null;
+  MinElements?: number | null;
+  ScopeType: string;
+  ScopeId?: number | null;
+}
+
+export interface ResolvedKpiConfigItem {
+  kpiDefinitionId: number;
+  kpiKey: string;
+  name: string;
+  weight: number;
+  target: number;
+  scopeApplied: string;
+}
+
+export interface ResolvedKpiConfig {
+  userId: number;
+  year: number;
+  month: number;
+  configs: ResolvedKpiConfigItem[];
+  configWarning: string | null;
+}
+
 export const kpiApi = {
   variable: (params: { year: number; month: number; user_id?: number }) =>
     api.get<KpiVariableRow[]>("/kpi/variable", params as Record<string, number | undefined>),
@@ -992,6 +1151,29 @@ export const kpiApi = {
     api.get<PdvScoringResponse>("/kpi/pdv-scoring", params as Record<string, number | undefined>),
   routeSummary: (params: { year: number; month: number; user_id?: number }) =>
     api.get<RouteSummaryRow[]>("/kpi/route-summary", params as Record<string, number | undefined>),
+  weeklyActivity: (params: { year: number; month: number; user_id: number }) =>
+    api.get<WeeklyActivityResponse>("/kpi/weekly-activity", params as Record<string, number | undefined>),
+  priceMatrix: (params: { year: number; month: number; group_by: "route" | "user"; user_id?: number }) =>
+    api.get<PriceMatrixItem[]>("/kpi/price-matrix", params as Record<string, string | number | undefined>),
+  suspiciousPrices: (params: { year: number; month: number; user_id?: number }) =>
+    api.get<SuspiciousPriceItem[]>("/kpi/suspicious-prices", params as Record<string, number | undefined>),
+  // --- Config (ABM de KPIs, pestaña Objetivos) ---
+  definitions: () => api.get<KpiDefinition[]>("/kpi/definitions"),
+  config: (params?: { scope_type?: string; scope_id?: number }) =>
+    api.get<KpiConfig[]>("/kpi/config", params as Record<string, string | number | undefined>),
+  createConfig: (data: KpiConfigCreate) => api.post<KpiConfig>("/kpi/config", data),
+  createConfigBulk: (data: KpiConfigBulkCreate) => api.post<KpiConfig[]>("/kpi/config/bulk", data),
+  deleteConfig: (configId: number) => api.delete<void>(`/kpi/config/${configId}`),
+  resolvedConfig: (params: { user_id?: number; year?: number; month?: number }) =>
+    api.get<ResolvedKpiConfig>("/kpi/config/resolved", params as Record<string, number | undefined>),
+  scoringRules: (type: "coverage" | "communication") =>
+    api.get<Array<ScoringCoverageRule | ScoringCommunicationRule>>("/kpi/scoring-rules", { type }),
+  createScoringRule: (
+    type: "coverage" | "communication",
+    data: ScoringCoverageRuleCreate | ScoringCommunicationRuleCreate
+  ) => api.post<ScoringCoverageRule | ScoringCommunicationRule>(`/kpi/scoring-rules?type=${type}`, data),
+  deleteScoringRule: (type: "coverage" | "communication", ruleId: number) =>
+    api.delete<void>(`/kpi/scoring-rules/${ruleId}?type=${type}`),
 };
 
 // --- Supplier Types (admin lookup) ---
