@@ -1,5 +1,5 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
-import { Home, MapPin, AlertCircle, RefreshCw, User } from "lucide-react";
+import { Home, MapPin, AlertCircle, RefreshCw, Target, User } from "lucide-react";
 import { useEffect } from "react";
 import { isAuthenticated } from "../lib/auth";
 import { ImpersonationBanner } from "./ImpersonationBanner";
@@ -42,7 +42,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/")}
             aria-label="Inicio"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/") && location.pathname === "/"
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -55,7 +55,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/search-pdv")}
             aria-label="Buscar PDV"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/search-pdv") || isActive("/route") || location.pathname.includes("/pos")
                 ? "text-espert-gold bg-secondary"
                 : "text-muted-foreground"
@@ -68,7 +68,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/alerts")}
             aria-label="Alertas"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/alerts") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -79,7 +79,7 @@ export function Layout() {
           <button
             onClick={() => navigate("/sync")}
             aria-label="Sincronizar"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/sync") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >
@@ -88,9 +88,20 @@ export function Layout() {
           </button>
 
           <button
+            onClick={() => navigate("/objectives")}
+            aria-label="Objetivos"
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+              isActive("/objectives") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
+            }`}
+          >
+            <Target size={24} />
+            <span className="text-xs font-medium">Objetivos</span>
+          </button>
+
+          <button
             onClick={() => navigate("/profile")}
             aria-label="Perfil"
-            className={`flex flex-col items-center justify-center gap-1 px-4 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
+            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 min-h-[56px] rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-[#A48242] focus-visible:ring-offset-1 ${
               isActive("/profile") ? "text-espert-gold bg-secondary" : "text-muted-foreground"
             }`}
           >

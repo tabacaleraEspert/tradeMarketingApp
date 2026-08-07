@@ -31,6 +31,7 @@ const Profile = lazy(() => import("./pages/Profile").then(m => ({ default: m.Pro
 const MyRoutesPage = lazy(() => import("./pages/MyRoutesPage").then(m => ({ default: m.MyRoutesPage })));
 const MyRouteEditorPage = lazy(() => import("./pages/MyRouteEditorPage").then(m => ({ default: m.MyRouteEditorPage })));
 const RouteGeneratorPage = lazy(() => import("./pages/RouteGeneratorPage").then(m => ({ default: m.RouteGeneratorPage })));
+const MisObjetivos = lazy(() => import("./pages/MisObjetivos").then(m => ({ default: m.MisObjetivos })));
 
 // Admin pages — lazy loaded (only admins need these)
 const AdminLayout = lazy(() => import("./components/AdminLayout").then(m => ({ default: m.AdminLayout })));
@@ -165,6 +166,7 @@ export const router = createBrowserRouter([
       { path: "end-of-day", element: <EndOfDayPage /> },
       { path: "alerts", element: <SuspenseWrap><Alerts /></SuspenseWrap> },
       { path: "sync", element: <Sync /> },
+      { path: "objectives", element: <SuspenseWrap><MisObjetivos /></SuspenseWrap> },
       { path: "profile", element: <SuspenseWrap><Profile /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
