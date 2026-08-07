@@ -13,7 +13,14 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import engine
 from app.kpi_defaults import KPI_DEFINITIONS
-from app.models import User as UserModel, Role as RoleModel, UserRole as UserRoleModel
+from app.models import (
+    User as UserModel,
+    Role as RoleModel,
+    UserRole as UserRoleModel,
+    PDV as PDVModel,
+    Route as RouteModel,
+    RoutePdv as RoutePdvModel,
+)
 from app.models.kpi_definition import KpiDefinition as KpiDefinitionModel
 from app.models.kpi_config import KpiConfig as KpiConfigModel
 from app.auth import create_access_token
@@ -76,6 +83,22 @@ def _kpi_definitions(db):
         defs[kd["key"]] = existing
     db.commit()
     return defs
+
+
+def _pdv(db):
+    p = PDVModel(Name=f"PDV_{_uid()}", IsActive=True)
+    db.add(p)
+    db.flush()
+    return p
+
+
+def _focus_route(db, assigned_user_id, pdv_id):
+    r = RouteModel(Name=f"R_{_uid()}", IsActive=True, AssignedUserId=assigned_user_id, IsFocus=True)
+    db.add(r)
+    db.flush()
+    db.add(RoutePdvModel(RouteId=r.RouteId, PdvId=pdv_id, SortOrder=1))
+    db.flush()
+    return r
 
 
 YEAR, MONTH = 2026, 3  # mes cerrado en el pasado respecto de "hoy" -> cálculo en vivo
@@ -160,6 +183,44 @@ def test_pdv_scoring_happy_path_estructura(client, db):
     assert body["page"] == 1
     assert body["pageSize"] == 50
     assert "scoreDist" in body and "coverage" in body["scoreDist"] and "communication" in body["scoreDist"]
+
+
+# ---------------------------------------------------------------------------
+# GET /kpi/route-summary — dueño de la ruta (userId/userName) por fila
+# ---------------------------------------------------------------------------
+
+def test_route_summary_incluye_dueno_por_fila_con_varios_usuarios(client, db):
+    manager, mgr_token = _user_with_role(db, "territory_manager")
+    sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    route_mgr = _focus_route(db, manager.UserId, _pdv(db).PdvId)
+    route_sub = _focus_route(db, sub.UserId, _pdv(db).PdvId)
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {mgr_token}"}
+    resp = client.get("/kpi/route-summary", params={"year": YEAR, "month": MONTH}, headers=hdr)
+    assert resp.status_code == 200, resp.text
+    rows = {row["routeId"]: row for row in resp.json()}
+    assert rows[route_mgr.RouteId]["userId"] == manager.UserId
+    assert rows[route_mgr.RouteId]["userName"] == manager.DisplayName
+    assert rows[route_sub.RouteId]["userId"] == sub.UserId
+    assert rows[route_sub.RouteId]["userName"] == sub.DisplayName
+
+
+def test_route_summary_con_user_id_puntual_incluye_dueno(client, db):
+    user, token = _user_with_role(db, "vendedor")
+    route = _focus_route(db, user.UserId, _pdv(db).PdvId)
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.get(
+        "/kpi/route-summary", params={"year": YEAR, "month": MONTH, "user_id": user.UserId}, headers=hdr,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["routeId"] == route.RouteId
+    assert body[0]["userId"] == user.UserId
+    assert body[0]["userName"] == user.DisplayName
 
 
 def test_config_resolved_visibilidad_vendedor(client, db):

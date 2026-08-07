@@ -977,6 +977,8 @@ export interface PdvScoringResponse {
 export interface RouteSummaryRow {
   routeId: number;
   name: string;
+  userId: number;
+  userName: string | null;
   pdvs: number;
   planned: number;
   visited: number;

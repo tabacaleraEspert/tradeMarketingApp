@@ -412,6 +412,8 @@ def get_route_summary(
         return []
 
     start, end = _month_bounds(year, month)
+    route_user_ids = {route.AssignedUserId for route in routes}
+    route_users = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(route_user_ids)).all()}
     communication_cache: dict[int, dict] = {}
     result = []
 
@@ -500,9 +502,12 @@ def get_route_summary(
             if has_canje:
                 with_exchange += 1
 
+        route_user = route_users.get(route.AssignedUserId)
         result.append({
             "routeId": route.RouteId,
             "name": route.Name,
+            "userId": route.AssignedUserId,
+            "userName": route_user.DisplayName if route_user else None,
             "pdvs": len(pdv_ids),
             "planned": planned,
             "visited": len(visited_pdv_ids),

@@ -30,10 +30,6 @@ interface Column {
   defaultDir: "asc" | "desc";
 }
 
-// NOTA: RouteSummaryRow (services.ts) no trae el dueño/TMR de la ruta — solo `routeId`/`name`.
-// Cuando userId es null el endpoint /kpi/route-summary devuelve las rutas de todos los usuarios
-// visibles, pero sin ese dato no podemos agrupar por TMR (spec §2 del plan): se muestra tabla
-// plana. Si el endpoint llegara a agregar un campo de dueño, agrupar acá.
 const COLUMNS: Column[] = [
   { key: "name", label: "Ruta", align: "left", defaultDir: "asc" },
   { key: "pdvs", label: "PDVs", align: "center", defaultDir: "desc" },
@@ -46,62 +42,93 @@ const COLUMNS: Column[] = [
   { key: "withExchange", label: "Con canje", align: "center", defaultDir: "desc" },
 ];
 
+function sortRouteRows(list: RouteSummaryRow[], sort: { key: SortKey; dir: "asc" | "desc" }): RouteSummaryRow[] {
+  const factor = sort.dir === "asc" ? 1 : -1;
+  return [...list].sort((a, b) => {
+    const va = a[sort.key];
+    const vb = b[sort.key];
+    if (typeof va === "string" || typeof vb === "string") {
+      return factor * String(va).localeCompare(String(vb));
+    }
+    return factor * ((va as number) - (vb as number));
+  });
+}
+
+function routeTotals(list: RouteSummaryRow[]) {
+  const sum = (key: keyof RouteSummaryRow) => list.reduce((acc, r) => acc + (r[key] as number), 0);
+  const planned = sum("planned");
+  // El endpoint no expone el numerador crudo de "efectividad" (PDVs efectivos), solo el
+  // porcentaje ya redondeado por ruta. Se reconstruye para poder recalcular el total real
+  // (no un promedio de promedios); puede diferir en <1 PDV por redondeo acumulado.
+  const effectivePdvs = list.reduce((acc, r) => acc + Math.round((r.effectiveness / 100) * r.planned), 0);
+  const effectiveness = planned > 0 ? Math.round((effectivePdvs / planned) * 10000) / 100 : 0;
+  return {
+    pdvs: sum("pdvs"),
+    planned,
+    visited: sum("visited"),
+    effectiveness,
+    actions: sum("actions"),
+    withMaterial: sum("withMaterial"),
+    sellsLoose: sum("sellsLoose"),
+    withExchange: sum("withExchange"),
+  };
+}
+
+interface VendorGroup {
+  userId: number;
+  userName: string | null;
+  rows: RouteSummaryRow[];
+  totals: ReturnType<typeof routeTotals>;
+}
+
 export function RutasTab({ year, month, userId, managerId, vendors, onSelectUser }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [rows, setRows] = useState<RouteSummaryRow[]>([]);
   const [sort, setSort] = useState<{ key: SortKey; dir: "asc" | "desc" }>({ key: "effectiveness", dir: "desc" });
 
-  // Con territorio seleccionado pero sin vendedor no se pide nada al backend:
-  // se muestra el mensaje de "elegí un vendedor" (ver render más abajo).
+  // Con territorio seleccionado pero sin vendedor puntual se pide sin user_id (el endpoint
+  // trae todos los usuarios visibles) y se filtra client-side a los vendedores del
+  // territorio elegido; así quedan agrupadas por TMR igual que en la vista General
+  // (ver `groups` más abajo).
+  const vendorIds = useMemo(() => new Set(vendors.map((v) => v.userId)), [vendors]);
+
   const load = useCallback(() => {
-    if (managerId != null && userId == null) {
-      setRows([]);
-      setLoading(false);
-      setError(false);
-      return;
-    }
     setLoading(true);
     setError(false);
     kpiApi.routeSummary({ year, month, user_id: userId ?? undefined })
-      .then(setRows)
+      .then((data) => {
+        setRows(managerId != null && userId == null ? data.filter((r) => vendorIds.has(r.userId)) : data);
+      })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [year, month, userId, managerId]);
+  }, [year, month, userId, managerId, vendorIds]);
 
   useEffect(() => { load(); }, [load]);
 
-  const sortedRows = useMemo(() => {
-    const factor = sort.dir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const va = a[sort.key];
-      const vb = b[sort.key];
-      if (typeof va === "string" || typeof vb === "string") {
-        return factor * String(va).localeCompare(String(vb));
-      }
-      return factor * ((va as number) - (vb as number));
-    });
-  }, [rows, sort]);
+  const sortedRows = useMemo(() => sortRouteRows(rows, sort), [rows, sort]);
 
-  const totals = useMemo(() => {
-    const sum = (key: keyof RouteSummaryRow) => rows.reduce((acc, r) => acc + (r[key] as number), 0);
-    const planned = sum("planned");
-    // El endpoint no expone el numerador crudo de "efectividad" (PDVs efectivos), solo el
-    // porcentaje ya redondeado por ruta. Se reconstruye para poder recalcular el total real
-    // (no un promedio de promedios); puede diferir en <1 PDV por redondeo acumulado.
-    const effectivePdvs = rows.reduce((acc, r) => acc + Math.round((r.effectiveness / 100) * r.planned), 0);
-    const effectiveness = planned > 0 ? Math.round((effectivePdvs / planned) * 10000) / 100 : 0;
-    return {
-      pdvs: sum("pdvs"),
-      planned,
-      visited: sum("visited"),
-      effectiveness,
-      actions: sum("actions"),
-      withMaterial: sum("withMaterial"),
-      sellsLoose: sum("sellsLoose"),
-      withExchange: sum("withExchange"),
-    };
-  }, [rows]);
+  const totals = useMemo(() => routeTotals(rows), [rows]);
+
+  // Sin vendedor puntual seleccionado el endpoint puede traer rutas de varios TMRs: se
+  // agrupan por dueño (orden y sorting por columna preservados dentro de cada grupo) para
+  // no mostrar una tabla plana sin saber de quién es cada ruta. Con vendedor seleccionado
+  // queda en null y la tabla se renderiza como antes (sin encabezados de grupo).
+  const groups = useMemo<VendorGroup[] | null>(() => {
+    if (userId != null) return null;
+    const byUser = new Map<number, RouteSummaryRow[]>();
+    for (const r of rows) {
+      const list = byUser.get(r.userId);
+      if (list) list.push(r);
+      else byUser.set(r.userId, [r]);
+    }
+    const result: VendorGroup[] = [];
+    for (const [uid, list] of byUser) {
+      result.push({ userId: uid, userName: list[0].userName, rows: sortRouteRows(list, sort), totals: routeTotals(list) });
+    }
+    result.sort((a, b) => (a.userName ?? "").localeCompare(b.userName ?? ""));
+    return result;
+  }, [rows, userId, sort]);
 
   const toggleSort = (key: SortKey) => {
     setSort((prev) => {
@@ -110,25 +137,12 @@ export function RutasTab({ year, month, userId, managerId, vendors, onSelectUser
     });
   };
 
-  if (managerId != null && userId == null) {
+  if (managerId != null && userId == null && vendors.length === 0) {
     return (
       <Card>
         <CardContent className="p-10 flex flex-col items-center gap-3 text-center">
           <Users size={28} className="text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">Elegí un vendedor del territorio para ver sus rutas.</p>
-          {vendors.length > 0 && (
-            <div className="flex flex-wrap gap-2 justify-center">
-              {vendors.map((v) => (
-                <button
-                  key={v.userId}
-                  onClick={() => onSelectUser(v.userId)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold bg-muted text-muted-foreground hover:bg-muted/70"
-                >
-                  {v.name ?? `Usuario #${v.userId}`}
-                </button>
-              ))}
-            </div>
-          )}
         </CardContent>
       </Card>
     );
@@ -198,23 +212,41 @@ export function RutasTab({ year, month, userId, managerId, vendors, onSelectUser
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {sortedRows.map((r) => (
-                <tr key={r.routeId} className="border-b border-border last:border-0">
-                  <td className="py-2.5 font-medium text-foreground">{r.name}</td>
-                  <td className="py-2.5 text-center">{r.pdvs}</td>
-                  <td className="py-2.5 text-center">{r.planned}</td>
-                  <td className="py-2.5 text-center">{r.visited}</td>
-                  <td className="py-2.5">
-                    <EffectivenessCell value={r.effectiveness} />
-                  </td>
-                  <td className="py-2.5 text-center">{r.actions}</td>
-                  <td className="py-2.5 text-center">{r.withMaterial}</td>
-                  <td className="py-2.5 text-center">{r.sellsLoose}</td>
-                  <td className="py-2.5 text-center">{r.withExchange}</td>
-                </tr>
-              ))}
-            </tbody>
+            {groups ? (
+              groups.map((g) => (
+                <tbody key={g.userId}>
+                  <tr
+                    className="bg-muted/40 cursor-pointer hover:bg-muted/60"
+                    onClick={() => onSelectUser(g.userId)}
+                  >
+                    <td colSpan={COLUMNS.length} className="py-2 px-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-foreground">{g.userName ?? `Usuario #${g.userId}`}</span>
+                        <span className="flex items-center gap-2 shrink-0">
+                          <span className="text-muted-foreground font-semibold">
+                            {g.rows.length} ruta{g.rows.length === 1 ? "" : "s"}
+                          </span>
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full font-semibold ${toneClasses[toneFor(g.totals.effectiveness)].pillBg} ${toneClasses[toneFor(g.totals.effectiveness)].pillText}`}
+                          >
+                            {formatPct(g.totals.effectiveness)}%
+                          </span>
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  {g.rows.map((r) => (
+                    <RouteRow key={r.routeId} row={r} />
+                  ))}
+                </tbody>
+              ))
+            ) : (
+              <tbody>
+                {sortedRows.map((r) => (
+                  <RouteRow key={r.routeId} row={r} />
+                ))}
+              </tbody>
+            )}
             <tfoot>
               <tr className="font-semibold text-foreground">
                 <td className="py-2.5">Total</td>
@@ -234,6 +266,24 @@ export function RutasTab({ year, month, userId, managerId, vendors, onSelectUser
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function RouteRow({ row }: { row: RouteSummaryRow }) {
+  return (
+    <tr className="border-b border-border last:border-0">
+      <td className="py-2.5 font-medium text-foreground">{row.name}</td>
+      <td className="py-2.5 text-center">{row.pdvs}</td>
+      <td className="py-2.5 text-center">{row.planned}</td>
+      <td className="py-2.5 text-center">{row.visited}</td>
+      <td className="py-2.5">
+        <EffectivenessCell value={row.effectiveness} />
+      </td>
+      <td className="py-2.5 text-center">{row.actions}</td>
+      <td className="py-2.5 text-center">{row.withMaterial}</td>
+      <td className="py-2.5 text-center">{row.sellsLoose}</td>
+      <td className="py-2.5 text-center">{row.withExchange}</td>
+    </tr>
   );
 }
 
