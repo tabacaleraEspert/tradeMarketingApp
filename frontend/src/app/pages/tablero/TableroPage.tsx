@@ -147,8 +147,13 @@ export function TableroPage() {
   const managerName = useMemo(() => {
     if (selectedManagerId == null) return null;
     if (selectedManagerId === NO_MANAGER_ID) return "Sin territorio asignado";
+    // Para el TM/supervisor logueado, currentUser.name manda: con jerarquía anidada
+    // (reps colgando de un manager intermedio) puede no haber ninguna fila cuyo
+    // managerUserId sea el propio id del TM, y derivar el nombre de las filas daría
+    // el nombre de ese intermedio en vez del suyo.
+    if (isTerritoryManager) return currentUser.name;
     return rows.find((r) => r.managerUserId === selectedManagerId)?.managerName ?? currentUser.name;
-  }, [rows, selectedManagerId, currentUser.name]);
+  }, [rows, selectedManagerId, currentUser.name, isTerritoryManager]);
 
   const userName = useMemo(() => {
     if (selectedUserId == null) return null;
@@ -156,12 +161,17 @@ export function TableroPage() {
   }, [rows, selectedUserId]);
 
   // Vendedores del territorio seleccionado, para el atajo de selección en Rutas/PDVs.
+  // Para el TM/supervisor logueado, su territorio es TODO lo que el backend le
+  // devolvió (visible_user_ids ya lo limita a su sub-árbol completo, con reps
+  // colgando de managers intermedios incluidos) — filtrar por managerUserId directo
+  // dejaría afuera a esos reps.
   const territoryVendors = useMemo(() => {
+    if (isTerritoryManager) return rows.map((r) => ({ userId: r.userId, name: r.name }));
     if (selectedManagerId == null) return [];
     return rows
       .filter((r) => (r.managerUserId ?? NO_MANAGER_ID) === selectedManagerId)
       .map((r) => ({ userId: r.userId, name: r.name }));
-  }, [rows, selectedManagerId]);
+  }, [rows, selectedManagerId, isTerritoryManager]);
 
   return (
     <div className="space-y-6">
@@ -233,6 +243,7 @@ export function TableroPage() {
             month={month}
             managerId={selectedManagerId}
             userId={selectedUserId}
+            isTerritoryManager={isTerritoryManager}
             onSelectManager={handleSelectManager}
             onSelectUser={handleSelectUser}
           />

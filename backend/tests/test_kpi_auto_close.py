@@ -296,6 +296,68 @@ def test_closed_months_devuelve_lo_esperado(client, db):
         assert (a["year"], a["month"]) >= (b["year"], b["month"])
 
 
+def test_closed_months_complete_flag(client, db):
+    """A1 de la auditoría del tablero TMR: `complete` compara `users` (los que
+    tienen snapshot ese mes) contra `usersWithRoutes` (ruta foco activa HOY, sin
+    scoping por mes -- ver docstring de `get_closed_months`). Como ese universo es
+    global y la suite comparte una sola DB entre archivos de test, se desactivan
+    temporalmente otras rutas foco activas que hayan quedado de otros tests para
+    que la cuenta sea determinística (se restauran en el finally, pase o falle el
+    test)."""
+    other_route_ids = [
+        r[0] for r in db.query(RouteModel.RouteId).filter(
+            RouteModel.IsFocus == True, RouteModel.IsActive == True,  # noqa: E712
+        ).all()
+    ]
+    if other_route_ids:
+        db.query(RouteModel).filter(RouteModel.RouteId.in_(other_route_ids)).update(
+            {"IsActive": False}, synchronize_session=False,
+        )
+        db.commit()
+
+    try:
+        year, month = 2019, 8
+        user1, _ = _user_with_role(db, "vendedor")
+        _cobertura_setup(db, user1, year, month)
+
+        user2, _ = _user_with_role(db, "vendedor")
+        _route_with_pdv(db, user2.UserId)  # ruta foco activa hoy, pero sin KpiConfig todavía
+
+        closed = client.post("/kpi/close-month", params={"year": year, "month": month})
+        assert closed.status_code == 200, closed.text
+        assert user2.UserId in closed.json()["usersSkipped"]
+
+        resp = client.get("/kpi/closed-months")
+        assert resp.status_code == 200, resp.text
+        entry = next(e for e in resp.json() if e["year"] == year and e["month"] == month)
+        assert entry["usersWithRoutes"] == 2
+        assert entry["users"] == 1
+        assert entry["complete"] is False
+
+        defs = _kpi_definitions(db)
+        db.add(KpiConfigModel(
+            KpiDefinitionId=defs["cobertura_skus"].KpiDefinitionId, Weight=100, Target=50,
+            ScopeType="user", ScopeId=user2.UserId, ValidFrom=date(year, 1, 1), ValidTo=None,
+        ))
+        db.commit()
+
+        completed = client.post("/kpi/close-month", params={"year": year, "month": month, "only_missing": True})
+        assert completed.status_code == 200, completed.text
+        assert completed.json()["usersCompleted"] == [user2.UserId]
+
+        resp2 = client.get("/kpi/closed-months")
+        entry2 = next(e for e in resp2.json() if e["year"] == year and e["month"] == month)
+        assert entry2["usersWithRoutes"] == 2
+        assert entry2["users"] == 2
+        assert entry2["complete"] is True
+    finally:
+        if other_route_ids:
+            db.query(RouteModel).filter(RouteModel.RouteId.in_(other_route_ids)).update(
+                {"IsActive": True}, synchronize_session=False,
+            )
+            db.commit()
+
+
 def test_cierre_manual_sigue_funcionando_igual(client, db):
     """El refactor que extrajo `_close_month_core` no cambia el contrato externo de
     `POST /kpi/close-month` (mismo chequeo de contrato que test_kpi_snapshot.py)."""

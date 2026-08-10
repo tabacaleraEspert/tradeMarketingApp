@@ -48,6 +48,7 @@ Env: `VITE_API_URL`, `VITE_GOOGLE_MAPS_API_KEY` (ver `frontend/.env.example`).
 
 - Entrypoint: `backend/app/main.py` (CORS, middleware JWT, instrumentación SQL).
 - Capas: `app/routers/` (~20 routers: auth, users, roles, pdvs, routes, forms, visits, incidents, reports…) → `app/models/` (ORM) + `app/schemas/` (Pydantic). No hay capa de servicios separada; la lógica vive mayormente en los routers.
+- Excepción: `app/services/kpi_engine.py` — motor de cálculo de los 5 KPIs del tablero TMR (compensación variable mensual), primera capa de servicios real del backend. No tocar sin leer `docs/tablero-tmr-diseno.md`. Router: `app/routers/kpi.py`. Tablas (migración `0021`): `KpiDefinition`, `KpiConfig`, `ScoringCoverageRule`, `ScoringCommunicationRule`, `KpiMonthlySnapshot`.
 - Auth: `backend/app/auth.py` — JWT access+refresh, dependencia `get_current_user`, RBAC vía `require_role()`. Ojo: aunque el esquema permite varios roles por usuario, el código considera efectivo **uno solo** (ver `docs/backend-review-schema.md`).
 - DB: `backend/app/database.py` — pool para Azure SQL (size=15, overflow=10, pre_ping, recycle 1800s). Migraciones versionadas en `backend/alembic/versions/`.
 - Storage de archivos: Azure Blob (`AZURE_STORAGE_CONNECTION_STRING`), opcional.
@@ -59,6 +60,7 @@ Env: `VITE_API_URL`, `VITE_GOOGLE_MAPS_API_KEY` (ver `frontend/.env.example`).
 - Capa API: `src/lib/api/` — `client.ts` (wrapper HTTP con auto-refresh de JWT en 401), `auth-storage.ts` (tokens en localStorage), `services.ts` (métodos por recurso), `hooks.ts` (helpers de query/mutation).
 - Offline-first: `src/lib/offline/` — cola de mutaciones (`queue.ts`), cache optimista y sync-worker. Tener en cuenta este flujo al tocar mutaciones.
 - Empaquetado móvil con Capacitor (Android).
+- Tablero TMR: sección `/tablero` (pestañas Resumen, Rutas, PDVs, Objetivos, Precios, Actividad — admin/TM) y `/objectives` ("Mis objetivos", vista del vendedor); ambas consumen `app/routers/kpi.py`.
 
 ### Documentación clave
 

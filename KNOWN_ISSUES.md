@@ -83,6 +83,21 @@
 - Deploy es manual. No hay pipeline automatizado.
 - **Fix futuro:** GitHub Actions con build + test + deploy a Azure.
 
+### 16. Tablero TMR: cortes de mes en UTC en la reportería vieja
+- **Dónde:** `backend/app/routers/reports.py` (KPIs del mes, ranking de vendedores, cobertura por canal, etc.)
+- **Qué pasa:** `reports.py` corta los meses en UTC puro (`datetime(year, month, 1, tzinfo=timezone.utc)`). El tablero TMR (`/kpi`, `app/services/kpi_engine.py`) ya corta el mes en hora Argentina y lo convierte a UTC para comparar contra `OpenedAt`. En los bordes de mes puede haber hasta ~3 hs de diferencia entre lo que muestra la reportería vieja y el tablero para las mismas visitas.
+- **Impacto:** Bajo, salvo al comparar números "a mano" entre ambos reportes cerca de fin de mes.
+
+### 17. Tablero TMR: el drill-down agrupa solo por manager directo
+- **Dónde:** Tablero → pestaña Resumen, drill-down General → Territorio → Vendedor
+- **Qué pasa:** La jerarquía admite cadenas de más de 2 niveles saltando eslabones (`ManagerUserId`, ver `backend/app/hierarchy.py`). El drill-down agrupa por manager **directo**: si hay un manager intermedio, sus reps aparecen bajo ese intermedio y no se agregan al nivel superior.
+- **Impacto:** Bajo con jerarquías de 2 niveles (caso hoy más común). Revisar si se agregan niveles intermedios nuevos.
+
+### 18. Tablero TMR: meses históricos sin tráfico no se auto-cierran
+- **Dónde:** Cierre mensual automático (lazy trigger en el primer `GET /kpi/variable` del mes)
+- **Qué pasa:** El auto-cierre solo corre cuando alguien abre el tablero. Si un mes pasa sin que nadie lo abra, ese mes queda sin snapshot.
+- **Fix:** Cierre manual, `POST /kpi/close-month` (ver RUNBOOK.md).
+
 ---
 
 ## Feedback del cliente pendiente (Tier 3)

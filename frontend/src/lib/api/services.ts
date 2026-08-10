@@ -1050,6 +1050,8 @@ export interface ClosedMonth {
   snapshots: number;
   users: number;
   frozenAt: string | null;
+  usersWithRoutes: number;
+  complete: boolean;
 }
 
 export interface CloseMonthResult {
@@ -1059,6 +1061,7 @@ export interface CloseMonthResult {
   snapshotsCreated: number;
   forced: boolean;
   usersSkipped: number[];
+  usersCompleted: number[];
 }
 
 // --- Config del ABM de KPIs (pestaña Objetivos, PascalCase igual que backend/app/schemas/kpi.py) ---
@@ -1179,9 +1182,10 @@ export const kpiApi = {
     api.get<SuspiciousPriceItem[]>("/kpi/suspicious-prices", params as Record<string, number | undefined>),
   // --- Cierre mensual (T5) ---
   closedMonths: () => api.get<ClosedMonth[]>("/kpi/closed-months"),
-  closeMonth: (params: { year: number; month: number; force?: boolean }) => {
+  closeMonth: (params: { year: number; month: number; force?: boolean; only_missing?: boolean }) => {
     const qs = new URLSearchParams({ year: String(params.year), month: String(params.month) });
     if (params.force) qs.set("force", "true");
+    if (params.only_missing) qs.set("only_missing", "true");
     return api.post<CloseMonthResult>(`/kpi/close-month?${qs.toString()}`, {});
   },
   // --- Config (ABM de KPIs, pestaña Objetivos) ---

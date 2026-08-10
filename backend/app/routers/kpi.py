@@ -749,7 +749,7 @@ KPI_AUTO_CLOSE_SETTING_KEY = "kpi_last_auto_close"
 (valor "YYYY-MM" del último mes procesado, cerrado o no)."""
 
 
-def _close_month_core(db: Session, year: int, month: int, force: bool = False) -> dict:
+def _close_month_core(db: Session, year: int, month: int, force: bool = False, only_missing: bool = False) -> dict:
     """Lógica de cierre de mes compartida por `POST /kpi/close-month` (manual, admin)
     y `ensure_previous_month_closed` (automático, T4). Congela `KpiMonthlySnapshot`
     para todos los usuarios con ≥1 ruta foco activa asignada. Solo meses ya
@@ -757,6 +757,17 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False) -
     ese (year, month) -> 409, salvo `force=true` que los borra y recalcula en vivo
     (al no quedar snapshot previo, `compute_kpis` calcula en vivo aunque el mes esté
     cerrado — ver kpi_engine.compute_kpis).
+
+    `only_missing=True` (A1 de la auditoría del tablero TMR): en vez del 409,
+    calcula y persiste snapshots SOLO para los usuarios con config vigente que
+    todavía no tengan NINGÚN snapshot de ese (year, month) — típicamente usuarios
+    dados de alta después del cierre, o que en su momento quedaron en
+    `usersSkipped` por falta de config y ya la tienen. Los snapshots existentes NO
+    se tocan (a diferencia de `force`, que los borra y recalcula todos —
+    inaceptable si ya hay compensación liquidada sobre esos valores). Si `force`
+    también viene en `true`, gana `force` (borra y recalcula todo; `only_missing`
+    no tiene nada que completar después). Se reportan en `usersCompleted` los
+    usuarios efectivamente agregados en esta pasada (subconjunto de `usersClosed`).
 
     Antes de tocar cualquier snapshot existente (incluso con `force=true`) se valida
     que al menos un usuario tenga config vigente (`resolve_config` no vacío) para ese
@@ -787,16 +798,28 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False) -
     existing_q = db.query(KpiMonthlySnapshotModel).filter(
         KpiMonthlySnapshotModel.Year == year, KpiMonthlySnapshotModel.Month == month,
     )
+    users_to_compute = users_with_config
     if existing_q.first() is not None:
-        if not force:
+        if force:
+            existing_q.delete(synchronize_session=False)
+            db.flush()
+        elif only_missing:
+            users_with_snapshot = {
+                r[0] for r in
+                db.query(KpiMonthlySnapshotModel.UserId)
+                .filter(KpiMonthlySnapshotModel.Year == year, KpiMonthlySnapshotModel.Month == month)
+                .distinct()
+                .all()
+            }
+            users_to_compute = [uid for uid in users_with_config if uid not in users_with_snapshot]
+        else:
             raise HTTPException(409, f"Ya existe un cierre para {year}-{month:02d}. Usá ?force=true para regenerarlo.")
-        existing_q.delete(synchronize_session=False)
-        db.flush()
 
     def_ids_by_key = {d.KpiKey: d.KpiDefinitionId for d in db.query(KpiDefinitionModel).all()}
 
     snapshots_created = 0
-    for user_id in users_with_config:
+    users_completed = []
+    for user_id in users_to_compute:
         result = compute_kpis(db, user_id, year, month)
         for k in result.kpis:
             definition_id = def_ids_by_key.get(k.key)
@@ -809,6 +832,7 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False) -
                 FrozenAt=datetime.now(timezone.utc),
             ))
             snapshots_created += 1
+        users_completed.append(user_id)
 
     db.commit()
 
@@ -819,6 +843,7 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False) -
         "snapshotsCreated": snapshots_created,
         "forced": force,
         "usersSkipped": users_skipped,
+        "usersCompleted": users_completed,
     }
 
 
@@ -827,11 +852,12 @@ def close_month(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     force: bool = Query(default=False),
+    only_missing: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
     """Ver docstring de `_close_month_core` — este endpoint es un wrapper admin de
     esa lógica, sin comportamiento propio."""
-    return _close_month_core(db, year, month, force)
+    return _close_month_core(db, year, month, force, only_missing)
 
 
 def _previous_month(today: date) -> tuple[int, int]:
@@ -874,15 +900,19 @@ def _claim_auto_close(db: Session, target_key: str) -> bool:
 
 
 def _run_auto_close(year: int, month: int, target_key: str) -> None:
-    """Ejecuta el cierre real (`_close_month_core`) como `BackgroundTasks` de
-    FastAPI: corre DESPUÉS de responder `GET /kpi/variable`, en su PROPIA sesión
-    de DB (la del request ya se cerró al responder). Nunca propaga: cualquier
-    excepción — incluida la del propio `_close_month_core` — se loguea y se
-    descarta, para no tumbar el worker de background de Starlette."""
+    """Ejecuta el cierre real (`_close_month_core`, con `only_missing=True`) como
+    `BackgroundTasks` de FastAPI: corre DESPUÉS de responder `GET /kpi/variable`,
+    en su PROPIA sesión de DB (la del request ya se cerró al responder).
+    `only_missing=True` hace que, si otro camino ya dejó snapshots de ese mes (p.ej.
+    un cierre manual parcial), esta corrida complete a los usuarios que falten en
+    vez de abortar por 409 (A1 de la auditoría del tablero TMR) — nunca borra ni
+    recalcula lo ya congelado. Nunca propaga: cualquier excepción — incluida la del
+    propio `_close_month_core` — se loguea y se descarta, para no tumbar el worker
+    de background de Starlette."""
     db = SessionLocal()
     try:
         try:
-            _close_month_core(db, year, month)
+            _close_month_core(db, year, month, only_missing=True)
         except HTTPException as exc:
             if exc.status_code == 422:
                 logger.warning(
@@ -923,11 +953,16 @@ def ensure_previous_month_closed(db: Session, background_tasks: BackgroundTasks)
     Se detecta con `GET /kpi/closed-months` (el mes no aparece) y se recupera con
     `POST /kpi/close-month` manual (admin).
 
-    Casos dentro de `_run_auto_close`:
-    - Ya había snapshots de ese mes (409 de `_close_month_core`) -> no duplica.
+    Casos dentro de `_run_auto_close` (llama a `_close_month_core` con
+    `only_missing=True`, ver docstring de esa función — A1 de la auditoría del
+    tablero TMR):
+    - Ya había snapshots de ese mes (otro camino los creó, p.ej. un cierre manual
+      parcial) -> completa SOLO los usuarios con config vigente que todavía no
+      tengan snapshot, sin tocar los existentes.
     - Sin config vigente para nadie ese mes (422) -> NO cierra (la marca ya
       quedó escrita por el claim) y loguea warning.
-    - Éxito -> snapshots creados.
+    - Éxito -> snapshots creados (todos si era la primera vez, o solo los
+      faltantes si ya había algunos).
 
     Nunca propaga: ni el claim ni el background task deben poder romper
     `GET /kpi/variable` ni el worker de background de Starlette."""
@@ -965,7 +1000,18 @@ def get_closed_months(
 ):
     """Meses con `KpiMonthlySnapshot`, orden desc. Metadata global (no hay scoping
     por usuario/equipo): requiere auth como el resto del router, pero cualquier rol
-    autenticado puede consultarla."""
+    autenticado puede consultarla. `usersWithRoutes` es el universo de HOY (usuarios
+    con ≥1 ruta foco activa ahora mismo, mismo criterio que `_close_month_core`),
+    no el del mes que se lista -- por eso `complete` puede pasar de `true` a
+    `false` sin que cambie el snapshot, si después del cierre se dio de alta o
+    reasignó una ruta foco a alguien nuevo (A1 de la auditoría del tablero TMR)."""
+    users_with_routes_today = (
+        db.query(RouteModel.AssignedUserId)
+        .filter(RouteModel.IsFocus == True, RouteModel.IsActive == True, RouteModel.AssignedUserId.isnot(None))  # noqa: E712
+        .distinct()
+        .count()
+    )
+
     rows = (
         db.query(
             KpiMonthlySnapshotModel.Year,
@@ -985,6 +1031,8 @@ def get_closed_months(
             "snapshots": r.snapshots,
             "users": r.users,
             "frozenAt": r.frozenAt.isoformat() if r.frozenAt else None,
+            "usersWithRoutes": users_with_routes_today,
+            "complete": r.users == users_with_routes_today,
         }
         for r in rows
     ]

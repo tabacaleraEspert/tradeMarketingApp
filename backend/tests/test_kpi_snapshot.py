@@ -310,3 +310,99 @@ def test_close_month_reporta_users_skipped_para_usuario_sin_config(client, db):
     body = resp.json()
     assert skipped_user.UserId in body["usersSkipped"]
     assert user.UserId not in body["usersSkipped"]
+
+
+# ---------------------------------------------------------------------------
+# A1 — only_missing completa cierres parciales sin pisar snapshots congelados
+# ---------------------------------------------------------------------------
+
+def test_sin_only_missing_sigue_dando_409(client, db):
+    year, month = 2024, 11
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, year, month)
+
+    first = client.post("/kpi/close-month", params={"year": year, "month": month})
+    assert first.status_code == 200, first.text
+
+    second = client.post("/kpi/close-month", params={"year": year, "month": month, "only_missing": False})
+    assert second.status_code == 409
+
+
+def test_only_missing_agrega_faltantes_sin_tocar_existentes(client, db):
+    year, month = 2024, 8
+    user1, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user1, year, month)
+
+    first = client.post("/kpi/close-month", params={"year": year, "month": month})
+    assert first.status_code == 200, first.text
+
+    existing_row = (
+        db.query(KpiMonthlySnapshotModel)
+        .filter(
+            KpiMonthlySnapshotModel.UserId == user1.UserId,
+            KpiMonthlySnapshotModel.Year == year, KpiMonthlySnapshotModel.Month == month,
+        )
+        .first()
+    )
+    snapshot_id_before = existing_row.SnapshotId
+    frozen_at_before = existing_row.FrozenAt
+    numerator_before = existing_row.Numerator
+
+    # Usuario dado de alta después del cierre: ruta foco + config vigente, sin snapshot todavía.
+    user2, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user2, year, month)
+
+    resp = client.post("/kpi/close-month", params={"year": year, "month": month, "only_missing": True})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["usersCompleted"] == [user2.UserId]
+
+    row_user1_after = (
+        db.query(KpiMonthlySnapshotModel)
+        .filter(
+            KpiMonthlySnapshotModel.UserId == user1.UserId,
+            KpiMonthlySnapshotModel.Year == year, KpiMonthlySnapshotModel.Month == month,
+        )
+        .first()
+    )
+    assert row_user1_after.SnapshotId == snapshot_id_before  # no se borró/recreó
+    assert row_user1_after.FrozenAt == frozen_at_before
+    assert row_user1_after.Numerator == numerator_before
+
+    rows_user2 = db.query(KpiMonthlySnapshotModel).filter(
+        KpiMonthlySnapshotModel.UserId == user2.UserId,
+        KpiMonthlySnapshotModel.Year == year, KpiMonthlySnapshotModel.Month == month,
+    ).all()
+    assert len(rows_user2) >= 1
+
+
+def test_only_missing_con_todos_completos_no_agrega_nada(client, db):
+    year, month = 2024, 9
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, year, month)
+
+    first = client.post("/kpi/close-month", params={"year": year, "month": month})
+    assert first.status_code == 200, first.text
+
+    resp = client.post("/kpi/close-month", params={"year": year, "month": month, "only_missing": True})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usersCompleted"] == []
+
+
+def test_only_missing_usuario_sin_config_sigue_en_users_skipped(client, db):
+    year, month = 2024, 10
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, year, month)
+
+    skipped_user, _ = _user_with_role(db, "vendedor")
+    _route_with_pdv(db, skipped_user.UserId)  # ruta foco pero sin KpiConfig
+
+    first = client.post("/kpi/close-month", params={"year": year, "month": month})
+    assert first.status_code == 200, first.text
+    assert skipped_user.UserId in first.json()["usersSkipped"]
+
+    resp = client.post("/kpi/close-month", params={"year": year, "month": month, "only_missing": True})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert skipped_user.UserId in body["usersSkipped"]
+    assert skipped_user.UserId not in body["usersCompleted"]

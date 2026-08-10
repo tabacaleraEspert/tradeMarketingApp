@@ -1,13 +1,13 @@
-"""Schemas del tablero TMR — CRUD de configuración (docs/tablero-tmr-plan-fase1.md T3).
+﻿"""Schemas del tablero TMR â€” CRUD de configuraciÃ³n (docs/tablero-tmr-plan-fase1.md T3).
 
 Los endpoints de solo lectura que calculan KPIs (`/kpi/variable`, `/kpi/pdv-scoring`,
 `/kpi/route-summary`, `/kpi/config/resolved`) devuelven dicts camelCase construidos a
 mano en el router (siguiendo el contrato JSON del plan y el estilo de `dashboard.py`),
-no schemas de acá. Estos schemas son para el CRUD de configuración, que sigue la
-convención PascalCase del resto de los schemas del repo (ver `schemas/supplier_type.py`).
+no schemas de acÃ¡. Estos schemas son para el CRUD de configuraciÃ³n, que sigue la
+convenciÃ³n PascalCase del resto de los schemas del repo (ver `schemas/supplier_type.py`).
 """
 from datetime import date, datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class KpiDefinitionOut(BaseModel):
@@ -17,8 +17,7 @@ class KpiDefinitionOut(BaseModel):
     Description: str | None
     IsActive: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class KpiConfigCreate(BaseModel):
@@ -53,8 +52,7 @@ class KpiConfigOut(BaseModel):
     CreatedByUserId: int | None
     CreatedAt: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScoringCoverageRuleCreate(BaseModel):
@@ -77,8 +75,7 @@ class ScoringCoverageRuleOut(BaseModel):
     CreatedByUserId: int | None
     CreatedAt: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ScoringCommunicationRuleCreate(BaseModel):
@@ -103,5 +100,4 @@ class ScoringCommunicationRuleOut(BaseModel):
     CreatedByUserId: int | None
     CreatedAt: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

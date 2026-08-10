@@ -17,11 +17,15 @@ interface Props {
   month: number;
   managerId: number | null;
   userId: number | null;
+  /** TM/supervisor logueado viendo su propio territorio: `rows` ya viene acotado a
+   * su sub-árbol completo (visible_user_ids), así que no hay que volver a filtrar
+   * por manager directo (dejaría afuera a los reps colgando de un intermedio). */
+  isTerritoryManager: boolean;
   onSelectManager: (managerId: number) => void;
   onSelectUser: (userId: number) => void;
 }
 
-export function ResumenTab({ rows, loading, error, onRetry, year, month, managerId, userId, onSelectManager, onSelectUser }: Props) {
+export function ResumenTab({ rows, loading, error, onRetry, year, month, managerId, userId, isTerritoryManager, onSelectManager, onSelectUser }: Props) {
   if (loading) {
     return (
       <Card>
@@ -79,7 +83,9 @@ export function ResumenTab({ rows, loading, error, onRetry, year, month, manager
   }
 
   if (managerId != null) {
-    const vendors = rows.filter((r) => (r.managerUserId ?? NO_MANAGER_ID) === managerId);
+    const vendors = isTerritoryManager
+      ? rows
+      : rows.filter((r) => (r.managerUserId ?? NO_MANAGER_ID) === managerId);
     return <TerritoryView vendors={vendors} onSelectUser={onSelectUser} />;
   }
 

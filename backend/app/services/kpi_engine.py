@@ -380,31 +380,41 @@ def pdv_coverage_scores(db: Session, user_id: int, year: int, month: int) -> dic
 
     start, end = _month_datetime_range(year, month)
 
+    # 1 query agregada para todo el universo (antes: 1 query por PDV, N+1) — mismo
+    # join/filtro de antes, solo que con `PdvId.in_(universe)` en vez de `== pdv_id`.
+    cov_rows = (
+        db.query(Visit.PdvId, VisitCoverage, Product, Visit.OpenedAt)
+        .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
+        .join(Product, Product.ProductId == VisitCoverage.ProductId)
+        .filter(
+            Visit.PdvId.in_(universe),
+            Visit.UserId == user_id,
+            Visit.OpenedAt >= start,
+            Visit.OpenedAt < end,
+        )
+        .all()
+    )
+
+    pdvs_with_data: set = set()
+    latest_by_pdv_product: dict = {}
+    for pdv_id, cov, product, opened_at in cov_rows:
+        pdvs_with_data.add(pdv_id)
+        key = (pdv_id, product.ProductId)
+        current = latest_by_pdv_product.get(key)
+        if current is None or opened_at > current[0]:
+            latest_by_pdv_product[key] = (opened_at, cov.Works, product.Name)
+
+    works_products_by_pdv: dict = {}
+    for (pdv_id, _product_id), (_opened_at, works, name) in latest_by_pdv_product.items():
+        if works:
+            works_products_by_pdv.setdefault(pdv_id, set()).add(name)
+
     result = {}
     for pdv_id in universe:
-        cov_rows = (
-            db.query(VisitCoverage, Product, Visit.OpenedAt)
-            .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
-            .join(Product, Product.ProductId == VisitCoverage.ProductId)
-            .filter(
-                Visit.PdvId == pdv_id,
-                Visit.UserId == user_id,
-                Visit.OpenedAt >= start,
-                Visit.OpenedAt < end,
-            )
-            .all()
-        )
-        if not cov_rows:
+        if pdv_id not in pdvs_with_data:
             result[pdv_id] = "sin_relevar"
             continue
-
-        latest_by_product: dict = {}
-        for cov, product, opened_at in cov_rows:
-            current = latest_by_product.get(product.ProductId)
-            if current is None or opened_at > current[0]:
-                latest_by_product[product.ProductId] = (opened_at, cov.Works, product.Name)
-
-        works_products = {name for _, works, name in latest_by_product.values() if works}
+        works_products = works_products_by_pdv.get(pdv_id, set())
         result[pdv_id] = _coverage_level(works_products, rules)
 
     return result
@@ -437,32 +447,41 @@ def pdv_communication_scores(db: Session, user_id: int, year: int, month: int) -
 
     start, end = _month_datetime_range(year, month)
 
+    # 1 query agregada para todo el universo (antes: 1 query por PDV, N+1) — mismo
+    # join/filtro de antes, solo que con `PdvId.in_(universe)` en vez de `== pdv_id`.
+    pop_rows = (
+        db.query(Visit.PdvId, VisitPOPItem, Visit.OpenedAt)
+        .join(Visit, Visit.VisitId == VisitPOPItem.VisitId)
+        .filter(
+            Visit.PdvId.in_(universe),
+            Visit.UserId == user_id,
+            Visit.OpenedAt >= start,
+            Visit.OpenedAt < end,
+        )
+        .all()
+    )
+
+    pdvs_with_data: set = set()
+    latest_by_pdv_material: dict = {}
+    for pdv_id, item, opened_at in pop_rows:
+        pdvs_with_data.add(pdv_id)
+        key = (pdv_id, item.MaterialName)
+        current = latest_by_pdv_material.get(key)
+        if current is None or opened_at > current[0]:
+            latest_by_pdv_material[key] = (opened_at, item.Present)
+
+    present_count_by_pdv: dict = {}
+    for (pdv_id, _material_name), (_opened_at, present) in latest_by_pdv_material.items():
+        if present:
+            present_count_by_pdv[pdv_id] = present_count_by_pdv.get(pdv_id, 0) + 1
+
     result = {}
     for pdv_id in universe:
-        pop_rows = (
-            db.query(VisitPOPItem, Visit.OpenedAt)
-            .join(Visit, Visit.VisitId == VisitPOPItem.VisitId)
-            .filter(
-                Visit.PdvId == pdv_id,
-                Visit.UserId == user_id,
-                Visit.OpenedAt >= start,
-                Visit.OpenedAt < end,
-            )
-            .all()
-        )
-        if not pop_rows:
+        if pdv_id not in pdvs_with_data:
             result[pdv_id] = "sin_relevar"
             continue
 
-        latest_by_material: dict = {}
-        for item, opened_at in pop_rows:
-            current = latest_by_material.get(item.MaterialName)
-            if current is None or opened_at > current[0]:
-                latest_by_material[item.MaterialName] = (opened_at, item.Present)
-
-        present_materials = {name for name, (_, present) in latest_by_material.items() if present}
-        count = len(present_materials)
-
+        count = present_count_by_pdv.get(pdv_id, 0)
         level = "no_cuenta"
         for lvl in reversed(LEVELS):
             min_elements = rules.get(("total", lvl))
@@ -477,39 +496,6 @@ def pdv_communication_scores(db: Session, user_id: int, year: int, month: int) -
 # ---------------------------------------------------------------------------
 # Numeradores/denominadores por KPI (tabla §3 del diseño)
 # ---------------------------------------------------------------------------
-
-def _has_pop_photo(db: Session, user_id: int, pdv_id: int, start: datetime, end: datetime) -> bool:
-    """Foto POP tomada desde la app en el mes (requisito excluyente del KPI 4).
-
-    Fuente primaria: `VisitAction(ActionType='pop', Status='DONE', PhotoTaken=true)`
-    (lo que escribe VisitActionsPage.tsx). OR de respaldo: `VisitPhoto` con
-    `PhotoType` que empieza con `'pop'` (POPCensusPage.tsx usa `pop_<material>_<empresa>`,
-    no el literal `'pop'`). Ver nota de módulo.
-    """
-    visit_ids = [
-        v.VisitId for v in
-        db.query(Visit.VisitId).filter(
-            Visit.PdvId == pdv_id, Visit.UserId == user_id,
-            Visit.OpenedAt >= start, Visit.OpenedAt < end,
-        )
-    ]
-    if not visit_ids:
-        return False
-
-    has_action_photo = db.query(VisitAction).filter(
-        VisitAction.VisitId.in_(visit_ids),
-        VisitAction.ActionType == "pop",
-        VisitAction.Status == "DONE",
-        VisitAction.PhotoTaken == True,  # noqa: E712
-    ).first() is not None
-    if has_action_photo:
-        return True
-
-    return db.query(VisitPhoto).filter(
-        VisitPhoto.VisitId.in_(visit_ids),
-        VisitPhoto.PhotoType.like("pop%"),
-    ).first() is not None
-
 
 def _kpi1_cobertura(coverage_scores: dict, universe: set) -> tuple[int, int]:
     numerator = sum(1 for pdv_id in universe if coverage_scores.get(pdv_id) in GOOD_OR_BETTER)
@@ -588,16 +574,30 @@ def effective_visit_ids(
                 continue
             candidates.append(v)
 
-    result = set()
-    for v in candidates:
-        has_cov = db.query(VisitCoverage).filter(VisitCoverage.VisitId == v.VisitId).first() is not None
-        has_pop = db.query(VisitPOPItem).filter(VisitPOPItem.VisitId == v.VisitId).first() is not None
-        has_action = db.query(VisitAction).filter(
-            VisitAction.VisitId == v.VisitId, VisitAction.Status == "DONE"
-        ).first() is not None
-        if has_cov and has_pop and has_action:
-            result.add(v.VisitId)
-    return result
+    if not candidates:
+        return set()
+
+    # 3 queries agregadas sobre TODOS los candidatos (antes: 3 queries por visita,
+    # N+1) — mismas 3 condiciones de contenido, evaluadas con IN en vez de por visita.
+    candidate_ids = [v.VisitId for v in candidates]
+    cov_ids = {
+        vid for (vid,) in
+        db.query(VisitCoverage.VisitId).filter(VisitCoverage.VisitId.in_(candidate_ids)).distinct()
+    }
+    pop_ids = {
+        vid for (vid,) in
+        db.query(VisitPOPItem.VisitId).filter(VisitPOPItem.VisitId.in_(candidate_ids)).distinct()
+    }
+    action_ids = {
+        vid for (vid,) in
+        db.query(VisitAction.VisitId)
+        .filter(VisitAction.VisitId.in_(candidate_ids), VisitAction.Status == "DONE")
+        .distinct()
+    }
+    return {
+        v.VisitId for v in candidates
+        if v.VisitId in cov_ids and v.VisitId in pop_ids and v.VisitId in action_ids
+    }
 
 
 def _kpi2_efectividad(db: Session, user_id: int, year: int, month: int) -> tuple[int, int]:
@@ -645,60 +645,93 @@ def _kpi3_sueltos(db: Session, user_id: int, universe: set, start: datetime, end
     if denominator == 0:
         return 0, 0
 
-    numerator = 0
-    for pdv_id in sells_loose_pdvs:
-        visit_ids = [
-            v.VisitId for v in
-            db.query(Visit.VisitId).filter(
-                Visit.PdvId == pdv_id, Visit.UserId == user_id,
-                Visit.OpenedAt >= start, Visit.OpenedAt < end,
-            )
-        ]
-        if not visit_ids:
-            continue
-        has_canje = db.query(VisitAction).filter(
-            VisitAction.VisitId.in_(visit_ids),
-            VisitAction.ActionType == "canje_sueltos",
-            VisitAction.Status == "DONE",
-        ).first() is not None
-        if has_canje:
-            numerator += 1
+    # 1 query agregada (antes: 1-2 queries por PDV, N+1): PDVs distintos de
+    # `sells_loose_pdvs` con al menos una visita del usuario en el mes con canje DONE.
+    pdvs_with_canje = {
+        pdv_id for (pdv_id,) in
+        db.query(Visit.PdvId)
+        .join(VisitAction, VisitAction.VisitId == Visit.VisitId)
+        .filter(
+            Visit.PdvId.in_(sells_loose_pdvs), Visit.UserId == user_id,
+            Visit.OpenedAt >= start, Visit.OpenedAt < end,
+            VisitAction.ActionType == "canje_sueltos", VisitAction.Status == "DONE",
+        )
+        .distinct()
+    }
+    numerator = len(pdvs_with_canje)
 
     return numerator, denominator
 
 
 def _kpi4_pop(db: Session, user_id: int, communication_scores: dict, universe: set, start: datetime, end: datetime) -> tuple[int, int]:
-    numerator = 0
-    for pdv_id in universe:
-        if communication_scores.get(pdv_id) not in GOOD_OR_BETTER:
-            continue
-        if _has_pop_photo(db, user_id, pdv_id, start, end):
-            numerator += 1
-    return numerator, len(universe)
+    """PDVs del universo con nivel de comunicación bueno+ Y foto POP tomada en el
+    mes (requisito excluyente del KPI 4).
+
+    Foto POP: fuente primaria `VisitAction(ActionType='pop', Status='DONE',
+    PhotoTaken=true)` (lo que escribe VisitActionsPage.tsx), OR de respaldo
+    `VisitPhoto` con `PhotoType` que empieza con `'pop'` (POPCensusPage.tsx usa
+    `pop_<material>_<empresa>`, no el literal `'pop'`) — ver nota de módulo.
+
+    2-3 queries agregadas sobre el universo elegible (antes: hasta 3 queries por
+    PDV elegible, N+1).
+    """
+    eligible = {pdv_id for pdv_id in universe if communication_scores.get(pdv_id) in GOOD_OR_BETTER}
+    if not eligible:
+        return 0, len(universe)
+
+    visit_rows = (
+        db.query(Visit.VisitId, Visit.PdvId)
+        .filter(
+            Visit.PdvId.in_(eligible), Visit.UserId == user_id,
+            Visit.OpenedAt >= start, Visit.OpenedAt < end,
+        )
+        .all()
+    )
+    if not visit_rows:
+        return 0, len(universe)
+
+    pdv_by_visit = {visit_id: pdv_id for visit_id, pdv_id in visit_rows}
+    visit_ids = list(pdv_by_visit.keys())
+
+    action_photo_ids = {
+        vid for (vid,) in
+        db.query(VisitAction.VisitId)
+        .filter(
+            VisitAction.VisitId.in_(visit_ids),
+            VisitAction.ActionType == "pop",
+            VisitAction.Status == "DONE",
+            VisitAction.PhotoTaken == True,  # noqa: E712
+        )
+        .distinct()
+    }
+    photo_type_ids = {
+        vid for (vid,) in
+        db.query(VisitPhoto.VisitId)
+        .filter(VisitPhoto.VisitId.in_(visit_ids), VisitPhoto.PhotoType.like("pop%"))
+        .distinct()
+    }
+
+    pdvs_with_photo = {pdv_by_visit[vid] for vid in (action_photo_ids | photo_type_ids)}
+    return len(pdvs_with_photo), len(universe)
 
 
 def _kpi5_promo(db: Session, user_id: int, universe: set, start: datetime, end: datetime) -> tuple[int, int]:
     if not universe:
         return 0, 0
-    numerator = 0
-    for pdv_id in universe:
-        visit_ids = [
-            v.VisitId for v in
-            db.query(Visit.VisitId).filter(
-                Visit.PdvId == pdv_id, Visit.UserId == user_id,
-                Visit.OpenedAt >= start, Visit.OpenedAt < end,
-            )
-        ]
-        if not visit_ids:
-            continue
-        has_promo = db.query(VisitAction).filter(
-            VisitAction.VisitId.in_(visit_ids),
-            VisitAction.ActionType == "promo",
-            VisitAction.Status == "DONE",
-        ).first() is not None
-        if has_promo:
-            numerator += 1
-    return numerator, len(universe)
+    # 1 query agregada (antes: 1-2 queries por PDV, N+1): PDVs distintos del
+    # universo con al menos una visita del usuario en el mes con promo DONE.
+    pdvs_with_promo = {
+        pdv_id for (pdv_id,) in
+        db.query(Visit.PdvId)
+        .join(VisitAction, VisitAction.VisitId == Visit.VisitId)
+        .filter(
+            Visit.PdvId.in_(universe), Visit.UserId == user_id,
+            Visit.OpenedAt >= start, Visit.OpenedAt < end,
+            VisitAction.ActionType == "promo", VisitAction.Status == "DONE",
+        )
+        .distinct()
+    }
+    return len(pdvs_with_promo), len(universe)
 
 
 # ---------------------------------------------------------------------------

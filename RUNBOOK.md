@@ -14,6 +14,7 @@ Este documento describe los procedimientos operativos para mantener la app en pr
 4. [Diagnosticar errores en producción](#diagnosticar-errores-en-producción)
 5. [Tareas programadas (cron)](#tareas-programadas-cron)
 6. [Troubleshooting común](#troubleshooting-común)
+7. [Tablero TMR / Objetivos](#tablero-tmr--objetivos)
 
 ---
 
@@ -282,6 +283,33 @@ u = db.query(User).filter(User.Email == "usuario@espert.com").first()
 u.PasswordHash = bcrypt.hashpw(b"NuevaPassword123!", bcrypt.gensalt()).decode()
 u.MustChangePassword = True   # forzar cambio en el próximo login
 db.commit()
+```
+
+---
+
+## Tablero TMR / Objetivos
+
+Sección `/tablero` (pestaña **Objetivos**) y `/objectives` (vista del vendedor) calculan la variable mensual de compensación a partir de 5 KPIs configurables. Diseño completo: [docs/tablero-tmr-diseno.md](docs/tablero-tmr-diseno.md).
+
+### Cierre mensual automático
+
+Corre con **lazy trigger idempotente**, no con un cron: se dispara en el primer `GET /kpi/variable` del mes (el primer request al abrir el tablero) y marca el mes procesado en `AppSetting` (`kpi_last_auto_close = "YYYY-MM"`) para no reintentar. Nunca hace fallar el request — cualquier error queda logueado y el tablero sigue respondiendo.
+
+**Si un mes no cerró** (nadie abrió el tablero ese mes, o falló silenciosamente):
+```sh
+curl -X POST "$API/kpi/close-month?year=2026&month=6" -H "Authorization: Bearer <admin-token>"
+```
+Para completar usuarios faltantes de un mes ya cerrado **sin tocar los snapshots que ya están congelados**, usar `only_missing=true` (parámetro agregado recientemente):
+```sh
+curl -X POST "$API/kpi/close-month?year=2026&month=6&only_missing=true" -H "Authorization: Bearer <admin-token>"
+```
+
+**Primer mes post-deploy:** el seed (`kpi_defaults.py`) crea la config de KPIs con `ValidFrom` = primer día del mes de instalación. Si se quiere cerrar un mes anterior a eso, no hay config vigente y el cierre no congela nada. Para poder cerrarlo, crear antes una config retroactiva (con `ValidFrom` anterior) desde la pestaña **Objetivos** del admin.
+
+**Verificar salud:**
+```sh
+curl "$API/kpi/definitions" -H "Authorization: Bearer <admin-token>"   # debe devolver los 5 KPIs
+curl "$API/kpi/closed-months" -H "Authorization: Bearer <admin-token>" # meses ya congelados
 ```
 
 ---

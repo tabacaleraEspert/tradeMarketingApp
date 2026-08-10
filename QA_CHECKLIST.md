@@ -189,6 +189,17 @@
 - [ ] **18.4** Click marker → InfoWindow con nombre + dirección + "Ver detalle" + "Cómo llegar"
 - [ ] **18.5** "Cómo llegar" → abre Google Maps en nueva pestaña
 
+## 19. OBJETIVOS TMR (tablero)
+
+- [ ] **19.1** Login admin → `/tablero` → pestaña Resumen arranca en vista "General" (todos los territorios)
+- [ ] **19.2** Login supervisor/territory manager → `/tablero` arranca directo en su territorio (no en "General")
+- [ ] **19.3** Login vendedor → ve `/objectives` ("Mis objetivos") con sus 5 KPIs y la variable del mes
+- [ ] **19.4** Pestaña Objetivos (admin) → cambiar el peso de un KPI → la suma total se recalcula en vivo, sin guardar
+- [ ] **19.5** Guardar pesos que no suman 100% → bloquea el guardado e indica qué usuario/scope rompe la suma
+- [ ] **19.6** Pestaña Precios → un precio outlier (fuera de [0.25x, 4x] la mediana) aparece listado en "precios sospechosos"
+- [ ] **19.7** Cerrar un mes (`POST /kpi/close-month`) → queda marcado como cerrado/congelado y no cambia si se edita la config después
+- [ ] **19.8** Vendedor pide datos de otro vendedor (`user_id` ajeno) por API → 403
+
 ---
 
 ## Criterios para pasar
