@@ -25,6 +25,7 @@ import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { authApi, type MeResponse } from "../../lib/api/services";
 import { ImpersonationBanner } from "./ImpersonationBanner";
+import { ThemeToggle } from "./ThemeToggle";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -143,6 +144,9 @@ export function AdminLayout() {
             <button className="relative p-2 hover:bg-muted rounded-lg transition-colors">
               <Bell size={20} />
             </button>
+
+            {/* Theme Toggle */}
+            <ThemeToggle />
 
             {/* User Menu */}
             <button

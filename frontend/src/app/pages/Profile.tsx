@@ -16,7 +16,9 @@ import {
   Settings,
   Camera,
   Trash2,
+  SunMoon,
 } from "lucide-react";
+import { ThemeToggle } from "../components/ThemeToggle";
 import { getCurrentUser, logout } from "../lib/auth";
 import { useUserMonthlyStats, usersApi, ApiError } from "@/lib/api";
 import { toast } from "sonner";
@@ -248,6 +250,21 @@ export function Profile() {
                 </div>
               </div>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Theme */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-muted rounded-full p-2">
+                  <SunMoon size={20} className="text-muted-foreground" />
+                </div>
+                <span className="font-medium text-foreground">Tema</span>
+              </div>
+              <ThemeToggle />
+            </div>
           </CardContent>
         </Card>
 
