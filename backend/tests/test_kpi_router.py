@@ -18,8 +18,15 @@ from app.models import (
     Role as RoleModel,
     UserRole as UserRoleModel,
     PDV as PDVModel,
+    Product as ProductModel,
     Route as RouteModel,
     RoutePdv as RoutePdvModel,
+    RouteDay as RouteDayModel,
+    RouteDayPdv as RouteDayPdvModel,
+    Visit as VisitModel,
+    VisitAction as VisitActionModel,
+    VisitCoverage as VisitCoverageModel,
+    VisitPOPItem as VisitPOPItemModel,
 )
 from app.models.kpi_definition import KpiDefinition as KpiDefinitionModel
 from app.models.kpi_config import KpiConfig as KpiConfigModel
@@ -127,11 +134,31 @@ def test_pdv_scoring_user_id_ajeno_403(client, db):
 def test_tm_variable_ve_subordinados(client, db):
     manager, mgr_token = _user_with_role(db, "territory_manager")
     sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    _focus_route(db, sub.UserId, _pdv(db).PdvId)
+    db.commit()
     hdr = {"Authorization": f"Bearer {mgr_token}"}
     resp = client.get("/kpi/variable", params={"year": YEAR, "month": MONTH}, headers=hdr)
     assert resp.status_code == 200
     user_ids = {row["userId"] for row in resp.json()}
-    assert manager.UserId in user_ids
+    assert sub.UserId in user_ids
+    # M1: el manager no tiene ruta foco propia -> no es una fila de vendedor.
+    assert manager.UserId not in user_ids
+
+
+def test_manager_sin_ruta_no_es_fila_en_variable(client, db):
+    # M1 de la auditoría del tablero TMR: `_resolve_target_user_ids` intersecta el
+    # set visible del TM con los usuarios que tienen >=1 ruta foco activa asignada
+    # (mismo criterio que ya usaba el camino admin) — un manager sin ruta propia ya
+    # no aparece como fila de vendedor con 0%.
+    manager, mgr_token = _user_with_role(db, "territory_manager")
+    sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    _focus_route(db, sub.UserId, _pdv(db).PdvId)
+    db.commit()
+    hdr = {"Authorization": f"Bearer {mgr_token}"}
+    resp = client.get("/kpi/variable", params={"year": YEAR, "month": MONTH}, headers=hdr)
+    assert resp.status_code == 200
+    user_ids = {row["userId"] for row in resp.json()}
+    assert manager.UserId not in user_ids
     assert sub.UserId in user_ids
 
 
@@ -158,6 +185,12 @@ def test_variable_happy_path_estructura(client, db):
 def test_variable_incluye_manager_por_fila(client, db):
     manager, mgr_token = _user_with_role(db, "territory_manager")
     sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    # M1: ambos necesitan ruta foco propia para aparecer como fila (el manager
+    # también reparte, no solo el sub) — así se puede verificar el enriquecido de
+    # managerUserId/managerName en las dos filas.
+    _focus_route(db, manager.UserId, _pdv(db).PdvId)
+    _focus_route(db, sub.UserId, _pdv(db).PdvId)
+    db.commit()
     hdr = {"Authorization": f"Bearer {mgr_token}"}
     resp = client.get("/kpi/variable", params={"year": YEAR, "month": MONTH}, headers=hdr)
     assert resp.status_code == 200
@@ -221,6 +254,47 @@ def test_route_summary_con_user_id_puntual_incluye_dueno(client, db):
     assert body[0]["routeId"] == route.RouteId
     assert body[0]["userId"] == user.UserId
     assert body[0]["userName"] == user.DisplayName
+
+
+def test_route_summary_effectiveness_exige_dia_planificado_como_kpi2(client, db):
+    # A3: /kpi/route-summary debe usar el MISMO criterio de "visita efectiva" que
+    # paga (KPI 2) — una visita completa (cobertura+POP+acción DONE) pero abierta un
+    # día distinto al planificado para ese RouteDay no debe sumar a la efectividad
+    # (antes de A3 route-summary no exigía el día planificado y daba 100%).
+    user, token = _user_with_role(db, "vendedor")
+    pdv = _pdv(db)
+    route = _focus_route(db, user.UserId, pdv.PdvId)
+    route_day = RouteDayModel(
+        RouteId=route.RouteId, WorkDate=date(YEAR, MONTH, 5), AssignedUserId=user.UserId, Status="PLANNED",
+    )
+    db.add(route_day)
+    db.flush()
+    db.add(RouteDayPdvModel(RouteDayId=route_day.RouteDayId, PdvId=pdv.PdvId, PlannedOrder=1))
+    product = ProductModel(Name=f"Milenio_{_uid()}", Category="Cigarrillos", IsOwn=True, IsActive=True)
+    db.add(product)
+    db.flush()
+
+    # Visita completa pero abierta el día 6 (el RouteDay está planificado para el 5).
+    visit = VisitModel(
+        PdvId=pdv.PdvId, UserId=user.UserId, Status="CLOSED",
+        OpenedAt=datetime(YEAR, MONTH, 6, 9, 0, tzinfo=timezone.utc), RouteDayId=route_day.RouteDayId,
+    )
+    db.add(visit)
+    db.flush()
+    db.add(VisitCoverageModel(VisitId=visit.VisitId, ProductId=product.ProductId, Works=True))
+    db.add(VisitPOPItemModel(VisitId=visit.VisitId, MaterialType="secundario", MaterialName="Stopper", Present=True))
+    db.add(VisitActionModel(VisitId=visit.VisitId, ActionType="cobertura", Status="DONE"))
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.get(
+        "/kpi/route-summary", params={"year": YEAR, "month": MONTH, "user_id": user.UserId}, headers=hdr,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["planned"] == 1
+    assert body[0]["effectiveness"] == 0.0
 
 
 def test_config_resolved_visibilidad_vendedor(client, db):

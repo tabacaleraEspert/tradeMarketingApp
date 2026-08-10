@@ -269,7 +269,14 @@ export function TableroPage() {
           />
         </TabsContent>
         <TabsContent value="precios">
-          <PreciosTab year={year} month={month} userId={selectedUserId} userName={userName} />
+          <PreciosTab
+            year={year}
+            month={month}
+            userId={selectedUserId}
+            userName={userName}
+            managerId={selectedManagerId}
+            vendors={territoryVendors}
+          />
         </TabsContent>
         <TabsContent value="objetivos">
           <ObjetivosTab />

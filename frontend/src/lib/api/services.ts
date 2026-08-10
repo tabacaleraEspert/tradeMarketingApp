@@ -1026,6 +1026,7 @@ export interface PriceMatrixItem {
   productName: string;
   groupId: number;
   groupName: string;
+  userId: number;
   avg: number;
   min: number;
   max: number;

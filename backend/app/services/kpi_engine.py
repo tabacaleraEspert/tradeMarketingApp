@@ -29,9 +29,10 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from statistics import median
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, or_
 from sqlalchemy import inspect as sa_inspect
@@ -109,26 +110,59 @@ class KpiResult:
 # Helpers de tiempo
 # ---------------------------------------------------------------------------
 
+BUSINESS_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+"""Huso horario del negocio (UTC-3, sin horario de verano). El tablero define
+"hoy" y los cortes de mes en esta hora, no en la del contenedor (UTC en prod) —
+ver B2 de la auditoría del motor de KPIs: una visita de 21:00-23:59 hora
+argentina del último día del mes cae, en UTC, en el día 1 del mes siguiente."""
+
+
+def _business_today() -> date:
+    """"Hoy" para el negocio (Argentina), no la del contenedor (UTC en prod)."""
+    return datetime.now(BUSINESS_TZ).date()
+
+
+def _to_business_date(opened_at: datetime) -> date:
+    """Convierte un `OpenedAt` (naive, hora UTC — ver `Visit.OpenedAt` en
+    Azure SQL) a la fecha de calendario de Argentina. Defensivo ante datetimes
+    ya aware (se asumen UTC si no traen `tzinfo`)."""
+    if opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=timezone.utc)
+    return opened_at.astimezone(BUSINESS_TZ).date()
+
+
 def _is_current_month(year: int, month: int) -> bool:
-    today = date.today()
+    today = _business_today()
     return today.year == year and today.month == month
 
 
 def _reference_date(year: int, month: int) -> date:
     """Fecha de vigencia a evaluar: hoy si es el mes en curso, si no el día 1."""
-    return date.today() if _is_current_month(year, month) else date(year, month, 1)
+    return _business_today() if _is_current_month(year, month) else date(year, month, 1)
 
 
 def _month_range(year: int, month: int) -> tuple[date, date]:
-    """(primer día del mes, primer día del mes siguiente) — límite exclusivo."""
+    """(primer día del mes, primer día del mes siguiente) — límite exclusivo.
+    Fechas de calendario puras (sin hora ni huso horario): para columnas `date`
+    como `RouteDay.WorkDate`, que no se convierten (ver B2 de la auditoría)."""
     start = date(year, month, 1)
     end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
     return start, end
 
 
 def _month_datetime_range(year: int, month: int) -> tuple[datetime, datetime]:
-    start, end = _month_range(year, month)
-    return datetime.combine(start, datetime.min.time()), datetime.combine(end, datetime.min.time())
+    """(inicio, fin) del mes en hora de Argentina, convertido a UTC naive para
+    comparar contra `Visit.OpenedAt` (guardado en UTC) — límite exclusivo. Ej.:
+    agosto AR es `[01-ago 03:00 UTC, 01-sep 03:00 UTC)` (ver B2 de la auditoría
+    del motor de KPIs). Único helper de rango de mes para OpenedAt — también lo
+    usa `app/routers/kpi.py` (antes tenía su propia copia duplicada)."""
+    start_date, end_date = _month_range(year, month)
+    start_ar = datetime.combine(start_date, datetime.min.time(), tzinfo=BUSINESS_TZ)
+    end_ar = datetime.combine(end_date, datetime.min.time(), tzinfo=BUSINESS_TZ)
+    return (
+        start_ar.astimezone(timezone.utc).replace(tzinfo=None),
+        end_ar.astimezone(timezone.utc).replace(tzinfo=None),
+    )
 
 
 def _pct(numerator: int, denominator: int) -> float:
@@ -482,54 +516,121 @@ def _kpi1_cobertura(coverage_scores: dict, universe: set) -> tuple[int, int]:
     return numerator, len(universe)
 
 
-def _kpi2_efectividad(db: Session, user_id: int, start: date, end: date) -> tuple[int, int]:
-    route_days = (
-        db.query(RouteDay.RouteDayId, RouteDay.WorkDate)
-        .join(Route, Route.RouteId == RouteDay.RouteId)
-        .filter(
-            Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
-            RouteDay.WorkDate >= start, RouteDay.WorkDate < end,
+def effective_visit_ids(
+    db: Session, user_id: int, year: int, month: int, *, require_planned_day: bool
+) -> set:
+    """`VisitId` de las visitas "efectivas" del usuario en el mes — única definición
+    de visita efectiva del tablero TMR (antes triplicada e inconsistente entre KPI 2,
+    `/kpi/route-summary` y `/kpi/weekly-activity`, ver A3 de la auditoría del
+    tablero TMR).
+
+    SIEMPRE se exige sobre la visita: `Status='CLOSED'` + cobertura relevada
+    (`VisitCoverage`) + relevamiento POP (`VisitPOPItem`) + al menos una
+    `VisitAction` con `Status='DONE'`.
+
+    `require_planned_day`:
+    - `True` (el criterio que PAGA — KPI 2 y, desde A3, `/kpi/route-summary`): la
+      visita debe estar atada a un `RouteDay` de una ruta foco activa asignada a
+      `user_id`, ese `RouteDay` debe tener planificado ese mismo PDV
+      (`RouteDayPdv`), y `OpenedAt` (convertido a fecha de Argentina, ver
+      `_to_business_date`) debe coincidir con el `WorkDate` de ese `RouteDay` — una
+      visita de otro usuario, o atada a un RouteDay de otro día, no acredita como
+      planificada (M1/M2 de la auditoría del motor de KPIs).
+    - `False` (`/kpi/weekly-activity`): cualquier visita del usuario en el mes,
+      planificada o no.
+    """
+    if not require_planned_day:
+        dt_start, dt_end = _month_datetime_range(year, month)
+        candidates = (
+            db.query(Visit)
+            .filter(
+                Visit.Status == "CLOSED", Visit.UserId == user_id,
+                Visit.OpenedAt >= dt_start, Visit.OpenedAt < dt_end,
+            )
+            .all()
         )
-        .all()
-    )
-    if not route_days:
-        return 0, 0
-    work_date_by_rd = {rd_id: work_date for rd_id, work_date in route_days}
-    planned_route_day_ids = list(work_date_by_rd.keys())
+    else:
+        start, end = _month_range(year, month)
+        route_days = (
+            db.query(RouteDay.RouteDayId, RouteDay.WorkDate)
+            .join(Route, Route.RouteId == RouteDay.RouteId)
+            .filter(
+                Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
+                RouteDay.WorkDate >= start, RouteDay.WorkDate < end,
+            )
+            .all()
+        )
+        if not route_days:
+            return set()
+        work_date_by_rd = {rd_id: work_date for rd_id, work_date in route_days}
+        planned_route_day_ids = list(work_date_by_rd.keys())
 
-    planned_pairs = (
-        db.query(RouteDayPdv.RouteDayId, RouteDayPdv.PdvId)
-        .filter(RouteDayPdv.RouteDayId.in_(planned_route_day_ids))
-        .all()
-    )
-    denominator = len({pdv_id for _, pdv_id in planned_pairs})
-    if denominator == 0:
-        return 0, 0
-    planned_set = {(rd_id, pdv_id) for rd_id, pdv_id in planned_pairs}
+        planned_pairs = (
+            db.query(RouteDayPdv.RouteDayId, RouteDayPdv.PdvId)
+            .filter(RouteDayPdv.RouteDayId.in_(planned_route_day_ids))
+            .all()
+        )
+        planned_set = {(rd_id, pdv_id) for rd_id, pdv_id in planned_pairs}
 
-    # Visita propia del usuario (M1) atada a un RouteDay planificado Y abierta el
-    # mismo día que ese RouteDay (M2) — una visita de otro usuario, o atada a un
-    # RouteDay de otro día, no acredita como planificada (ver auditoría del motor).
-    visits = (
-        db.query(Visit)
-        .filter(Visit.Status == "CLOSED", Visit.UserId == user_id, Visit.RouteDayId.in_(planned_route_day_ids))
-        .all()
-    )
-    effective_pdvs = set()
-    for v in visits:
-        if v.PdvId in effective_pdvs or (v.RouteDayId, v.PdvId) not in planned_set:
-            continue
-        work_date = work_date_by_rd.get(v.RouteDayId)
-        if work_date is None or v.OpenedAt.date() != work_date:
-            continue
+        # El "mismo día" se evalúa en fecha de Argentina (OpenedAt está en UTC; una
+        # visita de las 23:00 AR cae en el día UTC siguiente — ver B2 de la auditoría).
+        all_on_planned_days = (
+            db.query(Visit)
+            .filter(Visit.Status == "CLOSED", Visit.UserId == user_id, Visit.RouteDayId.in_(planned_route_day_ids))
+            .all()
+        )
+        candidates = []
+        for v in all_on_planned_days:
+            if (v.RouteDayId, v.PdvId) not in planned_set:
+                continue
+            work_date = work_date_by_rd.get(v.RouteDayId)
+            if work_date is None or _to_business_date(v.OpenedAt) != work_date:
+                continue
+            candidates.append(v)
+
+    result = set()
+    for v in candidates:
         has_cov = db.query(VisitCoverage).filter(VisitCoverage.VisitId == v.VisitId).first() is not None
         has_pop = db.query(VisitPOPItem).filter(VisitPOPItem.VisitId == v.VisitId).first() is not None
         has_action = db.query(VisitAction).filter(
             VisitAction.VisitId == v.VisitId, VisitAction.Status == "DONE"
         ).first() is not None
         if has_cov and has_pop and has_action:
-            effective_pdvs.add(v.PdvId)
+            result.add(v.VisitId)
+    return result
 
+
+def _kpi2_efectividad(db: Session, user_id: int, year: int, month: int) -> tuple[int, int]:
+    start, end = _month_range(year, month)
+    route_day_ids = [
+        rd_id for (rd_id,) in
+        db.query(RouteDay.RouteDayId)
+        .join(Route, Route.RouteId == RouteDay.RouteId)
+        .filter(
+            Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
+            RouteDay.WorkDate >= start, RouteDay.WorkDate < end,
+        )
+        .all()
+    ]
+    if not route_day_ids:
+        return 0, 0
+
+    planned_pairs = (
+        db.query(RouteDayPdv.RouteDayId, RouteDayPdv.PdvId)
+        .filter(RouteDayPdv.RouteDayId.in_(route_day_ids))
+        .all()
+    )
+    denominator = len({pdv_id for _, pdv_id in planned_pairs})
+    if denominator == 0:
+        return 0, 0
+
+    effective_ids = effective_visit_ids(db, user_id, year, month, require_planned_day=True)
+    if not effective_ids:
+        return 0, denominator
+
+    effective_pdvs = {
+        pdv_id for (pdv_id,) in db.query(Visit.PdvId).filter(Visit.VisitId.in_(effective_ids)).all()
+    }
     return len(effective_pdvs), denominator
 
 
@@ -655,12 +756,11 @@ def compute_kpis(db: Session, user_id: int, year: int, month: int) -> KpiResult:
     coverage_scores = pdv_coverage_scores(db, user_id, year, month)
     communication_scores = pdv_communication_scores(db, user_id, year, month)
 
-    date_start, date_end = _month_range(year, month)
     dt_start, dt_end = _month_datetime_range(year, month)
 
     kpi_calcs = {
         "cobertura_skus": _kpi1_cobertura(coverage_scores, universe),
-        "efectividad_visitas": _kpi2_efectividad(db, user_id, date_start, date_end),
+        "efectividad_visitas": _kpi2_efectividad(db, user_id, year, month),
         "penetracion_sueltos": _kpi3_sueltos(db, user_id, universe, dt_start, dt_end),
         "pop_colocado": _kpi4_pop(db, user_id, communication_scores, universe, dt_start, dt_end),
         "activaciones_promo": _kpi5_promo(db, user_id, universe, dt_start, dt_end),
@@ -678,7 +778,7 @@ def compute_kpis(db: Session, user_id: int, year: int, month: int) -> KpiResult:
         ))
 
     variable_total = sum(k.weight for k in kpis if k.achieved)
-    day = date.today().day if is_current else days_in_month
+    day = _business_today().day if is_current else days_in_month
 
     return KpiResult(
         user_id=user_id, year=year, month=month, partial=is_current,

@@ -13,6 +13,13 @@ Como no hay forma de inyectar year/month en `ensure_previous_month_closed` (toma
 `date.today()`), los tests usan el mes calendario anterior REAL (`PREV_YEAR`,
 `PREV_MONTH`, calculado con el mismo helper `_previous_month` del router) en vez de
 mockear la fecha.
+
+El cierre real corre en `BackgroundTasks` (`_run_auto_close`), no inline: con
+`TestClient`, Starlette ejecuta las tareas de background antes de que
+`client.get(...)` devuelva el control al test (van dentro del mismo ciclo ASGI
+que envía la respuesta), así que los asserts sobre `AppSetting`/
+`KpiMonthlySnapshot` inmediatamente después del `client.get(...)` siguen viendo
+el resultado del cierre sin necesidad de esperar nada extra.
 """
 import uuid
 from datetime import date, datetime
@@ -39,7 +46,7 @@ from app.models import (
     AppSetting as AppSettingModel,
 )
 from app.auth import create_access_token
-from app.routers.kpi import KPI_AUTO_CLOSE_SETTING_KEY, _previous_month
+from app.routers.kpi import KPI_AUTO_CLOSE_SETTING_KEY, _previous_month, _claim_auto_close
 
 
 def _clean_kpi_tables(s):
@@ -220,6 +227,12 @@ def test_sin_config_vigente_no_cierra_pero_marca_y_no_reintenta(client, db, monk
 
 
 def test_excepcion_en_cierre_no_rompe_variable(client, db, monkeypatch):
+    """El claim (síncrono, dentro del request) escribe la marca ANTES de que el
+    cierre real corra en background: si `_close_month_core` explota ahí, la marca
+    ya quedó escrita (trade-off aceptado, ver docstring de
+    `ensure_previous_month_closed` — se detecta con GET /kpi/closed-months y se
+    recupera con POST /kpi/close-month manual) y el request de todos modos
+    respondió 200, porque el cierre corre después de responder."""
     user, _ = _user_with_role(db, "vendedor")
     _cobertura_setup(db, user, PREV_YEAR, PREV_MONTH)
 
@@ -231,12 +244,34 @@ def test_excepcion_en_cierre_no_rompe_variable(client, db, monkeypatch):
     resp = client.get("/kpi/variable", params={"year": PREV_YEAR, "month": PREV_MONTH, "user_id": user.UserId})
     assert resp.status_code == 200, resp.text  # el error se loguea y se descarta, no rompe el request
 
-    # La excepción aborta antes de llegar a escribir la marca o crear snapshots.
-    assert _mark_value(db) is None
+    # El claim ya había escrito la marca antes de que el cierre en background explote.
+    assert _mark_value(db) == TARGET_KEY
     rows = db.query(KpiMonthlySnapshotModel).filter(
         KpiMonthlySnapshotModel.Year == PREV_YEAR, KpiMonthlySnapshotModel.Month == PREV_MONTH,
     ).all()
     assert rows == []
+
+
+def test_claim_atomico_solo_un_worker_gana(db):
+    """Simula 2 workers gunicorn compitiendo por el claim del mismo mes (UPDATE
+    atómico sobre AppSetting, `_claim_auto_close`): con la marca vieja ya en la
+    fila, solo el primer llamado debe reclamar el trabajo (True); el segundo debe
+    ceder (False) sin tocar nada — así se evita que varios workers recalculen en
+    paralelo el día 1 (B3 de la auditoría)."""
+    old_key = "2000-01"
+    db.add(AppSettingModel(Key=KPI_AUTO_CLOSE_SETTING_KEY, Value=old_key))
+    db.commit()
+
+    other_session = sessionmaker(bind=engine)()
+    try:
+        first = _claim_auto_close(db, TARGET_KEY)
+        second = _claim_auto_close(other_session, TARGET_KEY)
+    finally:
+        other_session.close()
+
+    assert first is True
+    assert second is False
+    assert _mark_value(db) == TARGET_KEY
 
 
 def test_closed_months_devuelve_lo_esperado(client, db):

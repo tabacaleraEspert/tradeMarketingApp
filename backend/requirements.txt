@@ -9,6 +9,10 @@ pymssql>=2.3
 bcrypt>=4.2
 python-jose[cryptography]>=3.3
 alembic>=1.13
+# zoneinfo (stdlib) no trae la base tzdata en Windows/algunas imágenes mínimas de
+# Linux; sin este paquete ZoneInfo("America/Argentina/Buenos_Aires") (kpi_engine,
+# cortes de mes en hora de negocio) rompe con ZoneInfoNotFoundError. Puro Python.
+tzdata>=2024.1
 azure-storage-blob>=12.19
 pillow>=10.0
 sentry-sdk[fastapi]>=2.0

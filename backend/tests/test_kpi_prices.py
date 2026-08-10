@@ -157,6 +157,40 @@ def test_suspicious_prices_incluye_outlier_con_mediana(client, db):
     assert body[0]["userId"] == user.UserId
 
 
+def test_suspicious_prices_user_id_usa_mediana_del_universo_visible(client, db):
+    # A2: el baseline de `filter_price_outliers` es el universo visible de quien
+    # consulta, no el subconjunto de `user_id` — con solo la muestra de B (n=1,
+    # menor a MIN_PRICE_SAMPLES=3) la regla de mediana ni se aplicaría y su outlier
+    # nunca se marcaría; comparado contra la mediana del universo (A + B) sí.
+    manager, mgr_token = _user_with_role(db, "territory_manager")
+    user_a, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    user_b, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    pdv_a = _pdv(db)
+    pdv_b = _pdv(db)
+    _focus_route(db, user_a.UserId, pdv_a.PdvId)
+    _focus_route(db, user_b.UserId, pdv_b.PdvId)
+    product = _product(db, f"Milenio_{_uid()}")
+
+    _visit_with_price(db, pdv_a.PdvId, user_a.UserId, product.ProductId, 150, day=1)
+    _visit_with_price(db, pdv_a.PdvId, user_a.UserId, product.ProductId, 155, day=2)
+    _visit_with_price(db, pdv_a.PdvId, user_a.UserId, product.ProductId, 145, day=3)
+    _visit_with_price(db, pdv_b.PdvId, user_b.UserId, product.ProductId, 1500, day=4)  # outlier de B
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {mgr_token}"}
+    resp = client.get(
+        "/kpi/suspicious-prices",
+        params={"year": YEAR, "month": MONTH, "user_id": user_b.UserId},
+        headers=hdr,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["userId"] == user_b.UserId
+    assert body[0]["price"] == 1500
+    assert body[0]["medianPrice"] == 152.5  # mediana del universo visible [150,155,145,1500]
+
+
 def test_producto_test_excluido_de_matrix_y_suspicious(client, db):
     user, token = _user_with_role(db, "vendedor")
     pdv = _pdv(db)

@@ -3,7 +3,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
 from ..database import get_db
-from ..hierarchy import get_visible_user_ids, visible_user_ids
+from ..hierarchy import get_visible_user_ids, visible_user_ids, get_all_subordinate_ids
 from ..models import (
     Route as RouteModel,
     RouteForm as RouteFormModel,
@@ -118,6 +118,67 @@ def _visible_routes_query(db: Session, current_user):
             RouteModel.CreatedByUserId == current_user.UserId,
         ))
     return q
+
+
+def _assert_route_access(
+    db: Session,
+    current_user: UserModel,
+    route: RouteModel | None,
+    data: "RouteCreate | RouteUpdate | None" = None,
+) -> None:
+    """Autoriza crear/editar una ruta (o tocar sus PDVs) según el rol de `current_user`.
+
+    Cierra el bloqueante B1 (auditoría): antes cualquier vendedor podía editar cualquier
+    ruta vía require_role("vendedor") sin validar propiedad.
+
+    - admin / regional_manager / ejecutivo: sin restricciones.
+    - territory_manager / supervisor: sólo rutas de su sub-árbol (get_all_subordinate_ids);
+      si `data` reasigna AssignedUserId, el nuevo usuario también debe estar en el sub-árbol.
+    - vendedor (y cualquier otro rol): sólo sus propias rutas (AssignedUserId == su UserId).
+      Al crear, sólo puede asignarlas a sí mismo. Al editar, no puede cambiar IsFocus ni
+      AssignedUserId (si `data` los incluye con un valor distinto al actual → 403; si vienen
+      iguales o ausentes, se permite).
+
+    `route=None` indica creación (la ruta todavía no existe). `data=None` indica que sólo se
+    valida pertenencia (delete, alta/baja/reorder de PDVs) sin chequear campos del payload.
+    """
+    role = get_user_role(db, current_user.UserId)
+    if role in ("admin", "regional_manager", "ejecutivo"):
+        return
+
+    if role in ("territory_manager", "supervisor"):
+        allowed = get_all_subordinate_ids(db, current_user.UserId)
+        allowed.add(current_user.UserId)
+        if route is not None and route.AssignedUserId is not None and route.AssignedUserId not in allowed:
+            raise HTTPException(403, "No tiene permiso sobre rutas fuera de su equipo")
+        target = getattr(data, "AssignedUserId", None) if data is not None else None
+        if target is not None and target not in allowed:
+            raise HTTPException(403, "No puede asignar la ruta a un usuario fuera de su equipo")
+        return
+
+    # vendedor / rol por defecto: sólo sus propias rutas
+    if route is None:
+        target = getattr(data, "AssignedUserId", None) if data is not None else None
+        if target is not None and target != current_user.UserId:
+            raise HTTPException(403, "Sólo puede crear rutas asignadas a sí mismo")
+        # Un vendedor no puede crear rutas foco (el universo foco lo define el equipo
+        # de gestión). El schema trae IsFocus=True por default y los flujos de modo
+        # campo (RouteGeneratorPage, "Mi ruta" en RouteEditorPage) no exponen ese campo
+        # al vendedor y de hecho reenvían/heredan ese default -- así que en vez de 403
+        # forzamos el valor efectivo a False, sin romper esos flujos.
+        if data is not None and hasattr(data, "IsFocus"):
+            data.IsFocus = False
+        return
+
+    if route.AssignedUserId != current_user.UserId:
+        raise HTTPException(403, "No tiene permiso para modificar esta ruta")
+
+    if data is not None:
+        changes = data.model_dump(exclude_unset=True)
+        if "IsFocus" in changes and bool(changes["IsFocus"]) != bool(route.IsFocus):
+            raise HTTPException(403, "No puede modificar si la ruta es foco (IsFocus)")
+        if "AssignedUserId" in changes and changes["AssignedUserId"] != route.AssignedUserId:
+            raise HTTPException(403, "No puede reasignar esta ruta a otro usuario")
 
 
 # --- Zonas Bejerman ---
@@ -558,6 +619,7 @@ def get_route(route_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=Route, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
+    _assert_route_access(db, current_user, None, data)
     r = RouteModel(
         Name=data.Name,
         ZoneId=data.ZoneId,
@@ -584,10 +646,11 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user 
 
 
 @router.patch("/{route_id}", response_model=Route, dependencies=[Depends(require_role("vendedor"))])
-def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)):
+def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    _assert_route_access(db, current_user, r, data)
     update_data = data.model_dump(exclude_unset=True)
 
     # Detectar cambios reales comparando contra valores actuales
@@ -696,7 +759,12 @@ def list_route_pdvs(route_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{route_id}/pdvs", response_model=RoutePdv, status_code=201, dependencies=[Depends(require_role("vendedor"))])
-def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get_db)):
+def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    _assert_route_access(db, current_user, route)
+
     # Enforce PDV exclusivity: a PDV can only belong to one route at a time
     existing = (
         db.query(RoutePdvModel)
@@ -726,15 +794,13 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get
     db.add(rp)
 
     # Auto-asignar Trade Marketer al PDV si la ruta tiene uno (task 13)
-    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
-    if route and route.AssignedUserId is not None:
+    if route.AssignedUserId is not None:
         pdv = db.query(PDVModel).filter(PDVModel.PdvId == data.PdvId).first()
         if pdv:
             pdv.AssignedUserId = route.AssignedUserId
 
     # Cualquier modificación de PDVs invalida la optimización (task 11)
-    if route:
-        route.IsOptimized = False
+    route.IsOptimized = False
 
     # Auto-add PDV to today's and future RouteDays (so it appears immediately in Home)
     today = _today_ar()
@@ -766,10 +832,14 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, db: Session = Depends(get
 
 
 @router.delete("/{route_id}/pdvs/{pdv_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
-def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
+def remove_route_pdv(route_id: int, pdv_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rp = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == pdv_id).first()
     if not rp:
         raise HTTPException(status_code=404, detail="PDV no encontrado en la ruta")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    _assert_route_access(db, current_user, route)
     db.delete(rp)
 
     # NO tocar pdv.AssignedUserId: quitar un PDV de la ruta no desasigna al Trade Rep.
@@ -789,9 +859,7 @@ def remove_route_pdv(route_id: int, pdv_id: int, db: Session = Depends(get_db)):
         ).delete(synchronize_session=False)
 
     # Invalidar optimización (task 11)
-    route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
-    if route:
-        route.IsOptimized = False
+    route.IsOptimized = False
 
     db.commit()
 
@@ -809,10 +877,7 @@ def reorder_route_pdvs(
     route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not route:
         raise HTTPException(404, "Ruta no encontrada")
-    # Ownership: assigned user or manager+
-    role = get_user_role(db, current_user.UserId)
-    if role not in ("admin", "territory_manager", "regional_manager") and route.AssignedUserId != current_user.UserId:
-        raise HTTPException(403, "No tiene permiso para reordenar esta ruta")
+    _assert_route_access(db, current_user, route)
     for i, pid in enumerate(pdv_ids):
         rp = db.query(RoutePdvModel).filter(
             RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == pid
@@ -919,22 +984,12 @@ def list_route_days(route_id: int, db: Session = Depends(get_db)):
     return db.query(RouteDayModel).filter(RouteDayModel.RouteId == route_id).all()
 
 
-def _check_route_access(route: RouteModel, current_user: UserModel, db: Session):
-    """Verify user owns the route or is a manager."""
-    role = get_user_role(db, current_user.UserId)
-    if role in ("admin", "territory_manager", "regional_manager"):
-        return
-    if route.AssignedUserId == current_user.UserId:
-        return
-    raise HTTPException(403, "No tiene permiso para modificar esta ruta")
-
-
 @router.post("/{route_id}/days", response_model=RouteDay, status_code=201)
 def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    _check_route_access(r, current_user, db)
+    _assert_route_access(db, current_user, r)
     # Use route's assigned user if not specified
     user_id = data.AssignedUserId or getattr(r, "AssignedUserId", None)
     if not user_id:
@@ -969,7 +1024,7 @@ def delete_route_day(route_day_id: int, current_user: UserModel = Depends(get_cu
         raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
     route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
     if route:
-        _check_route_access(route, current_user, db)
+        _assert_route_access(db, current_user, route)
     db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId == route_day_id).delete()
     db.delete(rd)
     db.commit()
@@ -1005,7 +1060,7 @@ def update_route_day(route_day_id: int, data: RouteDayUpdate, current_user: User
         raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
     route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
     if route:
-        _check_route_access(route, current_user, db)
+        _assert_route_access(db, current_user, route)
     if data.Status is not None:
         rd.Status = data.Status
     db.commit()
@@ -1022,10 +1077,11 @@ def list_route_day_pdvs(route_day_id: int, db: Session = Depends(get_db)):
 @router.post("/days/{route_day_id}/pdvs", response_model=RouteDayPdv, status_code=201)
 def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
-    if rd:
-        route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
-        if route:
-            _check_route_access(route, current_user, db)
+    if not rd:
+        raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+    if route:
+        _assert_route_access(db, current_user, route)
     rdp = RouteDayPdvModel(
         RouteDayId=route_day_id,
         PdvId=data.PdvId,

@@ -1,25 +1,37 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { kpiApi, type PriceMatrixItem, type SuspiciousPriceItem } from "@/lib/api";
 import { PreciosMatrix } from "./PreciosMatrix";
 import { PreciosSuspicious } from "./PreciosSuspicious";
 
+interface VendorOption {
+  userId: number;
+  name: string | null;
+}
+
 interface Props {
   year: number;
   month: number;
   userId: number | null;
   userName: string | null;
+  managerId: number | null;
+  vendors: VendorOption[];
 }
 
 type GroupBy = "route" | "user";
 
-export function PreciosTab({ year, month, userId, userName }: Props) {
+export function PreciosTab({ year, month, userId, userName, managerId, vendors }: Props) {
   const [groupBy, setGroupBy] = useState<GroupBy>("route");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [matrix, setMatrix] = useState<PriceMatrixItem[]>([]);
   const [suspicious, setSuspicious] = useState<SuspiciousPriceItem[]>([]);
+
+  // Con territorio seleccionado pero sin vendedor puntual se pide sin user_id (el
+  // endpoint trae todos los usuarios visibles) y se filtra client-side a los
+  // vendedores del territorio elegido — mismo patrón que RutasTab/PdvsTab.
+  const vendorIds = useMemo(() => new Set(vendors.map((v) => v.userId)), [vendors]);
 
   // Si hay vendedor seleccionado en el drill-down se pasa user_id a ambos endpoints
   // para mostrar solo lo suyo (se indica en el subtítulo de la matriz más abajo).
@@ -31,12 +43,13 @@ export function PreciosTab({ year, month, userId, userName }: Props) {
       kpiApi.suspiciousPrices({ year, month, user_id: userId ?? undefined }),
     ])
       .then(([matrixRows, suspiciousRows]) => {
-        setMatrix(matrixRows);
-        setSuspicious(suspiciousRows);
+        const filterByTerritory = managerId != null && userId == null;
+        setMatrix(filterByTerritory ? matrixRows.filter((r) => vendorIds.has(r.userId)) : matrixRows);
+        setSuspicious(filterByTerritory ? suspiciousRows.filter((r) => vendorIds.has(r.userId)) : suspiciousRows);
       })
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [year, month, groupBy, userId]);
+  }, [year, month, groupBy, userId, managerId, vendorIds]);
 
   useEffect(() => { load(); }, [load]);
 

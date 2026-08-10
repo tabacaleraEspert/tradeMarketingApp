@@ -624,6 +624,82 @@ class TestSnapshot:
 
 
 # ---------------------------------------------------------------------------
+# 8. Huso horario de negocio (Argentina) en los cortes de mes — B2 de la
+# auditoría del motor de KPIs. `Visit.OpenedAt` se guarda en UTC; los cortes de
+# mes deben evaluarse en hora de Argentina (UTC-3), no en UTC, o una visita de
+# 21:00-23:59 AR del último día del mes cae en el mes calendario siguiente.
+# ---------------------------------------------------------------------------
+
+class TestBusinessTimezoneMonthBounds:
+    def _setup_coverage(self, db, opened_at):
+        """Un usuario/PDV/regla de cobertura donde 1 SKU `Works=true` alcanza
+        exactamente el nivel `bueno` (rules explícitas en todos los niveles, ver
+        test_bueno_threshold_border, para que `excelente`/`muy_bueno` no queden
+        vacíamente satisfechos por falta de regla)."""
+        user = _user(db)
+        pdv = _pdv(db)
+        route = _route(db, user.UserId)
+        _route_pdv(db, route.RouteId, pdv.PdvId)
+        _coverage_rule(db, "Milenio", "excelente", 2, user.UserId)
+        _coverage_rule(db, "Milenio", "muy_bueno", 2, user.UserId)
+        _coverage_rule(db, "Milenio", "bueno", 1, user.UserId)
+        _coverage_rule(db, "Total cigs", "excelente", 2, user.UserId)
+        _coverage_rule(db, "Total cigs", "muy_bueno", 2, user.UserId)
+        _coverage_rule(db, "Total cigs", "bueno", 1, user.UserId)
+        product = _product(db, "Milenio Huso")
+        db.commit()
+
+        visit = _visit(db, pdv.PdvId, user.UserId, opened_at)
+        _coverage(db, visit.VisitId, product.ProductId, works=True)
+        db.commit()
+        return user, pdv
+
+    def test_23hs_ar_ultimo_dia_julio_cuenta_para_julio_no_agosto(self, db):
+        # 23:00 hora Argentina del 31-jul equivale a 02:00 UTC del 1-ago (naive,
+        # como se guarda OpenedAt) — con el corte en UTC (bug) esto caía en agosto.
+        user, pdv = self._setup_coverage(db, datetime(2026, 8, 1, 2, 0))
+
+        assert pdv_coverage_scores(db, user.UserId, 2026, 7)[pdv.PdvId] == "bueno"
+        assert pdv_coverage_scores(db, user.UserId, 2026, 8)[pdv.PdvId] == "sin_relevar"
+
+    def test_21hs_utc_31_julio_18hs_ar_cuenta_para_julio(self, db):
+        # 21:00 UTC del 31-jul = 18:00 hora Argentina, mismo día calendario en
+        # ambos husos: control de que el corte no lo desplace de mes por error.
+        user, pdv = self._setup_coverage(db, datetime(2026, 7, 31, 21, 0))
+
+        assert pdv_coverage_scores(db, user.UserId, 2026, 7)[pdv.PdvId] == "bueno"
+
+    def test_kpi2_match_de_dia_planificado_usa_fecha_argentina(self, db):
+        # M2 (día planificado) evaluado con OpenedAt convertido a fecha AR: una
+        # visita de las 23:00 AR del 31-jul (02:00 UTC del 1-ago) debe acreditar
+        # contra el RouteDay planificado para el 31-jul, no quedar sin matchear.
+        user = _user(db)
+        pdv = _pdv(db)
+        route = _route(db, user.UserId)
+        _route_pdv(db, route.RouteId, pdv.PdvId)
+        route_day = _route_day(db, route.RouteId, user.UserId, date(2026, 7, 31))
+        _route_day_pdv(db, route_day.RouteDayId, pdv.PdvId)
+        defs = _kpi_definitions(db)
+        _kpi_config(db, defs["efectividad_visitas"].KpiDefinitionId, weight=10, target=50, scope_id=user.UserId)
+        db.commit()
+
+        visit = _visit(
+            db, pdv.PdvId, user.UserId, datetime(2026, 8, 1, 2, 0),
+            status="CLOSED", route_day_id=route_day.RouteDayId,
+        )
+        product = _product(db, "Milenio Fecha AR")
+        _coverage(db, visit.VisitId, product.ProductId)
+        _pop_item(db, visit.VisitId, "Stopper")
+        _action(db, visit.VisitId, "cobertura", status="DONE")
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, 2026, 7)
+        kpi = next(k for k in result.kpis if k.key == "efectividad_visitas")
+        assert kpi.numerator == 1
+        assert kpi.denominator == 1
+
+
+# ---------------------------------------------------------------------------
 # 9. Outliers de precio
 # ---------------------------------------------------------------------------
 

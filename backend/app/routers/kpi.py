@@ -24,13 +24,13 @@ import logging
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from sqlalchemy import func
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_role
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from ..hierarchy import visible_user_ids
 from ..models import (
     User as UserModel,
@@ -43,7 +43,6 @@ from ..models import (
     Visit as VisitModel,
     VisitAction as VisitActionModel,
     VisitCoverage as VisitCoverageModel,
-    VisitPOPItem as VisitPOPItemModel,
     KpiDefinition as KpiDefinitionModel,
     KpiConfig as KpiConfigModel,
     KpiMonthlySnapshot as KpiMonthlySnapshotModel,
@@ -52,8 +51,14 @@ from ..models import (
     AppSetting as AppSettingModel,
 )
 from ..services.kpi_engine import (
+    BUSINESS_TZ,
     GOOD_OR_BETTER,
+    _business_today,
+    _month_datetime_range,
+    _month_range,
+    _to_business_date,
     compute_kpis,
+    effective_visit_ids,
     filter_price_outliers,
     focus_universe,
     pdv_coverage_scores,
@@ -80,12 +85,6 @@ router = APIRouter(prefix="/kpi", tags=["Tablero TMR"])
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
-    start = datetime(year, month, 1)
-    end = datetime(year + 1, 1, 1) if month == 12 else datetime(year, month + 1, 1)
-    return start, end
-
-
 _MONTH_ABBR_ES = [
     "", "Ene", "Feb", "Mar", "Abr", "May", "Jun",
     "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
@@ -103,23 +102,38 @@ def _week_start(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 
+def _to_ar(dt: datetime) -> datetime:
+    """Convierte un datetime naive UTC (`Visit.OpenedAt`/`ClosedAt`) a datetime aware en
+    hora de Argentina, preservando la hora (a diferencia de `_to_business_date` de
+    kpi_engine, que trunca a la fecha). Defensivo ante datetimes ya aware, igual que
+    `_to_business_date`."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(BUSINESS_TZ)
+
+
 def _resolve_target_user_ids(db: Session, current_user: UserModel, user_id: int | None) -> list[int]:
     """Usuarios a computar: con `user_id`, valida pertenencia a visibles (403 si no).
-    Sin `user_id`: el set visible completo; si el rol ve todo (admin, `None`), todos
-    los usuarios con al menos una ruta foco activa asignada."""
+    Sin `user_id`: usuarios con al menos una ruta foco activa asignada, dentro del
+    set visible (si el rol ve todo -> admin, `None` -> todos los que tengan ruta; si
+    el rol tiene un sub-árbol -> ese set intersectado con los que tengan ruta, para
+    que un manager sin ruta propia no aparezca como fila de vendedor con 0% — ver M1
+    de la auditoría del tablero TMR)."""
     visible = visible_user_ids(db, current_user)
     if user_id is not None:
         if visible is not None and user_id not in visible:
             raise HTTPException(403, "No tenés acceso a los datos de este usuario")
         return [user_id]
-    if visible is not None:
-        return sorted(visible)
+
     rows = (
         db.query(RouteModel.AssignedUserId)
         .filter(RouteModel.IsFocus == True, RouteModel.IsActive == True, RouteModel.AssignedUserId.isnot(None))  # noqa: E712
         .distinct()
         .all()
     )
+    if visible is not None:
+        users_with_route = {r[0] for r in rows}
+        return sorted(visible & users_with_route)
     return [r[0] for r in rows]
 
 
@@ -129,13 +143,14 @@ def _resolve_target_user_ids(db: Session, current_user: UserModel, user_id: int 
 
 @router.get("/variable")
 def get_kpi_variable(
+    background_tasks: BackgroundTasks,
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     user_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    ensure_previous_month_closed(db)
+    ensure_previous_month_closed(db, background_tasks)
 
     target_ids = _resolve_target_user_ids(db, current_user, user_id)
     if not target_ids:
@@ -224,7 +239,7 @@ def get_pdv_scoring(
     coverage_scores = pdv_coverage_scores(db, user_id, year, month)
     communication_scores = pdv_communication_scores(db, user_id, year, month)
 
-    start, end = _month_bounds(year, month)
+    start, end = _month_datetime_range(year, month)
     last_visit_by_pdv: dict[int, datetime] = {}
     if universe:
         for pdv_id, last_ts in (
@@ -236,7 +251,7 @@ def get_pdv_scoring(
             .group_by(VisitModel.PdvId)
             .all()
         ):
-            last_visit_by_pdv[pdv_id] = last_ts
+            last_visit_by_pdv[pdv_id] = _to_ar(last_ts)
 
     pdv_names = {}
     if universe:
@@ -282,19 +297,6 @@ def get_pdv_scoring(
 # GET /kpi/weekly-activity
 # ---------------------------------------------------------------------------
 
-def _visit_is_effective(db: Session, visit_id: int) -> bool:
-    """Las 3 condiciones de visita efectiva (KPI 2, docs/tablero-tmr-diseno.md):
-    cobertura + relevamiento POP + ≥1 acción DONE. A diferencia de
-    `kpi_engine._kpi2_efectividad`, acá NO se exige que sea el día planificado —
-    esta vista de actividad lista todas las visitas del mes, planificadas o no."""
-    has_cov = db.query(VisitCoverageModel).filter(VisitCoverageModel.VisitId == visit_id).first() is not None
-    has_pop = db.query(VisitPOPItemModel).filter(VisitPOPItemModel.VisitId == visit_id).first() is not None
-    has_action = db.query(VisitActionModel).filter(
-        VisitActionModel.VisitId == visit_id, VisitActionModel.Status == "DONE"
-    ).first() is not None
-    return has_cov and has_pop and has_action
-
-
 @router.get("/weekly-activity")
 def get_weekly_activity(
     year: int = Query(...),
@@ -306,20 +308,26 @@ def get_weekly_activity(
     """Actividad de visitas del mes agrupada por semana y día, con detalle por PDV
     (referencia funcional: DD.visits_semanal, docs/tablero-tmr-diseno.md). Todas las
     visitas del usuario en el mes, planificadas o no, en orden cronológico. Solo se
-    devuelven semanas/días con al menos una visita."""
+    devuelven semanas/días con al menos una visita. `effective` usa
+    `kpi_engine.effective_visit_ids(require_planned_day=False)` — mismas 3
+    condiciones de contenido (cobertura + POP + acción DONE) y `Status='CLOSED'`
+    que KPI 2, pero sin exigir que sea el día planificado (A3 de la auditoría del
+    tablero TMR: antes esta vista ni siquiera exigía `Status='CLOSED'`, una visita
+    abierta podía figurar efectiva)."""
     visible = visible_user_ids(db, current_user)
     if visible is not None and user_id not in visible:
         raise HTTPException(403, "No tenés acceso a los datos de este usuario")
 
     user = db.query(UserModel).filter(UserModel.UserId == user_id).first()
 
-    start, end = _month_bounds(year, month)
+    start, end = _month_datetime_range(year, month)
     visits = (
         db.query(VisitModel)
         .filter(VisitModel.UserId == user_id, VisitModel.OpenedAt >= start, VisitModel.OpenedAt < end)
         .order_by(VisitModel.OpenedAt)
         .all()
     )
+    effective_ids = effective_visit_ids(db, user_id, year, month, require_planned_day=False)
 
     pdv_ids = {v.PdvId for v in visits}
     pdv_names = {p.PdvId: p.Name for p in db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).all()} if pdv_ids else {}
@@ -327,7 +335,7 @@ def get_weekly_activity(
     # weekStart (lunes) -> dayDate -> lista de visitas de ese día, en orden cronológico
     weeks: dict[date, dict[date, list[VisitModel]]] = {}
     for v in visits:
-        day = v.OpenedAt.date()
+        day = _to_business_date(v.OpenedAt)
         week_start = _week_start(day)
         weeks.setdefault(week_start, {}).setdefault(day, []).append(v)
 
@@ -354,17 +362,17 @@ def get_weekly_activity(
                 "date": day.isoformat(),
                 "dayLabel": f"{_WEEKDAY_ABBR_ES[day.weekday()]} {_day_short(day)}",
                 "count": len(day_visits),
-                "firstOpen": day_visits[0].OpenedAt.strftime("%H:%M"),
-                "lastClose": max(closed_at_list).strftime("%H:%M") if closed_at_list else None,
+                "firstOpen": _to_ar(day_visits[0].OpenedAt).strftime("%H:%M"),
+                "lastClose": _to_ar(max(closed_at_list)).strftime("%H:%M") if closed_at_list else None,
                 "avgDurationMin": round(sum(durations) / len(durations), 1) if durations else None,
                 "visits": [
                     {
                         "pdvId": v.PdvId,
                         "pdvName": pdv_names.get(v.PdvId, f"PDV #{v.PdvId}"),
-                        "openedAt": v.OpenedAt.strftime("%H:%M"),
-                        "closedAt": v.ClosedAt.strftime("%H:%M") if v.ClosedAt else None,
+                        "openedAt": _to_ar(v.OpenedAt).strftime("%H:%M"),
+                        "closedAt": _to_ar(v.ClosedAt).strftime("%H:%M") if v.ClosedAt else None,
                         "status": v.Status,
-                        "effective": _visit_is_effective(db, v.VisitId),
+                        "effective": v.VisitId in effective_ids,
                     }
                     for v in day_visits
                 ],
@@ -396,6 +404,14 @@ def get_route_summary(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
+    """Resumen por ruta foco del mes. `effectiveness` usa
+    `kpi_engine.effective_visit_ids(require_planned_day=True)` — el MISMO criterio
+    que paga (KPI 2): además de cobertura+POP+acción DONE y `Status='CLOSED'`, exige
+    que la visita corresponda al día planificado de esa ruta (A3 de la auditoría del
+    tablero TMR: antes no lo exigía y el número que veía el supervisor daba
+    sistemáticamente más alto que el que paga). `sellsLoose`/`withExchange` se
+    restringen a PDVs activos (`PDV.IsActive`), igual que el universo foco del motor
+    (`focus_universe`) que usa KPI 3 (A3b de la misma auditoría)."""
     target_ids = _resolve_target_user_ids(db, current_user, user_id)
     if not target_ids:
         return []
@@ -411,10 +427,15 @@ def get_route_summary(
     if not routes:
         return []
 
-    start, end = _month_bounds(year, month)
+    start, end = _month_datetime_range(year, month)
+    # RouteDay.WorkDate es date puro (sin huso horario): el corte de mes para el
+    # plan usa el calendario, no la ventana UTC de _month_datetime_range (ver B2
+    # de la auditoría del motor de KPIs).
+    work_date_start, work_date_end = _month_range(year, month)
     route_user_ids = {route.AssignedUserId for route in routes}
     route_users = {u.UserId: u for u in db.query(UserModel).filter(UserModel.UserId.in_(route_user_ids)).all()}
     communication_cache: dict[int, dict] = {}
+    effective_cache: dict[int, set] = {}
     result = []
 
     for route in routes:
@@ -426,7 +447,7 @@ def get_route_summary(
             rd.RouteDayId for rd in
             db.query(RouteDayModel).filter(
                 RouteDayModel.RouteId == route.RouteId,
-                RouteDayModel.WorkDate >= start.date(), RouteDayModel.WorkDate < end.date(),
+                RouteDayModel.WorkDate >= work_date_start, RouteDayModel.WorkDate < work_date_end,
             )
         ]
 
@@ -460,15 +481,13 @@ def get_route_summary(
                     .filter(VisitActionModel.VisitId.in_(visit_ids), VisitActionModel.Status == "DONE")
                     .count()
                 )
+
+            effective_ids = effective_cache.get(route.AssignedUserId)
+            if effective_ids is None:
+                effective_ids = effective_visit_ids(db, route.AssignedUserId, year, month, require_planned_day=True)
+                effective_cache[route.AssignedUserId] = effective_ids
             for v in visits:
-                if v.PdvId in effective_pdv_ids or v.PdvId not in planned_pdv_ids:
-                    continue
-                has_cov = db.query(VisitCoverageModel).filter(VisitCoverageModel.VisitId == v.VisitId).first() is not None
-                has_pop = db.query(VisitPOPItemModel).filter(VisitPOPItemModel.VisitId == v.VisitId).first() is not None
-                has_action = db.query(VisitActionModel).filter(
-                    VisitActionModel.VisitId == v.VisitId, VisitActionModel.Status == "DONE"
-                ).first() is not None
-                if has_cov and has_pop and has_action:
+                if v.VisitId in effective_ids:
                     effective_pdv_ids.add(v.PdvId)
 
         planned = len(planned_pdv_ids)
@@ -482,9 +501,16 @@ def get_route_summary(
 
         loose_pdv_ids: set = set()
         if pdv_ids:
+            # PDV.IsActive, igual que focus_universe (motor de KPIs): un PDV dado de baja
+            # sigue en RoutePdv pero no debe contarse acá ni en KPI 3 (A3b de la auditoría
+            # del tablero TMR — antes esta cuenta incluía PDVs inactivos y no cuadraba con
+            # sellsLoose/withExchange de KPI 3).
             loose_pdv_ids = {
                 p.PdvId for p in
-                db.query(PDVModel.PdvId).filter(PDVModel.PdvId.in_(pdv_ids), PDVModel.SellsLooseCigarettes == True)  # noqa: E712
+                db.query(PDVModel.PdvId).filter(
+                    PDVModel.PdvId.in_(pdv_ids), PDVModel.SellsLooseCigarettes == True,  # noqa: E712
+                    PDVModel.IsActive == True,  # noqa: E712
+                )
             }
 
         with_exchange = 0
@@ -525,26 +551,37 @@ def get_route_summary(
 # Higiene de precios — /kpi/price-matrix, /kpi/suspicious-prices
 # ---------------------------------------------------------------------------
 
-def _price_rows_for_users(db: Session, user_ids: list[int], year: int, month: int) -> list[dict]:
+def _visible_baseline_user_ids(db: Session, current_user: UserModel) -> list[int] | None:
+    """Universo para la mediana de outliers de precio (A2 de la auditoría del tablero
+    TMR): TODOS los usuarios que la jerarquía ya autoriza a `current_user`
+    (`visible_user_ids`), no el subconjunto pedido por `user_id`. `None` = sin
+    filtro (admin, ve toda la empresa)."""
+    visible = visible_user_ids(db, current_user)
+    return sorted(visible) if visible is not None else None
+
+
+def _price_rows_for_users(db: Session, user_ids: list[int] | None, year: int, month: int) -> list[dict]:
     """Precios relevados (`VisitCoverage.Price`) del mes para los usuarios dados, en
     el formato que espera `filter_price_outliers` (`price`/`product`), enriquecido
     con lo necesario para las dos respuestas de este router (`pdvId`/`pdvName`/
-    `userId`/`userName`/`productId`/`date`)."""
-    if not user_ids:
+    `userId`/`userName`/`productId`/`date`). `user_ids=None` = sin filtro por usuario
+    (todos)."""
+    if user_ids is not None and not user_ids:
         return []
-    start, end = _month_bounds(year, month)
+    start, end = _month_datetime_range(year, month)
 
-    rows = (
+    query = (
         db.query(VisitCoverageModel, VisitModel, ProductModel)
         .join(VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId)
         .join(ProductModel, ProductModel.ProductId == VisitCoverageModel.ProductId)
         .filter(
-            VisitModel.UserId.in_(user_ids),
             VisitModel.OpenedAt >= start, VisitModel.OpenedAt < end,
             VisitCoverageModel.Price.isnot(None),
         )
-        .all()
     )
+    if user_ids is not None:
+        query = query.filter(VisitModel.UserId.in_(user_ids))
+    rows = query.all()
     if not rows:
         return []
 
@@ -600,7 +637,14 @@ def get_price_matrix(
 ):
     """Matriz de precios relevados por producto x grupo (`route` = ruta foco del
     vendedor que incluye el PDV relevado, `user` = vendedor), con outliers y
-    productos `TEST_` descartados por `filter_price_outliers` (motor de KPIs)."""
+    productos `TEST_` descartados por `filter_price_outliers` (motor de KPIs).
+
+    El baseline de `filter_price_outliers` (A2 de la auditoría del tablero TMR) es
+    SIEMPRE el universo visible completo para quien consulta, nunca el subconjunto
+    de `user_id`: si no, un vendedor que infla sistemáticamente sus precios nunca se
+    marcaría (su propio subconjunto sería su propio baseline) y con <3 muestras en
+    el subconjunto la regla de mediana ni se aplicaría. `user_id` filtra el
+    resultado DESPUÉS de calcular outliers sobre el universo visible."""
     if group_by not in ("route", "user"):
         raise HTTPException(422, "group_by debe ser route o user")
 
@@ -608,12 +652,16 @@ def get_price_matrix(
     if not target_ids:
         return []
 
-    price_rows = _price_rows_for_users(db, target_ids, year, month)
+    baseline_ids = _visible_baseline_user_ids(db, current_user)
+    price_rows = _price_rows_for_users(db, baseline_ids, year, month)
     valid, _discarded = filter_price_outliers(price_rows)
+
+    target_id_set = set(target_ids)
+    valid = [row for row in valid if row["userId"] in target_id_set]
 
     route_by_user_pdv = _focus_route_by_user_pdv(db, target_ids) if group_by == "route" else {}
 
-    agg: dict[tuple[int, str, int | None, str | None], list[float]] = {}
+    agg: dict[tuple[int, str, int | None, str | None, int], list[float]] = {}
     for row in valid:
         if group_by == "route":
             group = route_by_user_pdv.get((row["userId"], row["pdvId"]))
@@ -622,7 +670,7 @@ def get_price_matrix(
             group_id, group_name = group
         else:
             group_id, group_name = row["userId"], row["userName"]
-        key = (row["productId"], row["product"], group_id, group_name)
+        key = (row["productId"], row["product"], group_id, group_name, row["userId"])
         agg.setdefault(key, []).append(row["price"])
 
     items = [
@@ -631,12 +679,13 @@ def get_price_matrix(
             "productName": product_name,
             "groupId": group_id,
             "groupName": group_name,
+            "userId": row_user_id,
             "avg": round(sum(prices) / len(prices), 2),
             "min": min(prices),
             "max": max(prices),
             "n": len(prices),
         }
-        for (product_id, product_name, group_id, group_name), prices in agg.items()
+        for (product_id, product_name, group_id, group_name, row_user_id), prices in agg.items()
     ]
     items.sort(key=lambda it: (it["productName"], it["groupName"] or ""))
     return items
@@ -652,12 +701,19 @@ def get_suspicious_prices(
 ):
     """Precios descartados por `filter_price_outliers` (fuera de `[0.25x, 4x]` la
     mediana de su producto, o producto `TEST_`), enriquecidos con PDV/vendedor/fecha
-    y la mediana contra la que se descartaron."""
+    y la mediana contra la que se descartaron.
+
+    El baseline de `filter_price_outliers` (A2 de la auditoría del tablero TMR) es
+    SIEMPRE el universo visible completo para quien consulta, nunca el subconjunto
+    de `user_id` (mismo motivo que `/kpi/price-matrix`): así un vendedor que infla
+    sistemáticamente sus precios se compara contra la mediana de sus pares, no
+    contra sí mismo. `user_id` filtra el resultado DESPUÉS."""
     target_ids = _resolve_target_user_ids(db, current_user, user_id)
     if not target_ids:
         return []
 
-    price_rows = _price_rows_for_users(db, target_ids, year, month)
+    baseline_ids = _visible_baseline_user_ids(db, current_user)
+    price_rows = _price_rows_for_users(db, baseline_ids, year, month)
     _valid, discarded = filter_price_outliers(price_rows)
 
     by_product: dict[str, list[float]] = {}
@@ -665,6 +721,7 @@ def get_suspicious_prices(
         by_product.setdefault(row["product"], []).append(row["price"])
     medians = {product: median(prices) for product, prices in by_product.items()}
 
+    target_id_set = set(target_ids)
     items = [
         {
             "productName": row["product"],
@@ -677,6 +734,7 @@ def get_suspicious_prices(
             "date": row["date"].isoformat(),
         }
         for row in sorted(discarded, key=lambda r: r["date"], reverse=True)
+        if row["userId"] in target_id_set
     ]
     return items
 
@@ -705,7 +763,7 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False) -
     mes: si NINGUNO tiene, 422 sin borrar nada (ver B3 de la auditoría del motor de
     KPIs). Si solo ALGUNOS tienen, se cierran esos y el resto se reporta en
     `usersSkipped`."""
-    today = date.today()
+    today = _business_today()
     if (year, month) >= (today.year, today.month):
         raise HTTPException(422, "Solo se pueden cerrar meses ya terminados")
 
@@ -780,37 +838,51 @@ def _previous_month(today: date) -> tuple[int, int]:
     return (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
 
 
-def ensure_previous_month_closed(db: Session) -> None:
-    """Cierre automático lazy del mes calendario anterior — disparado desde
-    `GET /kpi/variable` en cada request (T4, fase 4). En prod corren 4 workers
-    gunicorn sin scheduler en proceso, por eso el mecanismo es "quien primero abre
-    el tablero en el mes nuevo dispara el cierre del mes anterior", con una marca
-    de control en `AppSetting` (`KPI_AUTO_CLOSE_SETTING_KEY`, valor "YYYY-MM" del
-    último mes procesado) para que las siguientes llamadas del mismo mes corten en
-    una sola query — barato para el caso común (marca ya al día).
+def _claim_auto_close(db: Session, target_key: str) -> bool:
+    """Reclama atómicamente el cierre automático de `target_key` (`"YYYY-MM"`) con
+    un UPDATE condicional sobre `AppSetting` (`UPDATE ... WHERE Value != target`):
+    solo el worker cuyo UPDATE afecta una fila (`rowcount > 0`) gana el claim; los
+    demás ven `rowcount == 0` porque la marca ya quedó en `target_key` (otro
+    worker ganó, o el mes ya estaba procesado) y cortan sin tocar nada más. Si la
+    fila todavía no existe (primera vez que corre el mecanismo) se intenta un
+    INSERT, protegido con `except IntegrityError` por si otro worker gana esa
+    misma carrera de creación.
 
-    Reusa `_close_month_core` (misma lógica que el cierre manual admin, T5). Casos:
-    - Ya había snapshots de ese mes (409 de `_close_month_core`) -> no duplica,
-      solo actualiza la marca.
-    - Sin config vigente para nadie ese mes (422) -> NO cierra, pero actualiza la
-      marca igual (para no reintentar en cada request) y loguea warning.
-    - Éxito -> escribe la marca.
+    El commit del claim es una transacción propia, separada del cómputo del
+    cierre: la marca queda escrita aunque el cierre posterior falle o el proceso
+    muera antes de terminarlo (trade-off documentado en
+    `ensure_previous_month_closed`)."""
+    result = db.execute(
+        update(AppSettingModel)
+        .where(AppSettingModel.Key == KPI_AUTO_CLOSE_SETTING_KEY, AppSettingModel.Value != target_key)
+        .values(Value=target_key)
+    )
+    if result.rowcount > 0:
+        db.commit()
+        return True
 
-    Nunca propaga: corre inline en `GET /kpi/variable`, así que cualquier
-    excepción (carrera entre workers al escribir la marca o el snapshot, o
-    cualquier otro error) se loguea y se descarta sin romper el request del
-    usuario que abrió el tablero."""
-    today = date.today()
-    prev_year, prev_month = _previous_month(today)
-    target_key = f"{prev_year:04d}-{prev_month:02d}"
+    if db.query(AppSettingModel.Key).filter(AppSettingModel.Key == KPI_AUTO_CLOSE_SETTING_KEY).first() is not None:
+        return False  # ya estaba al día — otro worker ya lo reclamó (o ya se procesó)
 
     try:
-        mark = db.query(AppSettingModel).filter(AppSettingModel.Key == KPI_AUTO_CLOSE_SETTING_KEY).first()
-        if mark is not None and mark.Value == target_key:
-            return
+        db.add(AppSettingModel(Key=KPI_AUTO_CLOSE_SETTING_KEY, Value=target_key))
+        db.commit()
+        return True
+    except IntegrityError:
+        db.rollback()
+        return False  # otro worker insertó primero
 
+
+def _run_auto_close(year: int, month: int, target_key: str) -> None:
+    """Ejecuta el cierre real (`_close_month_core`) como `BackgroundTasks` de
+    FastAPI: corre DESPUÉS de responder `GET /kpi/variable`, en su PROPIA sesión
+    de DB (la del request ya se cerró al responder). Nunca propaga: cualquier
+    excepción — incluida la del propio `_close_month_core` — se loguea y se
+    descarta, para no tumbar el worker de background de Starlette."""
+    db = SessionLocal()
+    try:
         try:
-            _close_month_core(db, prev_year, prev_month)
+            _close_month_core(db, year, month)
         except HTTPException as exc:
             if exc.status_code == 422:
                 logger.warning(
@@ -818,18 +890,72 @@ def ensure_previous_month_closed(db: Session) -> None:
                 )
             elif exc.status_code != 409:
                 raise
-
-        if mark is None:
-            db.add(AppSettingModel(Key=KPI_AUTO_CLOSE_SETTING_KEY, Value=target_key))
-        else:
-            mark.Value = target_key
-        db.commit()
     except (IntegrityError, SQLAlchemyError) as exc:
         db.rollback()
         logger.error("Cierre automático de KPIs %s falló (error de DB): %s", target_key, exc)
-    except Exception as exc:  # noqa: BLE001 — nunca debe romper /kpi/variable
+    except Exception as exc:  # noqa: BLE001 — nunca debe escapar del background task
         db.rollback()
         logger.error("Cierre automático de KPIs %s falló: %s", target_key, exc)
+    finally:
+        db.close()
+
+
+def ensure_previous_month_closed(db: Session, background_tasks: BackgroundTasks) -> None:
+    """Cierre automático lazy del mes calendario anterior — disparado desde
+    `GET /kpi/variable` en cada request (T4, fase 4; B3 de la auditoría del motor
+    de KPIs). En prod corren 4 workers gunicorn sin scheduler en proceso, por eso
+    el mecanismo es "quien primero abre el tablero en el mes nuevo dispara el
+    cierre del mes anterior", resuelto en dos pasos para no bloquear el tablero:
+
+    1. Claim atómico (`_claim_auto_close`): UPDATE condicional sobre `AppSetting`
+       en su PROPIA transacción, ANTES de calcular nada. Un solo worker gana; los
+       demás cortan de inmediato en una sola query — barato para el caso común
+       (marca ya al día). Esto elimina el stampede del día 1 (varios workers
+       recalculando en paralelo) y el retry infinito (la marca queda escrita
+       aunque el cómputo posterior nunca corra o exceda el timeout del worker).
+    2. El ganador del claim programa el cierre real (`_run_auto_close` /
+       `_close_month_core`, misma lógica que el cierre manual admin T5) como
+       `BackgroundTasks` de FastAPI: corre después de responder este request, así
+       que nunca suma latencia ni riesgo de timeout a `GET /kpi/variable`.
+
+    Trade-off aceptado: si el proceso muere entre el claim y que termine
+    `_close_month_core`, el mes queda marcado como procesado pero SIN snapshots.
+    Se detecta con `GET /kpi/closed-months` (el mes no aparece) y se recupera con
+    `POST /kpi/close-month` manual (admin).
+
+    Casos dentro de `_run_auto_close`:
+    - Ya había snapshots de ese mes (409 de `_close_month_core`) -> no duplica.
+    - Sin config vigente para nadie ese mes (422) -> NO cierra (la marca ya
+      quedó escrita por el claim) y loguea warning.
+    - Éxito -> snapshots creados.
+
+    Nunca propaga: ni el claim ni el background task deben poder romper
+    `GET /kpi/variable` ni el worker de background de Starlette."""
+    today = _business_today()
+    prev_year, prev_month = _previous_month(today)
+    target_key = f"{prev_year:04d}-{prev_month:02d}"
+
+    try:
+        claimed = _claim_auto_close(db, target_key)
+    except (IntegrityError, SQLAlchemyError) as exc:
+        db.rollback()
+        logger.error("Cierre automático de KPIs %s: claim falló (error de DB): %s", target_key, exc)
+        return
+    except Exception as exc:  # noqa: BLE001 — nunca debe romper /kpi/variable
+        db.rollback()
+        logger.error("Cierre automático de KPIs %s: claim falló: %s", target_key, exc)
+        return
+
+    if not claimed:
+        return
+
+    logger.info(
+        "Cierre automático de KPIs: claimed auto-close de %s (si el proceso muere antes de "
+        "terminar el cierre, el mes queda marcado sin snapshots — se detecta con "
+        "GET /kpi/closed-months y se recupera con POST /kpi/close-month manual)",
+        target_key,
+    )
+    background_tasks.add_task(_run_auto_close, prev_year, prev_month, target_key)
 
 
 @router.get("/closed-months")
@@ -925,7 +1051,7 @@ def _close_and_create_kpi_config(
     if not definition:
         raise HTTPException(404, "KPI no encontrado")
 
-    today = date.today()
+    today = _business_today()
     scope_filter = KpiConfigModel.ScopeId.is_(None) if scope_id is None else KpiConfigModel.ScopeId == scope_id
     existing = db.query(KpiConfigModel).filter(
         KpiConfigModel.KpiDefinitionId == definition_id,
@@ -947,7 +1073,7 @@ def _close_and_create_kpi_config(
 
 
 def _bad_sum_100_users(db: Session, scope_type: str, scope_id: int | None) -> list[dict]:
-    today = date.today()
+    today = _business_today()
     affected = _affected_user_ids(db, scope_type, scope_id)
     bad = []
     for uid in affected:
@@ -1036,7 +1162,7 @@ def delete_kpi_config(config_id: int, db: Session = Depends(get_db)):
     if not row:
         raise HTTPException(404, "Config no encontrada")
 
-    today = date.today()
+    today = _business_today()
     row.ValidTo = today
     db.flush()
 
@@ -1096,7 +1222,7 @@ def create_scoring_rule(
     if parsed.ScopeType in ("zone", "user") and parsed.ScopeId is None:
         raise HTTPException(422, f"ScopeId es requerido para ScopeType={parsed.ScopeType}")
 
-    today = date.today()
+    today = _business_today()
     key_field = "Brand" if type == "coverage" else "MaterialType"
     scope_filter = model.ScopeId.is_(None) if parsed.ScopeId is None else model.ScopeId == parsed.ScopeId
     existing = db.query(model).filter(
@@ -1130,7 +1256,7 @@ def delete_scoring_rule(
     row = db.query(model).filter(model.RuleId == rule_id).first()
     if not row:
         raise HTTPException(404, "Regla no encontrada")
-    row.ValidTo = date.today()
+    row.ValidTo = _business_today()
     db.commit()
 
 
@@ -1150,7 +1276,7 @@ def get_resolved_config(
     if visible is not None and target_user_id not in visible:
         raise HTTPException(403, "No tenés acceso a los datos de este usuario")
 
-    today = date.today()
+    today = _business_today()
     y = year or today.year
     m = month or today.month
 

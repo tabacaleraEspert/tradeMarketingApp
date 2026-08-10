@@ -107,7 +107,7 @@ function KpiRow({ kpi }: { kpi: KpiItem }) {
 
 export function MisObjetivos() {
   const currentUser = getCurrentUser();
-  const isAdminRole = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
+  const isAdminRole = ["admin", "regional_manager", "territory_manager", "supervisor", "ejecutivo"].includes(currentUser.role);
 
   const now = new Date();
   const monthOptions = Array.from({ length: 3 }, (_, i) => {

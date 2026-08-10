@@ -191,6 +191,55 @@ def test_weekly_activity_effective_true_false(client, db):
     )
     assert resp.status_code == 200
     day = resp.json()["weeks"][0]["days"][0]
+    # openedAt se muestra en hora de Argentina (UTC-3): 09:00/11:00 UTC -> 06:00/08:00 AR.
     effective_flags = {v["openedAt"]: v["effective"] for v in day["visits"]}
-    assert effective_flags["09:00"] is True
-    assert effective_flags["11:00"] is False
+    assert effective_flags["06:00"] is True
+    assert effective_flags["08:00"] is False
+
+
+def test_weekly_activity_effective_false_si_visita_abierta(client, db):
+    # A3: antes esta vista no exigía Status='CLOSED' -- una visita todavía abierta
+    # con cobertura+POP+acción DONE figuraba efectiva igual.
+    user, token = _user_with_role(db, "vendedor")
+    pdv = _pdv(db)
+    product = _product(db, f"Prod_{_uid()}")
+
+    v_open = _visit(db, pdv.PdvId, user.UserId, _dt(2, 9, 0), closed_at=None, status="OPEN")
+    _coverage(db, v_open.VisitId, product.ProductId)
+    _pop_item(db, v_open.VisitId, "Cigarrera aérea")
+    _action(db, v_open.VisitId, "pop", status="DONE")
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.get(
+        "/kpi/weekly-activity", params={"year": YEAR, "month": MONTH, "user_id": user.UserId}, headers=hdr,
+    )
+    assert resp.status_code == 200
+    day = resp.json()["weeks"][0]["days"][0]
+    assert day["visits"][0]["effective"] is False
+
+
+def test_weekly_activity_visita_23hs_ar_agrupa_en_dia_ar_correcto(client, db):
+    """Residuo de la auditoría (B2): el agrupado por día y las horas mostradas usaban
+    UTC crudo pese a que la ventana del mes ya se calculaba en hora AR. Una visita
+    abierta a las 23:00 hora Argentina cae, en UTC, a las 02:00 del día siguiente:
+    debe agruparse en el día AR (16), no en el día UTC (17), y mostrar la hora local
+    (23:00), no la UTC cruda (02:00)."""
+    user, token = _user_with_role(db, "vendedor")
+    pdv = _pdv(db)
+    _visit(db, pdv.PdvId, user.UserId, _dt(17, 2, 0), closed_at=_dt(17, 2, 30))
+    db.commit()
+
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.get(
+        "/kpi/weekly-activity", params={"year": YEAR, "month": MONTH, "user_id": user.UserId}, headers=hdr,
+    )
+    assert resp.status_code == 200
+    weeks = resp.json()["weeks"]
+    assert len(weeks) == 1
+    day = weeks[0]["days"][0]
+    assert day["date"] == "2026-03-16"
+    assert day["firstOpen"] == "23:00"
+    assert day["lastClose"] == "23:30"
+    assert day["visits"][0]["openedAt"] == "23:00"
+    assert day["visits"][0]["closedAt"] == "23:30"
