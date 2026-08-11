@@ -51,15 +51,19 @@ export function TableroPage() {
     if (isTerritoryManager) return ownManagerId;
     const raw = searchParams.get("manager");
     if (raw === "none") return NO_MANAGER_ID;
-    if (raw != null) {
+    // Param ausente o vacío => nivel General. Ojo: Number(null) y Number("") dan 0
+    // y pasan Number.isInteger — sin estos guards, cada carga entraba a "Usuario #0".
+    if (raw != null && raw !== "") {
       const n = Number(raw);
-      if (Number.isInteger(n)) return n;
+      if (Number.isInteger(n) && n > 0) return n;
     }
     return null;
   })();
   const initialUserId = (() => {
-    const n = Number(searchParams.get("user"));
-    return Number.isInteger(n) ? n : null;
+    const raw = searchParams.get("user");
+    if (raw == null || raw === "") return null;
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : null;
   })();
 
   const [year, setYear] = useState(initialYear);
