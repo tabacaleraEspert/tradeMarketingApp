@@ -297,6 +297,24 @@ def test_route_summary_effectiveness_exige_dia_planificado_como_kpi2(client, db)
     assert body[0]["effectiveness"] == 0.0
 
 
+# ---------------------------------------------------------------------------
+# (e) POST /visits/{id}/actions nace con Status='DONE' — hallazgo de producción
+# 11-08-2026: antes de este fix quedaba en el default del modelo (PENDING) y
+# nada la pasaba a DONE después (ver kpi_engine.executed_action_condition).
+# ---------------------------------------------------------------------------
+
+def test_create_visit_action_nace_status_done(client, db):
+    user, _ = _user_with_role(db, "vendedor")
+    pdv = _pdv(db)
+    visit = VisitModel(PdvId=pdv.PdvId, UserId=user.UserId, Status="OPEN", OpenedAt=datetime.now(timezone.utc))
+    db.add(visit)
+    db.commit()
+
+    resp = client.post(f"/visits/{visit.VisitId}/actions", json={"ActionType": "pop", "Description": "Cigarrera"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["Status"] == "DONE"
+
+
 def test_config_resolved_visibilidad_vendedor(client, db):
     user, token = _user_with_role(db, "vendedor")
     other, _ = _user_with_role(db, "vendedor")

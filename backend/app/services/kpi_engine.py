@@ -12,9 +12,10 @@ diseño, ver docstrings de cada función para el detalle):
   completar la acción "Colocación de material POP" (VisitActionsPage.tsx) y
   `VisitPhoto` con `PhotoType` prefijado `"pop_<material>_<empresa>"` (no el
   valor exacto `"pop"`) al completar el censo POP (POPCensusPage.tsx). Se usa
-  `VisitAction(ActionType='pop', Status='DONE', PhotoTaken=true)` como fuente
-  primaria (más simple de agregar y explícitamente ligada a una acción DONE)
-  con `VisitPhoto.PhotoType LIKE 'pop%'` como OR de respaldo.
+  `VisitAction(ActionType='pop', PhotoTaken=true)` **ejecutada**
+  (`executed_action_condition()`, no solo `Status='DONE'` — hallazgo de
+  producción 11-08-2026, ver docstring del helper) como fuente primaria (más
+  simple de agregar) con `VisitPhoto.PhotoType LIKE 'pop%'` como OR de respaldo.
 - **Elementos POP (rúbrica de comunicación)**: la tarea pedía contar
   "MaterialType distintos", pero `VisitPOPItem.MaterialType` solo toma dos
   valores (`primario`/`secundario`) — no puede llegar a los 4 elementos de la
@@ -494,6 +495,47 @@ def pdv_communication_scores(db: Session, user_id: int, year: int, month: int) -
 
 
 # ---------------------------------------------------------------------------
+# Acción "ejecutada" — criterio centralizado (hallazgo de producción, 11-08-2026)
+# ---------------------------------------------------------------------------
+
+def executed_action_condition():
+    """Condición SQLAlchemy para "acción ejecutada": NO es `VisitAction.Status ==
+    'DONE'` a secas, pese a que ese fue el criterio original del motor.
+
+    Hallazgo de producción (11-08-2026): la app mobile registra las acciones que
+    el vendedor marca como realizadas ("Acciones realizadas" en
+    VisitActionsPage → `POST /visits/{id}/actions`, ver
+    `app/routers/visit_actions.py`) SIN `Status` explícito, así que quedaban en
+    el default del modelo, `PENDING` (`VisitAction.Status`). Nada en el sistema
+    las pasaba a `DONE` después (2 filas `DONE` en toda la historia de
+    producción contra 3.731 `PENDING`): el motor, que exigía `Status == 'DONE'`,
+    daba 0 en 3 de los 5 KPIs con datos reales abundantes.
+
+    Semántica real de los datos (verificada contra producción):
+    - `MandatoryActivityId IS NOT NULL`: TODO auto-sembrado desde una plantilla
+      de actividad obligatoria (`app/routers/visits.py`, al abrir la visita y en
+      el carry-over de BACKLOG — líneas ~503-514 y ~558-568). Ahí `PENDING`
+      significa lo que dice, "pendiente de hacer": NO cuenta como ejecutada.
+    - `MandatoryActivityId IS NULL`: la crea el vendedor al registrar una acción
+      que YA REALIZÓ (`POST /visits/{id}/actions`) -> cuenta como ejecutada
+      aunque su `Status` no sea `DONE` (con este mismo fix ese POST además crea
+      la fila con `Status='DONE'` explícito desde ahora, pero esta condición
+      sigue cubriendo el historial viejo, todo en `PENDING`).
+    - `Status == 'BACKLOG'`: pospuesta explícitamente (carry-over a la próxima
+      visita al PDV) -> nunca cuenta, ni siquiera si es ad-hoc.
+    - `Status == 'DONE'`: siempre cuenta, sea ad-hoc o de plantilla.
+
+    Devuelve la expresión para usar en `.filter(...)`; no ejecuta ninguna query.
+    Único lugar donde se define el criterio — usado por `effective_visit_ids`,
+    `_kpi3_sueltos`, `_kpi4_pop` y `_kpi5_promo` (motor) y por
+    `app/routers/kpi.py` (`/kpi/route-summary`)."""
+    return or_(
+        and_(VisitAction.MandatoryActivityId.is_(None), VisitAction.Status != "BACKLOG"),
+        VisitAction.Status == "DONE",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Numeradores/denominadores por KPI (tabla §3 del diseño)
 # ---------------------------------------------------------------------------
 
@@ -512,7 +554,8 @@ def effective_visit_ids(
 
     SIEMPRE se exige sobre la visita: `Status='CLOSED'` + cobertura relevada
     (`VisitCoverage`) + relevamiento POP (`VisitPOPItem`) + al menos una
-    `VisitAction` con `Status='DONE'`.
+    `VisitAction` ejecutada (`executed_action_condition()` — ya NO
+    `Status='DONE'` a secas, ver docstring de ese helper).
 
     `require_planned_day`:
     - `True` (el criterio que PAGA — KPI 2 y, desde A3, `/kpi/route-summary`): la
@@ -591,7 +634,7 @@ def effective_visit_ids(
     action_ids = {
         vid for (vid,) in
         db.query(VisitAction.VisitId)
-        .filter(VisitAction.VisitId.in_(candidate_ids), VisitAction.Status == "DONE")
+        .filter(VisitAction.VisitId.in_(candidate_ids), executed_action_condition())
         .distinct()
     }
     return {
@@ -646,7 +689,8 @@ def _kpi3_sueltos(db: Session, user_id: int, universe: set, start: datetime, end
         return 0, 0
 
     # 1 query agregada (antes: 1-2 queries por PDV, N+1): PDVs distintos de
-    # `sells_loose_pdvs` con al menos una visita del usuario en el mes con canje DONE.
+    # `sells_loose_pdvs` con al menos una visita del usuario en el mes con canje
+    # ejecutado (executed_action_condition() — ya NO Status='DONE' a secas).
     pdvs_with_canje = {
         pdv_id for (pdv_id,) in
         db.query(Visit.PdvId)
@@ -654,7 +698,7 @@ def _kpi3_sueltos(db: Session, user_id: int, universe: set, start: datetime, end
         .filter(
             Visit.PdvId.in_(sells_loose_pdvs), Visit.UserId == user_id,
             Visit.OpenedAt >= start, Visit.OpenedAt < end,
-            VisitAction.ActionType == "canje_sueltos", VisitAction.Status == "DONE",
+            VisitAction.ActionType == "canje_sueltos", executed_action_condition(),
         )
         .distinct()
     }
@@ -667,10 +711,12 @@ def _kpi4_pop(db: Session, user_id: int, communication_scores: dict, universe: s
     """PDVs del universo con nivel de comunicación bueno+ Y foto POP tomada en el
     mes (requisito excluyente del KPI 4).
 
-    Foto POP: fuente primaria `VisitAction(ActionType='pop', Status='DONE',
-    PhotoTaken=true)` (lo que escribe VisitActionsPage.tsx), OR de respaldo
-    `VisitPhoto` con `PhotoType` que empieza con `'pop'` (POPCensusPage.tsx usa
-    `pop_<material>_<empresa>`, no el literal `'pop'`) — ver nota de módulo.
+    Foto POP: fuente primaria `VisitAction(ActionType='pop', PhotoTaken=true)`
+    **ejecutada** (`executed_action_condition()`, ya NO `Status='DONE'` a secas
+    — ver docstring de ese helper; lo que escribe VisitActionsPage.tsx), OR de
+    respaldo `VisitPhoto` con `PhotoType` que empieza con `'pop'`
+    (POPCensusPage.tsx usa `pop_<material>_<empresa>`, no el literal `'pop'`) —
+    ver nota de módulo.
 
     2-3 queries agregadas sobre el universo elegible (antes: hasta 3 queries por
     PDV elegible, N+1).
@@ -699,7 +745,7 @@ def _kpi4_pop(db: Session, user_id: int, communication_scores: dict, universe: s
         .filter(
             VisitAction.VisitId.in_(visit_ids),
             VisitAction.ActionType == "pop",
-            VisitAction.Status == "DONE",
+            executed_action_condition(),
             VisitAction.PhotoTaken == True,  # noqa: E712
         )
         .distinct()
@@ -719,7 +765,8 @@ def _kpi5_promo(db: Session, user_id: int, universe: set, start: datetime, end: 
     if not universe:
         return 0, 0
     # 1 query agregada (antes: 1-2 queries por PDV, N+1): PDVs distintos del
-    # universo con al menos una visita del usuario en el mes con promo DONE.
+    # universo con al menos una visita del usuario en el mes con promo ejecutada
+    # (executed_action_condition() — ya NO Status='DONE' a secas).
     pdvs_with_promo = {
         pdv_id for (pdv_id,) in
         db.query(Visit.PdvId)
@@ -727,7 +774,7 @@ def _kpi5_promo(db: Session, user_id: int, universe: set, start: datetime, end: 
         .filter(
             Visit.PdvId.in_(universe), Visit.UserId == user_id,
             Visit.OpenedAt >= start, Visit.OpenedAt < end,
-            VisitAction.ActionType == "promo", VisitAction.Status == "DONE",
+            VisitAction.ActionType == "promo", executed_action_condition(),
         )
         .distinct()
     }

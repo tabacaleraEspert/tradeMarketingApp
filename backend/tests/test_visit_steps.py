@@ -225,6 +225,24 @@ class TestVisitIndicators:
         resp = client.get(f"/visits/{v['VisitId']}/indicators")
         assert resp.json()["effective"] is True
 
+    def test_adhoc_action_pending_status_counts_as_effective(self, client, pdv, user):
+        """Acción ad-hoc (sin MandatoryActivityId) que quedó en PENDING también
+        cuenta como ejecutada -- mismo criterio que el motor de KPIs
+        (executed_action_condition), no solo Status == 'DONE'."""
+        v = _make_visit(client, pdv["PdvId"], user["UserId"])
+        p = _make_product(client)
+        client.put(f"/visits/{v['VisitId']}/coverage", json={
+            "items": [{"ProductId": p["ProductId"], "Works": True, "Price": 1000}]
+        })
+        action = client.post(f"/visits/{v['VisitId']}/actions", json={
+            "ActionType": "pop",
+            "Description": "Cigarrera",
+        }).json()
+        client.patch(f"/visits/actions/{action['VisitActionId']}", json={"Status": "PENDING"})
+
+        resp = client.get(f"/visits/{v['VisitId']}/indicators")
+        assert resp.json()["effective"] is True
+
     def test_completeness_increases_with_steps(self, client, pdv, user):
         v = _make_visit(client, pdv["PdvId"], user["UserId"])
 

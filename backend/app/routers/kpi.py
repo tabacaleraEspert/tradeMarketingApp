@@ -59,6 +59,7 @@ from ..services.kpi_engine import (
     _to_business_date,
     compute_kpis,
     effective_visit_ids,
+    executed_action_condition,
     filter_price_outliers,
     focus_universe,
     pdv_coverage_scores,
@@ -310,7 +311,7 @@ def get_weekly_activity(
     visitas del usuario en el mes, planificadas o no, en orden cronológico. Solo se
     devuelven semanas/días con al menos una visita. `effective` usa
     `kpi_engine.effective_visit_ids(require_planned_day=False)` — mismas 3
-    condiciones de contenido (cobertura + POP + acción DONE) y `Status='CLOSED'`
+    condiciones de contenido (cobertura + POP + acción ejecutada) y `Status='CLOSED'`
     que KPI 2, pero sin exigir que sea el día planificado (A3 de la auditoría del
     tablero TMR: antes esta vista ni siquiera exigía `Status='CLOSED'`, una visita
     abierta podía figurar efectiva)."""
@@ -406,7 +407,7 @@ def get_route_summary(
 ):
     """Resumen por ruta foco del mes. `effectiveness` usa
     `kpi_engine.effective_visit_ids(require_planned_day=True)` — el MISMO criterio
-    que paga (KPI 2): además de cobertura+POP+acción DONE y `Status='CLOSED'`, exige
+    que paga (KPI 2): además de cobertura+POP+acción ejecutada y `Status='CLOSED'`, exige
     que la visita corresponda al día planificado de esa ruta (A3 de la auditoría del
     tablero TMR: antes no lo exigía y el número que veía el supervisor daba
     sistemáticamente más alto que el que paga). `sellsLoose`/`withExchange` se
@@ -478,7 +479,7 @@ def get_route_summary(
             if visit_ids:
                 actions_count = (
                     db.query(VisitActionModel)
-                    .filter(VisitActionModel.VisitId.in_(visit_ids), VisitActionModel.Status == "DONE")
+                    .filter(VisitActionModel.VisitId.in_(visit_ids), executed_action_condition())
                     .count()
                 )
 
@@ -521,7 +522,7 @@ def get_route_summary(
                 .filter(
                     VisitModel.PdvId == pdv_id, VisitModel.UserId == route.AssignedUserId,
                     VisitModel.OpenedAt >= start, VisitModel.OpenedAt < end,
-                    VisitActionModel.ActionType == "canje_sueltos", VisitActionModel.Status == "DONE",
+                    VisitActionModel.ActionType == "canje_sueltos", executed_action_condition(),
                 )
                 .first() is not None
             )

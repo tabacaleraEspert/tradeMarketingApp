@@ -288,6 +288,30 @@ class TestVisitCoverage:
         assert p2_diff["Works"] is True
         assert p2_diff["PrevWorks"] is False
 
+    def test_coverage_diff_with_custom_product_no_catalog_id(self, client, pdv, user):
+        """Item 'Otros' sin ProductId (custom, no catalogado) no debe romper el
+        diff -- antes crasheaba en sorted() al mezclar None con ProductId int."""
+        p1, _ = self._make_products(client)
+        v1 = _make_visit(client, pdv["PdvId"], user["UserId"])
+        client.put(f"/visits/{v1['VisitId']}/coverage", json={
+            "items": [{"ProductId": p1["ProductId"], "Works": True, "Price": 1000}]
+        })
+        client.patch(f"/visits/{v1['VisitId']}", json={"Status": "CLOSED"})
+
+        v2 = _make_visit(client, pdv["PdvId"], user["UserId"])
+        resp = client.put(f"/visits/{v2['VisitId']}/coverage", json={
+            "items": [
+                {"ProductId": p1["ProductId"], "Works": True, "Price": 1200},
+                {"ProductId": None, "Works": True, "Price": 500, "ProductName": "Otros: Vape X", "Category": "Vapers"},
+            ]
+        })
+        assert resp.status_code == 200
+
+        resp = client.get(f"/visits/{v2['VisitId']}/coverage/diff")
+        assert resp.status_code == 200
+        # El item sin ProductId no matchea contra el catálogo -> se omite del diff
+        assert [d["ProductId"] for d in resp.json()] == [p1["ProductId"]]
+
 
 # ---------------------------------------------------------------------------
 # Visit POP Census (Step 11)

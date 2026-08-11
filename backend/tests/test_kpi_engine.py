@@ -29,6 +29,7 @@ from app.models import (
     VisitAction as VisitActionModel,
     VisitCoverage as VisitCoverageModel,
     VisitPOPItem as VisitPOPItemModel,
+    MandatoryActivity as MandatoryActivityModel,
     KpiDefinition as KpiDefinitionModel,
     KpiConfig as KpiConfigModel,
     ScoringCoverageRule as ScoringCoverageRuleModel,
@@ -153,11 +154,25 @@ def _pop_item(db, visit_id, material_name, material_type="secundario", present=T
     return p
 
 
-def _action(db, visit_id, action_type, status="DONE", photo_taken=False):
-    a = VisitActionModel(VisitId=visit_id, ActionType=action_type, Status=status, PhotoTaken=photo_taken)
+def _action(db, visit_id, action_type, status="DONE", photo_taken=False, mandatory_activity_id=None):
+    a = VisitActionModel(
+        VisitId=visit_id, ActionType=action_type, Status=status, PhotoTaken=photo_taken,
+        MandatoryActivityId=mandatory_activity_id,
+    )
     db.add(a)
     db.flush()
     return a
+
+
+def _mandatory_activity(db, action_type="canje_sueltos"):
+    """Plantilla de actividad obligatoria (la que auto-siembra visits.py al abrir
+    una visita) — usada para simular una `VisitAction` "de plantilla"
+    (`MandatoryActivityId` seteado), en contraste con la ad-hoc del vendedor
+    (`MandatoryActivityId` NULL) que crea `POST /visits/{id}/actions`."""
+    m = MandatoryActivityModel(Name=f"MA_{_uid()}", ActionType=action_type, PhotoRequired=False)
+    db.add(m)
+    db.flush()
+    return m
 
 
 def _kpi_definitions(db):
@@ -465,6 +480,126 @@ class TestKpi3Sueltos:
         kpi = next(k for k in result.kpis if k.key == "penetracion_sueltos")
         assert kpi.denominator == 1  # solo pdv_loose
         assert kpi.numerator == 0
+
+
+# ---------------------------------------------------------------------------
+# 4b. Acción "ejecutada" — criterio nuevo (kpi_engine.executed_action_condition).
+#
+# Hallazgo de producción (11-08-2026): la app mobile crea las acciones ad-hoc del
+# vendedor ("Acciones realizadas" -> POST /visits/{id}/actions) SIN Status
+# explícito -> quedaban en PENDING (default del modelo) y nada las pasaba a DONE
+# después (2 filas DONE contra 3.731 PENDING en toda la historia de producción).
+# Antes de este fix el motor exigía Status='DONE' a secas y estos casos ad-hoc en
+# PENDING NO contaban -- estos tests fijan el comportamiento corregido.
+# ---------------------------------------------------------------------------
+
+class TestExecutedActionCondition:
+    def _setup_sueltos(self, db):
+        user = _user(db)
+        pdv = _pdv(db, SellsLooseCigarettes=True)
+        route = _route(db, user.UserId)
+        _route_pdv(db, route.RouteId, pdv.PdvId)
+        defs = _kpi_definitions(db)
+        _kpi_config(db, defs["penetracion_sueltos"].KpiDefinitionId, weight=10, target=50, scope_id=user.UserId)
+        db.commit()
+        return user, pdv
+
+    def test_adhoc_pending_counts_kpi3(self, db):
+        # (a) acción ad-hoc (MandatoryActivityId NULL, como la crea el vendedor)
+        # en PENDING SÍ cuenta con el criterio nuevo.
+        user, pdv = self._setup_sueltos(db)
+        visit = _visit(db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 8))
+        _action(db, visit.VisitId, "canje_sueltos", status="PENDING")
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "penetracion_sueltos")
+        assert kpi.numerator == 1
+
+    def test_template_pending_does_not_count(self, db):
+        # (b) acción de plantilla (MandatoryActivityId seteado, TODO auto-sembrado
+        # por visits.py) en PENDING sigue sin contar: ahí PENDING significa
+        # "pendiente de hacer" de verdad.
+        user, pdv = self._setup_sueltos(db)
+        ma = _mandatory_activity(db, "canje_sueltos")
+        visit = _visit(db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 8))
+        _action(db, visit.VisitId, "canje_sueltos", status="PENDING", mandatory_activity_id=ma.MandatoryActivityId)
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "penetracion_sueltos")
+        assert kpi.numerator == 0
+
+    def test_backlog_adhoc_does_not_count(self, db):
+        # (c) BACKLOG no cuenta ni siquiera para una acción ad-hoc (pospuesta
+        # explícitamente a la próxima visita).
+        user, pdv = self._setup_sueltos(db)
+        visit = _visit(db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 8))
+        _action(db, visit.VisitId, "canje_sueltos", status="BACKLOG")
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "penetracion_sueltos")
+        assert kpi.numerator == 0
+
+    def test_done_template_counts(self, db):
+        # (d) DONE cuenta siempre, incluso una acción de plantilla.
+        user, pdv = self._setup_sueltos(db)
+        ma = _mandatory_activity(db, "canje_sueltos")
+        visit = _visit(db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 8))
+        _action(db, visit.VisitId, "canje_sueltos", status="DONE", mandatory_activity_id=ma.MandatoryActivityId)
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "penetracion_sueltos")
+        assert kpi.numerator == 1
+
+    def test_adhoc_pending_counts_kpi5(self, db):
+        # (a) mismo criterio para KPI 5 (activaciones promocionales).
+        user = _user(db)
+        pdv = _pdv(db)
+        route = _route(db, user.UserId)
+        _route_pdv(db, route.RouteId, pdv.PdvId)
+        defs = _kpi_definitions(db)
+        _kpi_config(db, defs["activaciones_promo"].KpiDefinitionId, weight=20, target=40, scope_id=user.UserId)
+        db.commit()
+
+        visit = _visit(db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 8))
+        _action(db, visit.VisitId, "promo", status="PENDING")
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "activaciones_promo")
+        assert kpi.numerator == 1
+
+    def test_adhoc_pending_counts_kpi2(self, db):
+        # (a) mismo criterio para KPI 2 (efectividad de visitas): la tercera
+        # condición de "visita efectiva" (>=1 acción ejecutada) la cumple una
+        # acción ad-hoc en PENDING.
+        user = _user(db)
+        pdv = _pdv(db)
+        route = _route(db, user.UserId)
+        _route_pdv(db, route.RouteId, pdv.PdvId)
+        route_day = _route_day(db, route.RouteId, user.UserId, date(MONTH_YEAR, MONTH, 5))
+        _route_day_pdv(db, route_day.RouteDayId, pdv.PdvId)
+        defs = _kpi_definitions(db)
+        _kpi_config(db, defs["efectividad_visitas"].KpiDefinitionId, weight=10, target=50, scope_id=user.UserId)
+        db.commit()
+
+        visit = _visit(
+            db, pdv.PdvId, user.UserId, datetime(MONTH_YEAR, MONTH, 5, 9),
+            status="CLOSED", route_day_id=route_day.RouteDayId,
+        )
+        product = _product(db, "Milenio Adhoc Pending")
+        _coverage(db, visit.VisitId, product.ProductId)
+        _pop_item(db, visit.VisitId, "Stopper")
+        _action(db, visit.VisitId, "cobertura", status="PENDING")
+        db.commit()
+
+        result = compute_kpis(db, user.UserId, MONTH_YEAR, MONTH)
+        kpi = next(k for k in result.kpis if k.key == "efectividad_visitas")
+        assert kpi.numerator == 1
+        assert kpi.denominator == 1
 
 
 # ---------------------------------------------------------------------------

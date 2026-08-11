@@ -22,6 +22,7 @@ from ..models.visit_loose import VisitLooseSurvey as LooseModel
 from ..models.market_news import MarketNews as NewsModel
 from ..models.pdv import PDV as PDVModel
 from ..models.user import User as UserModel
+from ..services.kpi_engine import executed_action_condition
 from ._visit_auth import check_visit_ownership
 
 router = APIRouter(prefix="/visits/{visit_id}/indicators", tags=["Indicadores de Visita"])
@@ -54,7 +55,6 @@ def get_visit_indicators(visit_id: int, current_user: UserModel = Depends(get_cu
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == visit.PdvId).first()
 
     # --- Gather data ---
-    actions = db.query(ActionModel).filter(ActionModel.VisitId == visit_id).all()
     coverage_count = db.query(CoverageModel).filter(CoverageModel.VisitId == visit_id).count()
     pop_count = db.query(POPModel).filter(POPModel.VisitId == visit_id).count()
     loose = db.query(LooseModel).filter(LooseModel.VisitId == visit_id).first()
@@ -62,8 +62,17 @@ def get_visit_indicators(visit_id: int, current_user: UserModel = Depends(get_cu
 
     has_distributors = pdv is not None and pdv.DistributorId is not None
 
-    # Execution actions completed
-    done_actions = [a for a in actions if a.Status == "DONE" and a.ActionType in _EXECUTION_TYPES]
+    # Execution actions completed — mismo criterio de "ejecutada" que el motor de
+    # KPIs (no solo Status == "DONE"; ver executed_action_condition() en kpi_engine.py).
+    done_actions = (
+        db.query(ActionModel)
+        .filter(
+            ActionModel.VisitId == visit_id,
+            ActionModel.ActionType.in_(_EXECUTION_TYPES),
+            executed_action_condition(),
+        )
+        .all()
+    )
     has_execution = len(done_actions) > 0
 
     # --- Build steps ---

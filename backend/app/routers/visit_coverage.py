@@ -114,7 +114,10 @@ def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_curr
     products = {p.ProductId: p for p in db.query(ProductModel).filter(ProductModel.ProductId.in_(product_ids)).all()} if product_ids else {}
 
     result = []
-    for pid in sorted(product_ids):
+    # ProductId puede ser None (item "Otros" sin catálogo -- VisitCoverage.ProductId
+    # es nullable): se excluye del diff porque no hay Product con Id NULL para
+    # matchear (ya se omitiría más abajo) y sorted() no puede comparar None < int.
+    for pid in sorted(pid for pid in product_ids if pid is not None):
         prod = products.get(pid)
         if not prod:
             continue

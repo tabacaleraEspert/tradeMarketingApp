@@ -19,6 +19,14 @@ def list_visit_actions(visit_id: int, db: Session = Depends(get_db)):
 
 @router.post("/{visit_id}/actions", response_model=VisitAction, status_code=201)
 def create_visit_action(visit_id: int, data: VisitActionCreate, db: Session = Depends(get_db)):
+    # Status="DONE" explícito: este endpoint es "Acciones realizadas" de la app
+    # mobile (VisitActionsPage) — el vendedor registra un hecho ya consumado, no
+    # una tarea pendiente. Antes de este fix quedaba en el default del modelo
+    # (PENDING) y nada la pasaba a DONE después (hallazgo de producción,
+    # 11-08-2026: ver docstring de kpi_engine.executed_action_condition). Además
+    # de corregir el motor de KPIs, evita que History/VisitSummary la muestren
+    # como "Pendiente". No aplica a los TODOs auto-sembrados de MandatoryActivity
+    # (esos se crean directo en visits.py, no por este endpoint).
     action = VisitActionModel(
         VisitId=visit_id,
         ActionType=data.ActionType,
@@ -26,6 +34,7 @@ def create_visit_action(visit_id: int, data: VisitActionCreate, db: Session = De
         DetailsJson=data.DetailsJson,
         PhotoRequired=data.PhotoRequired,
         PhotoTaken=data.PhotoTaken,
+        Status="DONE",
     )
     db.add(action)
     db.commit()
