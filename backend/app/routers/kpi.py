@@ -21,6 +21,7 @@ motor. `/config/resolved` es de solo lectura para cualquier rol, con la misma
 validación de visibilidad.
 """
 import logging
+import time
 from datetime import date, datetime, timedelta, timezone
 from statistics import median
 
@@ -139,6 +140,74 @@ def _resolve_target_user_ids(db: Session, current_user: UserModel, user_id: int 
 
 
 # ---------------------------------------------------------------------------
+# Cache TTL corto de `GET /kpi/variable` — el motor de KPIs recalcula contra
+# Azure SQL en cada request; en producción la primera carga del admin (todos
+# los vendedores del mes en curso) tarda ~10s. Solo se cachea la fila completa
+# del response por usuario cuando `compute_kpis` la calculó EN VIVO (mes en
+# curso, o mes pasado que todavía no tiene `KpiMonthlySnapshot`): un mes
+# cerrado con snapshot ya es una lectura barata y NUNCA se cachea acá, así un
+# close-month se refleja al instante sin depender del TTL.
+#
+# Cache in-process, no distribuido: en producción corren 4 workers de
+# gunicorn, cada uno con su propio dict — un cache-hit en un worker no implica
+# hit en los demás (peor caso: hasta 4 recálculos en vez de 1 dentro del mismo
+# TTL). Aceptable para un TTL tan corto (90s).
+# ---------------------------------------------------------------------------
+
+_KPI_VARIABLE_CACHE: dict[tuple[int, int, int], tuple[float, dict]] = {}
+_KPI_CACHE_TTL_SECONDS = 90.0
+_KPI_CACHE_MAX_ENTRIES = 5000
+"""Límite defensivo: si se supera, se vacía todo el cache en vez de armar un
+esquema de eviction — un tablero de este tamaño no debería acercarse a este
+número de combinaciones (usuario, año, mes) vivas dentro de un mismo TTL."""
+
+
+def _kpi_cache_clock() -> float:
+    """Reloj del cache, en función aparte (en vez de `time.monotonic()` inline)
+    para poder mockearlo en tests y probar el vencimiento del TTL sin sleeps
+    reales."""
+    return time.monotonic()
+
+
+def _invalidate_kpi_cache() -> None:
+    """Vacía el cache completo de filas de `/kpi/variable`. Se llama al escribir
+    configuración de KPIs (pesos/metas de `/kpi/config` y `/kpi/config/bulk`,
+    reglas de `/kpi/scoring-rules`) y al ejecutar un cierre de mes
+    (`_close_month_core`, manual o automático): un cambio de metas o un cierre
+    recién hecho se tienen que reflejar al toque, no esperar el TTL."""
+    _KPI_VARIABLE_CACHE.clear()
+
+
+def _get_cached_kpi_row(user_id: int, year: int, month: int) -> dict | None:
+    entry = _KPI_VARIABLE_CACHE.get((user_id, year, month))
+    if entry is None:
+        return None
+    cached_at, row = entry
+    if _kpi_cache_clock() - cached_at > _KPI_CACHE_TTL_SECONDS:
+        return None
+    return row
+
+
+def _store_kpi_row(user_id: int, year: int, month: int, row: dict) -> None:
+    if len(_KPI_VARIABLE_CACHE) >= _KPI_CACHE_MAX_ENTRIES:
+        _KPI_VARIABLE_CACHE.clear()
+    _KPI_VARIABLE_CACHE[(user_id, year, month)] = (_kpi_cache_clock(), row)
+
+
+def _kpi_has_snapshot(db: Session, user_id: int, year: int, month: int) -> bool:
+    """True si ya existe `KpiMonthlySnapshot` para ese (user, year, month): en ese
+    caso `compute_kpis` ya devuelve el snapshot tal cual (una lectura barata) y no
+    hace falta cachear la fila — cachearla igual arriesgaría servir un valor viejo
+    si más tarde se regenera el cierre (`force`) en OTRO worker de gunicorn, que
+    no comparte este cache in-process, hasta que venza el TTL."""
+    return db.query(KpiMonthlySnapshotModel.SnapshotId).filter(
+        KpiMonthlySnapshotModel.UserId == user_id,
+        KpiMonthlySnapshotModel.Year == year,
+        KpiMonthlySnapshotModel.Month == month,
+    ).first() is not None
+
+
+# ---------------------------------------------------------------------------
 # GET /kpi/variable
 # ---------------------------------------------------------------------------
 
@@ -167,33 +236,41 @@ def get_kpi_variable(
 
     result = []
     for uid in target_ids:
-        r = compute_kpis(db, uid, year, month)
-        u = users.get(uid)
-        manager = managers.get(u.ManagerUserId) if u and u.ManagerUserId is not None else None
-        result.append({
-            "userId": uid,
-            "name": u.DisplayName if u else None,
-            "managerUserId": u.ManagerUserId if u else None,
-            "managerName": manager.DisplayName if manager else None,
-            "partial": r.partial,
-            "day": r.day,
-            "kpis": [
-                {
-                    "key": k.key,
-                    "name": k.name,
-                    "actual": k.actual,
-                    "target": k.target,
-                    "weight": k.weight,
-                    "achieved": k.achieved,
-                    "numerator": k.numerator,
-                    "denominator": k.denominator,
-                    "scopeApplied": k.scope_applied,
-                }
-                for k in r.kpis
-            ],
-            "variableTotal": r.variable_total,
-            "configWarning": r.config_warning,
-        })
+        row = _get_cached_kpi_row(uid, year, month)
+        if row is None:
+            r = compute_kpis(db, uid, year, month)
+            u = users.get(uid)
+            manager = managers.get(u.ManagerUserId) if u and u.ManagerUserId is not None else None
+            row = {
+                "userId": uid,
+                "name": u.DisplayName if u else None,
+                "managerUserId": u.ManagerUserId if u else None,
+                "managerName": manager.DisplayName if manager else None,
+                "partial": r.partial,
+                "day": r.day,
+                "kpis": [
+                    {
+                        "key": k.key,
+                        "name": k.name,
+                        "actual": k.actual,
+                        "target": k.target,
+                        "weight": k.weight,
+                        "achieved": k.achieved,
+                        "numerator": k.numerator,
+                        "denominator": k.denominator,
+                        "scopeApplied": k.scope_applied,
+                    }
+                    for k in r.kpis
+                ],
+                "variableTotal": r.variable_total,
+                "configWarning": r.config_warning,
+            }
+            # `r.partial` es True solo en el mes en curso (siempre en vivo). En un
+            # mes pasado sin snapshot todavía (recién terminó, cierre automático no
+            # corrió aún) también se calculó en vivo y conviene cachearlo igual.
+            if r.partial or not _kpi_has_snapshot(db, uid, year, month):
+                _store_kpi_row(uid, year, month, row)
+        result.append(row)
     return result
 
 
@@ -836,6 +913,7 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False, o
         users_completed.append(user_id)
 
     db.commit()
+    _invalidate_kpi_cache()
 
     return {
         "year": year,
@@ -1155,6 +1233,7 @@ def create_kpi_config(
 
     db.commit()
     db.refresh(new_row)
+    _invalidate_kpi_cache()
     return new_row
 
 
@@ -1198,6 +1277,7 @@ def create_kpi_config_bulk(
     db.commit()
     for row in new_rows:
         db.refresh(row)
+    _invalidate_kpi_cache()
     return new_rows
 
 
@@ -1231,6 +1311,7 @@ def delete_kpi_config(config_id: int, db: Session = Depends(get_db)):
         })
 
     db.commit()
+    _invalidate_kpi_cache()
 
 
 _SCORING_MODELS = {
@@ -1292,6 +1373,7 @@ def create_scoring_rule(
     db.add(new_row)
     db.commit()
     db.refresh(new_row)
+    _invalidate_kpi_cache()
     return out_schema.model_validate(new_row)
 
 
@@ -1307,6 +1389,7 @@ def delete_scoring_rule(
         raise HTTPException(404, "Regla no encontrada")
     row.ValidTo = _business_today()
     db.commit()
+    _invalidate_kpi_cache()
 
 
 @router.get("/config/resolved")
