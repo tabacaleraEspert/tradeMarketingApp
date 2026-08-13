@@ -51,6 +51,7 @@ from ..models import (
     ScoringCommunicationRule as ScoringCommunicationRuleModel,
     AppSetting as AppSettingModel,
 )
+from ..services import tmr_dashboard as tmr
 from ..services.kpi_engine import (
     BUSINESS_TZ,
     GOOD_OR_BETTER,
@@ -272,6 +273,75 @@ def get_kpi_variable(
                 _store_kpi_row(uid, year, month, row)
         result.append(row)
     return result
+
+
+# ---------------------------------------------------------------------------
+# GET /kpi/tmr/*  — Tablero TMR
+# ---------------------------------------------------------------------------
+#
+# Cuatro recursos en vez de un payload único: la vista general solo necesita
+# `team` (barato), y el escaneo de cobertura —el grueso del costo— queda
+# acotado al vendedor que se está mirando vía `user_id`. Detalle del reparto
+# en `app/services/tmr_dashboard.py`.
+
+
+def _tmr_scope(db: Session, current_user: UserModel, user_id: int | None) -> list[int]:
+    """Vendedores a computar, respetando la jerarquía. Con `user_id` valida que
+    esté dentro de lo visible (403 si no), igual que `/kpi/variable`."""
+    return _resolve_target_user_ids(db, current_user, user_id)
+
+
+@router.get("/tmr/team")
+def get_tmr_team(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Equipo con KPIs de actividad (visitas, GPS, foto, acciones, entregas)."""
+    return tmr.build_team(db, _tmr_scope(db, current_user, None), year, month)
+
+
+@router.get("/tmr/routes")
+def get_tmr_routes(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    user_id: int | None = Query(default=None),
+    with_products: bool = Query(default=True),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Rutas foco con cobertura, precios y distribución de niveles.
+
+    Sin `user_id` computa todo el scope visible — caro; la página siempre pasa
+    el vendedor seleccionado."""
+    return tmr.build_routes(
+        db, _tmr_scope(db, current_user, user_id), year, month, with_products=with_products
+    )
+
+
+@router.get("/tmr/pdvs")
+def get_tmr_pdvs(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    user_id: int | None = Query(default=None),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """PDVs del vendedor con la matriz producto x PDV y sus quick wins."""
+    return tmr.build_pdvs(db, _tmr_scope(db, current_user, user_id), year, month)
+
+
+@router.get("/tmr/catalog")
+def get_tmr_catalog(
+    year: int = Query(...),
+    month: int = Query(..., ge=1, le=12),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Catálogo de productos y precio de referencia por producto (no depende
+    del vendedor: mismo resultado para todo el equipo)."""
+    return tmr.build_catalog(db, year, month)
 
 
 # ---------------------------------------------------------------------------

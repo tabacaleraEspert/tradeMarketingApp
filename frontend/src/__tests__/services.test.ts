@@ -42,6 +42,9 @@ const mockedApi = api as {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // authApi.me() cachea la respuesta 30s por token; sin esto cada test heredaría
+  // el /auth/me del test anterior en vez de pegarle al mock.
+  authApi.invalidateMe();
 });
 
 // ---------------------------------------------------------------------------
@@ -94,6 +97,30 @@ describe("authApi.me", () => {
     const result = await authApi.me();
     expect(result.UserId).toBe(42);
     expect(result.Role).toBe("admin");
+  });
+});
+
+describe("authApi.me caching", () => {
+  it("deduplica llamadas concurrentes en un solo GET /auth/me", async () => {
+    mockedApi.get.mockResolvedValue({ UserId: 7, Email: "a@a.com", Role: "admin" });
+    const [a, b] = await Promise.all([authApi.me(), authApi.me()]);
+    expect(mockedApi.get).toHaveBeenCalledTimes(1);
+    expect(a).toBe(b);
+  });
+
+  it("con force=true vuelve a pegarle al backend", async () => {
+    mockedApi.get.mockResolvedValue({ UserId: 7, Email: "a@a.com", Role: "admin" });
+    await authApi.me();
+    await authApi.me(true);
+    expect(mockedApi.get).toHaveBeenCalledTimes(2);
+  });
+
+  it("no cachea un /auth/me fallado", async () => {
+    mockedApi.get.mockRejectedValueOnce(new Error("500"));
+    await expect(authApi.me()).rejects.toThrow("500");
+    mockedApi.get.mockResolvedValueOnce({ UserId: 7, Email: "a@a.com", Role: "admin" });
+    await expect(authApi.me()).resolves.toMatchObject({ UserId: 7 });
+    expect(mockedApi.get).toHaveBeenCalledTimes(2);
   });
 });
 

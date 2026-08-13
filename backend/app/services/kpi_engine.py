@@ -327,23 +327,46 @@ def _matched_sku_names(brand: str, works_products: set) -> set:
     return {name for name in works_products if name.startswith(brand)}
 
 
-def _coverage_level(works_products: set, rules: dict) -> str:
+def _coverage_level(works_products: set, rules: dict, surveyed_products: set | None = None) -> str:
+    """Nivel de rúbrica de un PDV a partir de los productos con `Works=true`.
+
+    `surveyed_products` son los productos efectivamente RELEVADOS en el PDV (con
+    `Works` true o false). Cuando se pasa, una marca cuyo censo no incluyó
+    ningún SKU no se exige — ni suma ni resta. Sin ese dato el motor no puede
+    distinguir "se preguntó y no lo trabaja" de "nunca se preguntó", y termina
+    reprobando PDVs por productos que nadie relevó (hallazgo de producción
+    13-08-2026: los SKUs de tabacos —Van Kiff, Lebonn— solo se relevan en ~1 de
+    cada 3 PDVs, y la rúbrica exige `Total tabacos >= 1` ya en nivel 'regular',
+    así que 162 de 174 PDVs de una cartera caían en `no_cuenta` por preguntas
+    que el censo nunca hizo).
+
+    `surveyed_products=None` mantiene el comportamiento histórico (se exigen
+    todas las reglas), para los llamadores que no tienen el dato de relevamiento.
+    """
     cigs_total = len({name for b in CIGS_BRANDS for name in _matched_sku_names(b, works_products)})
     tabacos_total = len({name for b in TABACOS_BRANDS for name in _matched_sku_names(b, works_products)})
+
+    def _surveyed(brands) -> bool:
+        """¿El censo de este PDV tocó alguna de estas marcas?"""
+        if surveyed_products is None:
+            return True
+        return any(_matched_sku_names(b, surveyed_products) for b in brands)
 
     for level in reversed(LEVELS):  # excelente -> regular
         ok = True
         for brand in CIGS_BRANDS + TABACOS_BRANDS:
             min_skus = rules.get((brand, level))
-            if min_skus is not None and len(_matched_sku_names(brand, works_products)) < min_skus:
+            if min_skus is None or not _surveyed((brand,)):
+                continue
+            if len(_matched_sku_names(brand, works_products)) < min_skus:
                 ok = False
                 break
         if ok:
             min_cigs = rules.get(("Total cigs", level))
-            if min_cigs is not None and cigs_total < min_cigs:
+            if min_cigs is not None and _surveyed(CIGS_BRANDS) and cigs_total < min_cigs:
                 ok = False
             min_tabacos = rules.get(("Total tabacos", level))
-            if ok and min_tabacos is not None and tabacos_total < min_tabacos:
+            if ok and min_tabacos is not None and _surveyed(TABACOS_BRANDS) and tabacos_total < min_tabacos:
                 ok = False
         if ok:
             return level
@@ -406,7 +429,9 @@ def pdv_coverage_scores(db: Session, user_id: int, year: int, month: int) -> dic
             latest_by_pdv_product[key] = (opened_at, cov.Works, product.Name)
 
     works_products_by_pdv: dict = {}
+    surveyed_products_by_pdv: dict = {}
     for (pdv_id, _product_id), (_opened_at, works, name) in latest_by_pdv_product.items():
+        surveyed_products_by_pdv.setdefault(pdv_id, set()).add(name)
         if works:
             works_products_by_pdv.setdefault(pdv_id, set()).add(name)
 
@@ -416,7 +441,9 @@ def pdv_coverage_scores(db: Session, user_id: int, year: int, month: int) -> dic
             result[pdv_id] = "sin_relevar"
             continue
         works_products = works_products_by_pdv.get(pdv_id, set())
-        result[pdv_id] = _coverage_level(works_products, rules)
+        result[pdv_id] = _coverage_level(
+            works_products, rules, surveyed_products_by_pdv.get(pdv_id, set())
+        )
 
     return result
 

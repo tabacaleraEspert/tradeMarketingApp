@@ -37,6 +37,7 @@ from app.models import (
     KpiMonthlySnapshot as KpiMonthlySnapshotModel,
 )
 from app.services.kpi_engine import (
+    _coverage_level,
     resolve_config,
     focus_universe,
     pdv_coverage_scores,
@@ -886,3 +887,65 @@ class TestPriceOutliers:
         assert discarded[0]["price"] == 21000
         assert len(valid) == 2
         assert {p["price"] for p in valid} == {2100, 2200}
+
+
+
+# ---------------------------------------------------------------------------
+# Rúbrica de cobertura con censo parcial (hallazgo de producción 13-08-2026)
+# ---------------------------------------------------------------------------
+
+# Rúbrica real de producción (ScoringCoverageRule, vigente desde 2026-08-01).
+_RUBRICA = {}
+for _lvl, _vals in {
+    "excelente": {"Milenio": 4, "Mill": 2, "Melbourne": 1, "Bold": 1, "Van Kiff": 4,
+                  "Lebonn": 1, "Total cigs": 8, "Total tabacos": 5},
+    "muy_bueno": {"Milenio": 3, "Mill": 2, "Melbourne": 1, "Bold": 1, "Van Kiff": 3,
+                  "Lebonn": 1, "Total cigs": 7, "Total tabacos": 4},
+    "bueno":     {"Milenio": 3, "Mill": 1, "Melbourne": 1, "Bold": 0, "Van Kiff": 2,
+                  "Lebonn": 1, "Total cigs": 5, "Total tabacos": 3},
+    "regular":   {"Milenio": 1, "Mill": 1, "Melbourne": 1, "Bold": 0, "Van Kiff": 1,
+                  "Lebonn": 0, "Total cigs": 3, "Total tabacos": 1},
+}.items():
+    for _k, _v in _vals.items():
+        _RUBRICA[(_k, _lvl)] = _v
+
+# PDV con buena cobertura de cigarrillos: 3 Milenio + 1 Mill + 1 Melbourne.
+_WORKS_CIGS = {"Milenio Red", "Milenio Gold", "Milenio Mint", "Mill Red", "Melbourne Red"}
+
+
+def test_coverage_level_ignora_marcas_no_relevadas():
+    """Un PDV cuyo censo no preguntó por tabacos no puede ser reprobado por no
+    tenerlos: solo se exigen las marcas efectivamente relevadas."""
+    surveyed = _WORKS_CIGS | {"Milenio Vid"}  # ningún SKU de Van Kiff ni Lebonn
+    assert _coverage_level(_WORKS_CIGS, _RUBRICA, surveyed) == "bueno"
+
+
+def test_coverage_level_exige_marca_si_fue_relevada():
+    """Si el censo SÍ preguntó por la marca y el PDV no la trabaja, se exige.
+
+    Acá Van Kiff y Lebonn fueron relevados con Works=false, así que el PDV no
+    llega ni a 'regular' (que pide Van Kiff >= 1)."""
+    surveyed = _WORKS_CIGS | {"Van Kiff Mellow", "Lebonn"}
+    assert _coverage_level(_WORKS_CIGS, _RUBRICA, surveyed) == "no_cuenta"
+
+
+def test_coverage_level_sin_surveyed_mantiene_comportamiento_historico():
+    """Sin el dato de relevamiento se exigen todas las reglas (compatibilidad
+    con los llamadores que no lo tienen)."""
+    assert _coverage_level(_WORKS_CIGS, _RUBRICA) == "no_cuenta"
+    assert _coverage_level(_WORKS_CIGS, _RUBRICA, None) == "no_cuenta"
+
+
+def test_coverage_level_censo_parcial_no_regala_nivel_alto():
+    """Ignorar lo no relevado no es regalar: lo que SÍ se relevó se sigue
+    exigiendo. Con un solo Milenio no pasa de 'regular' aunque no haya tabacos."""
+    works = {"Milenio Red", "Mill Red", "Melbourne Red"}
+    surveyed = works | {"Milenio Gold"}
+    assert _coverage_level(works, _RUBRICA, surveyed) == "regular"
+
+
+def test_coverage_level_rubrica_vacia_no_evalua_nada():
+    """Sin reglas vigentes no hay nada que evaluar y todo PDV con un producto da
+    'excelente'. Documenta el comportamiento actual: las reglas arrancan el
+    2026-08-01, por eso julio 2026 y anteriores muestran cobertura 100%."""
+    assert _coverage_level({"Marlboro Craft KS"}, {}) == "excelente"

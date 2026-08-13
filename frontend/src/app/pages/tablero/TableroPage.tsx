@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { LayoutGrid } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../../components/ui/tabs";
@@ -184,6 +185,17 @@ export function TableroPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground mb-1">Objetivos TMR</h1>
           <p className="text-muted-foreground text-sm">Seguimiento de KPIs y variable de TM Reps</p>
+          {/* El Tablero TMR es una pagina aparte (public/tablero-tmr/): mismo dato,
+              vista operativa por vendedor (cobertura por SKU, quick wins, rutas). */}
+          <a
+            href={`/tablero-tmr/index.html?year=${year}&month=${month}`}
+            target="_blank"
+            rel="noopener"
+            className="inline-flex items-center gap-1.5 mt-2 text-sm font-medium text-primary hover:underline"
+          >
+            <LayoutGrid className="w-4 h-4" />
+            Abrir Tablero TMR — cobertura por SKU, quick wins y rutas
+          </a>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={String(month)} onValueChange={(v) => setMonth(Number(v))}>

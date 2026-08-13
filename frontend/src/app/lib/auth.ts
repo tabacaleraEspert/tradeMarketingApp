@@ -1,5 +1,6 @@
 import { saveTokens, clearTokens, getAccessToken, getRefreshToken, getTokenExpiresAt } from "@/lib/api/auth-storage";
 import type { LoginResponse } from "@/lib/api";
+import { authApi } from "@/lib/api";
 import { clearAllOfflineState } from "@/lib/offline/queue";
 
 export interface StoredUser {
@@ -169,6 +170,7 @@ export function logout(): void {
   // Si estábamos impersonando, también descartamos la sesión admin stasheada.
   localStorage.removeItem(IMPERSONATION_ORIGIN_KEY);
   clearTokens();
+  authApi.invalidateMe();
 }
 
 /** True si hay un access token presente (no valida expiración, eso lo hace el client al llamar). */

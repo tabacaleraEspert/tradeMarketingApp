@@ -19,7 +19,7 @@ import {
   Shield,
   Truck,
   Gift,
-  Gauge,
+  LayoutGrid,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -77,7 +77,9 @@ export function AdminLayout() {
 
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
-    { path: "/tablero", icon: Gauge, label: "Objetivos TMR" },
+    // "Objetivos TMR" (/tablero) sale del menu: lo reemplaza el Tablero TMR.
+    // La ruta sigue existiendo y es accesible por URL, no se borro nada.
+    { path: "/tablero-tmr/index.html", icon: LayoutGrid, label: "Tablero TMR", external: true },
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/supplier-config", icon: Truck, label: "Proveedores" },
@@ -181,7 +183,11 @@ export function AdminLayout() {
                 <button
                   key={item.path}
                   onClick={() => {
-                    navigate(item.path);
+                    if (item.external) {
+                      window.open(item.path, "_blank", "noopener");
+                    } else {
+                      navigate(item.path);
+                    }
                     setIsSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${

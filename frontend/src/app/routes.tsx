@@ -1,4 +1,4 @@
-import { lazy, Suspense, Component, type ReactNode } from "react";
+import { lazy, Suspense, Component, useEffect, type ReactNode } from "react";
 import { createBrowserRouter, Navigate } from "react-router";
 import { Login } from "./pages/Login";
 import { SsoLogin } from "./pages/SsoLogin";
@@ -114,6 +114,13 @@ function SuspenseWrap({ children }: { children: React.ReactNode }) {
   );
 }
 
+function TableroTmrRedirect() {
+  useEffect(() => {
+    window.location.replace("/tablero-tmr/index.html" + window.location.search);
+  }, []);
+  return null;
+}
+
 function AdminGuard() {
   const user = getCurrentUser();
   const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo", "supervisor"];
@@ -201,6 +208,13 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspenseWrap><PlantDashboard /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
+  },
+  {
+    // El Tablero TMR es una pagina estatica (public/tablero-tmr/index.html), no
+    // una ruta de React. Sin esto, entrar a /tablero-tmr cae en el fallback SPA
+    // de Vite: el router no la conoce y patea al login.
+    path: "/tablero-tmr",
+    Component: TableroTmrRedirect,
   },
   {
     path: "/tablero",

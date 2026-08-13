@@ -1,4 +1,5 @@
 import { api } from "./client";
+import { getAccessToken } from "./auth-storage";
 
 // --- Dashboard (aggregated Home endpoint) ---
 export interface DashboardHomeData {
@@ -40,10 +41,37 @@ export interface MeResponse {
   MustChangePassword?: boolean;
 }
 
+// `/auth/me` lo piden varios lugares en el mismo tick del arranque (App.tsx para
+// MustChangePassword, AdminLayout.tsx para el rol) — sin esto son 2 requests
+// idénticos en paralelo, y contra Azure SQL cada uno cuesta ~2s.
+// Se cachea por token: un login, un logout o un "ingresar como" cambian el
+// access token y por lo tanto invalidan la entrada sin necesitar limpieza manual.
+const ME_CACHE_TTL_MS = 30_000;
+let meCache: { token: string; at: number; promise: Promise<MeResponse> } | null = null;
+
+function fetchMe(force = false): Promise<MeResponse> {
+  const token = getAccessToken() ?? "";
+  const now = Date.now();
+  if (!force && meCache && meCache.token === token && now - meCache.at < ME_CACHE_TTL_MS) {
+    return meCache.promise;
+  }
+  const promise = api.get<MeResponse>("/auth/me");
+  meCache = { token, at: now, promise };
+  // Un /auth/me fallado no se cachea: el próximo intento tiene que volver a pegarle.
+  promise.catch(() => {
+    if (meCache?.promise === promise) meCache = null;
+  });
+  return promise;
+}
+
 export const authApi = {
   login: (email: string, password: string) =>
     api.post<LoginResponse>("/auth/login", { email, password }),
-  me: () => api.get<MeResponse>("/auth/me"),
+  /** @param force ignora el cache de 30s (usar tras cambiar rol/zona del propio usuario). */
+  me: (force = false) => fetchMe(force),
+  /** Descarta el `/auth/me` cacheado. El cambio de token ya invalida solo; esto
+   *  es para el logout (deja el cache limpio) y para los tests. */
+  invalidateMe: () => { meCache = null; },
   changePassword: (current_password: string, new_password: string) =>
     api.post<{ ok: boolean }>("/auth/change-password", { current_password, new_password }),
   /** Admin-only: obtiene una sesión como otro usuario (impersonation). */
