@@ -100,6 +100,15 @@ export interface Pdv {
   UpdatedAt: string;
 }
 
+/** Item de /pdvs/admin-list: Pdv + enriquecido por página (Gestión de PDV). */
+export interface AdminPdv extends Pdv {
+  VisitCount: number;
+  LastVisit: string | null;          // ISO datetime
+  HasRoute: boolean;
+  HasCoords: boolean;
+  TradeMarketerName: string | null;  // DisplayName de AssignedUserId
+}
+
 // --- Product catalog ---
 export interface Product {
   ProductId: number;

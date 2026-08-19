@@ -1,6 +1,7 @@
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func as sqlfunc, or_
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import PDV as PDVModel, Channel, SubChannel, PdvContact as PdvContactModel, Distributor
@@ -24,6 +25,7 @@ from ..schemas.pdv import Pdv, PdvCreate, PdvUpdate, PdvContactCreate, Distribut
 from ..schemas.pdv_contact import PdvContact
 from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
 from ..hierarchy import visible_pdv_ids
+from ..utils.pagination import PageParams, paginate, make_page
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
@@ -216,6 +218,186 @@ def list_pdvs(
     pdvs = q.order_by(PDVModel.PdvId).offset(skip).limit(limit).all()
     items = _pdvs_to_response_batch(pdvs, db)
     return {"items": items, "total": total, "skip": skip, "limit": limit}
+
+
+def _tri_state_filter(query, column, value: str | None):
+    """Filtro tri-estado si/no/nd sobre una columna boolean nullable."""
+    if value == "si":
+        return query.filter(column == True)  # noqa: E712
+    if value == "no":
+        return query.filter(column == False)  # noqa: E712
+    if value == "nd":
+        return query.filter(column.is_(None))
+    return query
+
+
+@router.get("/admin-list")
+def admin_list_pdvs(
+    p: PageParams = Depends(),
+    zone_id: int | None = None,
+    channel_id: int | None = None,
+    is_active: bool | None = None,
+    assigned_user_id: int | None = None,
+    unassigned: bool = False,
+    distributor_id: int | None = None,
+    no_distributor: bool = False,
+    has_coords: bool | None = None,
+    has_route: bool | None = None,
+    days_since_visit: str | None = Query(None, pattern="^(7|14|30|60|60plus|never)$"),
+    visit_freq: str | None = Query(None, pattern="^(0|1-5|6-20|20plus)$"),
+    works_espert: str | None = Query(None, pattern="^(si|no|nd)$"),
+    sells_loose: str | None = Query(None, pattern="^(si|no|nd)$"),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lista paginada de PDVs para /admin/pos-management (Gestión).
+
+    Envelope {items, total, page, page_size, has_more}. Cada item es un Pdv
+    completo + enriquecido con VisitCount, LastVisit, HasRoute, HasCoords y
+    TradeMarketerName (PDV.AssignedUserId). ``q`` busca en Name/Address/Code
+    (ILIKE). Todos los filtros de la vista se resuelven server-side; los buckets
+    de última visita/frecuencia solo joinean la subquery agrupada de Visit si
+    vienen en el request. Respeta jerarquía de visibilidad.
+    """
+    q = db.query(PDVModel)
+
+    visible = _visible_pdv_ids(db, current_user)
+    if visible is not None:
+        q = q.filter(PDVModel.PdvId.in_(visible)) if visible else q.filter(False)
+
+    if zone_id is not None:
+        q = q.filter(PDVModel.ZoneId == zone_id)
+    if channel_id is not None:
+        q = q.filter(PDVModel.ChannelId == channel_id)
+    if is_active is not None:
+        q = q.filter(PDVModel.IsActive == is_active)
+
+    if unassigned:
+        q = q.filter(PDVModel.AssignedUserId.is_(None))
+    elif assigned_user_id is not None:
+        q = q.filter(PDVModel.AssignedUserId == assigned_user_id)
+
+    if no_distributor:
+        junction_ids = db.query(PdvDistributorModel.PdvId).scalar_subquery()
+        q = q.filter(~PDVModel.PdvId.in_(junction_ids), PDVModel.DistributorId.is_(None))
+    elif distributor_id is not None:
+        pdv_ids_with_dist = (
+            db.query(PdvDistributorModel.PdvId)
+            .filter(PdvDistributorModel.DistributorId == distributor_id)
+            .scalar_subquery()
+        )
+        q = q.filter(
+            PDVModel.PdvId.in_(pdv_ids_with_dist) | (PDVModel.DistributorId == distributor_id)
+        )
+
+    if has_coords is True:
+        q = q.filter(PDVModel.Lat.isnot(None), PDVModel.Lon.isnot(None))
+    elif has_coords is False:
+        q = q.filter(or_(PDVModel.Lat.is_(None), PDVModel.Lon.is_(None)))
+
+    if has_route is not None:
+        route_exists = (
+            db.query(RoutePdvModel.PdvId)
+            .filter(RoutePdvModel.PdvId == PDVModel.PdvId)
+            .exists()
+        )
+        q = q.filter(route_exists) if has_route else q.filter(~route_exists)
+
+    q = _tri_state_filter(q, PDVModel.WorksEspertProducts, works_espert)
+    q = _tri_state_filter(q, PDVModel.SellsLooseCigarettes, sells_loose)
+
+    # Buckets de última visita / frecuencia: outerjoin a subquery agrupada de
+    # Visit, solo cuando algún filtro lo necesita.
+    if days_since_visit or visit_freq:
+        vs = (
+            db.query(
+                VisitModel.PdvId.label("PdvId"),
+                sqlfunc.count(VisitModel.VisitId).label("cnt"),
+                sqlfunc.max(VisitModel.OpenedAt).label("last"),
+            )
+            .group_by(VisitModel.PdvId)
+            .subquery()
+        )
+        q = q.outerjoin(vs, vs.c.PdvId == PDVModel.PdvId)
+
+        if days_since_visit:
+            now = datetime.now(timezone.utc)
+            d7, d14, d30, d60 = (now - timedelta(days=n) for n in (7, 14, 30, 60))
+            if days_since_visit == "7":
+                q = q.filter(vs.c.last >= d7)
+            elif days_since_visit == "14":
+                q = q.filter(vs.c.last < d7, vs.c.last >= d14)
+            elif days_since_visit == "30":
+                q = q.filter(vs.c.last < d14, vs.c.last >= d30)
+            elif days_since_visit == "60":
+                q = q.filter(vs.c.last < d30, vs.c.last >= d60)
+            elif days_since_visit == "60plus":
+                q = q.filter(vs.c.last < d60)
+            elif days_since_visit == "never":
+                q = q.filter(vs.c.last.is_(None))
+
+        if visit_freq:
+            cnt = sqlfunc.coalesce(vs.c.cnt, 0)
+            if visit_freq == "0":
+                q = q.filter(cnt == 0)
+            elif visit_freq == "1-5":
+                q = q.filter(cnt >= 1, cnt <= 5)
+            elif visit_freq == "6-20":
+                q = q.filter(cnt >= 6, cnt <= 20)
+            elif visit_freq == "20plus":
+                q = q.filter(cnt > 20)
+
+    if p.q:
+        like = f"%{p.q}%"
+        q = q.filter(or_(
+            PDVModel.Name.ilike(like),
+            PDVModel.Address.ilike(like),
+            PDVModel.Code.ilike(like),
+        ))
+
+    items, total = paginate(q.order_by(PDVModel.Name, PDVModel.PdvId), p)
+
+    # Enriquecido por página (solo los ids de esta página, ~page_size filas)
+    page_ids = [pdv.PdvId for pdv in items]
+    visit_map: dict[int, tuple] = {}
+    routed_ids: set[int] = set()
+    tm_names: dict[int, str] = {}
+    if page_ids:
+        visit_stats = (
+            db.query(
+                VisitModel.PdvId,
+                sqlfunc.count(VisitModel.VisitId),
+                sqlfunc.max(VisitModel.OpenedAt),
+            )
+            .filter(VisitModel.PdvId.in_(page_ids))
+            .group_by(VisitModel.PdvId)
+            .all()
+        )
+        visit_map = {pid: (cnt, last) for pid, cnt, last in visit_stats}
+        routed_ids = {
+            r[0]
+            for r in db.query(RoutePdvModel.PdvId)
+            .filter(RoutePdvModel.PdvId.in_(page_ids))
+            .distinct()
+            .all()
+        }
+        tm_ids = {pdv.AssignedUserId for pdv in items if pdv.AssignedUserId}
+        if tm_ids:
+            tm_names = dict(
+                db.query(UserModel.UserId, UserModel.DisplayName)
+                .filter(UserModel.UserId.in_(tm_ids))
+                .all()
+            )
+
+    out = _pdvs_to_response_batch(items, db)
+    for pdv, item in zip(items, out):
+        cnt, last = visit_map.get(pdv.PdvId, (0, None))
+        item["VisitCount"] = cnt
+        item["LastVisit"] = last.isoformat() if last else None
+        item["HasRoute"] = pdv.PdvId in routed_ids
+        item["HasCoords"] = pdv.Lat is not None and pdv.Lon is not None
+        item["TradeMarketerName"] = tm_names.get(pdv.AssignedUserId) if pdv.AssignedUserId else None
+    return make_page(out, total, p)
 
 
 @router.get("/{pdv_id}", response_model=Pdv)

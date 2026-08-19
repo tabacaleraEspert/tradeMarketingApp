@@ -7,7 +7,6 @@ import { Badge } from "../../components/ui/badge";
 import { Modal, ConfirmModal } from "../../components/ui/modal";
 import { Switch } from "../../components/ui/switch";
 import {
-  Search,
   Plus,
   MapPin,
   Phone,
@@ -26,9 +25,11 @@ import {
   Navigation,
   BarChart3,
 } from "lucide-react";
-import { usePdvs, useZones, useDistributors, useChannels, useSubChannels, useUsers, pdvsApi, distributorsApi, reportsApi } from "@/lib/api";
+import { useZones, useDistributors, useChannels, useSubChannels, useUsers, usePaginated, pdvsApi, distributorsApi, reportsApi, type AdminPdv } from "@/lib/api";
 import { Settings } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { SearchInput } from "../../components/ui/search-input";
+import { PaginationBar } from "../../components/ui/pagination-bar";
 import { GpsCaptureButton } from "../../components/GpsCaptureButton";
 import { LocationMap } from "../../components/LocationMap";
 import { AddressAutocomplete, type AddressResult } from "../../components/AddressAutocomplete";
@@ -142,8 +143,7 @@ export function POSManagement() {
     reportsApi.pdvAnalytics().then(setPdvAnalytics).catch(() => {}).finally(() => setPdvAnalyticsLoading(false));
   }, []);
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [selectedChannel, setSelectedChannel] = useState<string>("all");
+  const [selectedChannel, setSelectedChannel] = useState<string>("all"); // ChannelId como string
   const [selectedZoneId, setSelectedZoneId] = useState<number | undefined>();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedPOS, setSelectedPOS] = useState<POSData | null>(null);
@@ -195,7 +195,7 @@ export function POSManagement() {
 
   // Advanced filters
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [selectedTradeMarketer, setSelectedTradeMarketer] = useState<string>("all");
+  const [selectedTradeMarketer, setSelectedTradeMarketer] = useState<string>("all"); // UserId como string | "unassigned"
   const [selectedDaysSinceVisit, setSelectedDaysSinceVisit] = useState<string>("all");
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [selectedLocation, setSelectedLocation] = useState<string>("all");
@@ -206,46 +206,74 @@ export function POSManagement() {
   const [selectedEspertFilter, setSelectedEspertFilter] = useState<string>("all");
   const [selectedSueltosFilter, setSelectedSueltosFilter] = useState<string>("all");
 
-  const { data: pdvs, loading, refetch } = usePdvs(selectedZoneId);
+  // Lista paginada server-side (/pdvs/admin-list): baja UNA página de 50, no
+  // los ~7000 PDVs. Todos los filtros de la vista viajan como query params.
+  const {
+    items: pdvs,
+    total,
+    page,
+    totalPages,
+    loading,
+    q: searchTerm,
+    setQ: setSearchTerm,
+    setFilters,
+    setPage,
+    refetch,
+  } = usePaginated<AdminPdv>({ endpoint: "/pdvs/admin-list", pageSize: 50 });
+
+  // Estado de filtros UI → query params del endpoint (resetea a página 1)
+  useEffect(() => {
+    setFilters({
+      zone_id: selectedZoneId,
+      channel_id: selectedChannel !== "all" ? Number(selectedChannel) : undefined,
+      is_active: selectedStatus !== "all" ? selectedStatus === "active" : undefined,
+      assigned_user_id:
+        selectedTradeMarketer !== "all" && selectedTradeMarketer !== "unassigned"
+          ? Number(selectedTradeMarketer)
+          : undefined,
+      unassigned: selectedTradeMarketer === "unassigned" ? true : undefined,
+      distributor_id:
+        selectedDistributorFilter !== "all" && selectedDistributorFilter !== "none"
+          ? Number(selectedDistributorFilter)
+          : undefined,
+      no_distributor: selectedDistributorFilter === "none" ? true : undefined,
+      has_coords: selectedLocation !== "all" ? selectedLocation === "with" : undefined,
+      has_route: selectedRouteFilter !== "all" ? selectedRouteFilter === "with" : undefined,
+      days_since_visit:
+        selectedDaysSinceVisit !== "all"
+          ? (selectedDaysSinceVisit === "60+" ? "60plus" : selectedDaysSinceVisit)
+          : undefined,
+      visit_freq:
+        selectedVisitFrequency !== "all"
+          ? (selectedVisitFrequency === "20+" ? "20plus" : selectedVisitFrequency)
+          : undefined,
+      works_espert: selectedEspertFilter !== "all" ? selectedEspertFilter : undefined,
+      sells_loose: selectedSueltosFilter !== "all" ? selectedSueltosFilter : undefined,
+    });
+  }, [
+    setFilters, selectedZoneId, selectedChannel, selectedStatus, selectedTradeMarketer,
+    selectedDistributorFilter, selectedLocation, selectedRouteFilter,
+    selectedDaysSinceVisit, selectedVisitFrequency, selectedEspertFilter, selectedSueltosFilter,
+  ]);
+
   const { data: zones } = useZones();
   const { data: distributors, refetch: refetchDistributors } = useDistributors();
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
   const { data: users } = useUsers();
 
-  // Always load enriched pdv-map data for advanced filters
+  // Datos del mapa (/reports/pdv-map, todos los pins): solo cuando la vista
+  // Mapa está activa — antes cargaba siempre al montar.
   const [mapRefreshKey, setMapRefreshKey] = useState(0);
   useEffect(() => {
+    if (viewMode !== "map") return;
     setMapLoading(true);
     api.get<any[]>("/reports/pdv-map", selectedZoneId ? { zone_id: selectedZoneId } : undefined)
       .then(setAllMapData)
       .catch(() => toast.error("Error al cargar datos del mapa"))
       .finally(() => setMapLoading(false));
-  }, [selectedZoneId, mapRefreshKey]);
+  }, [viewMode, selectedZoneId, mapRefreshKey]);
 
-  // Build lookup from enriched data (pdvId -> enriched info)
-  const enrichedLookup = useMemo(() => {
-    const map = new Map<number, any>();
-    allMapData.forEach((p) => map.set(p.pdvId, p));
-    return map;
-  }, [allMapData]);
-
-  // Build lookup from PDV.AssignedUserId → DisplayName. Esta es la fuente
-  // de verdad para "Trade Marketer" en este screen (lo que setea el dropdown
-  // del card). El endpoint /reports/pdv-map devuelve assignedUserName basado en
-  // RouteDay (route-scheduling), que es semántica distinta y se desfasa si
-  // el PDV no está asignado a una ruta — eso causaba el bug del filtro vacío.
-  const tmNameByPdvId = useMemo(() => {
-    const userById = new Map(users.map((u) => [u.UserId, u.DisplayName]));
-    const m = new Map<number, string>();
-    for (const p of pdvs) {
-      const name = p.AssignedUserId ? userById.get(p.AssignedUserId) : undefined;
-      m.set(p.PdvId, name ?? "Sin asignar");
-    }
-    return m;
-  }, [pdvs, users]);
-
-  // Unique trade marketers from enriched data
   const tradeMarketers = useMemo(() => {
     return users
       .filter((u) => u.IsActive)
@@ -280,111 +308,24 @@ export function POSManagement() {
     setSelectedSueltosFilter("all");
   };
 
-  // Lookup pdvId → flags de perfil comercial (para los filtros avanzados)
-  const flagsByPdvId = useMemo(
-    () => new Map(pdvs.map((p) => [p.PdvId, { espert: p.WorksEspertProducts, sueltos: p.SellsLooseCigarettes }])),
-    [pdvs]
-  );
-
-  const _matchesTriState = (filterValue: string, flag: boolean | null | undefined) => {
-    if (filterValue === "all") return true;
-    if (filterValue === "si") return flag === true;
-    if (filterValue === "no") return flag === false;
-    return flag == null; // "nd" = sin dato
-  };
-
-  // Helper: check if a PDV matches advanced filters using enriched data
-  const matchesAdvancedFilters = (pdvId: number, pdvDistributorIds?: number[]) => {
-    const enriched = enrichedLookup.get(pdvId);
-
-    // Perfil comercial (¿trabaja Espert? / ¿vende sueltos?)
-    const flags = flagsByPdvId.get(pdvId);
-    if (!_matchesTriState(selectedEspertFilter, flags?.espert)) return false;
-    if (!_matchesTriState(selectedSueltosFilter, flags?.sueltos)) return false;
-
-    // Trade marketer filter — usa PDV.AssignedUserId (consistente con el
-    // dropdown del card), no la asignación route-based del endpoint.
-    if (selectedTradeMarketer !== "all") {
-      const tmName = tmNameByPdvId.get(pdvId) ?? "Sin asignar";
-      if (selectedTradeMarketer === "unassigned") {
-        if (tmName !== "Sin asignar") return false;
-      } else {
-        if (tmName !== selectedTradeMarketer) return false;
-      }
-    }
-
-    // Days since last visit
-    if (selectedDaysSinceVisit !== "all") {
-      const lastVisit = enriched?.lastVisit;
-      const daysSince = lastVisit
-        ? Math.floor((Date.now() - new Date(lastVisit).getTime()) / (1000 * 60 * 60 * 24))
-        : Infinity;
-
-      switch (selectedDaysSinceVisit) {
-        case "7": if (daysSince > 7) return false; break;
-        case "14": if (daysSince <= 7 || daysSince > 14) return false; break;
-        case "30": if (daysSince <= 14 || daysSince > 30) return false; break;
-        case "60": if (daysSince <= 30 || daysSince > 60) return false; break;
-        case "60+": if (daysSince <= 60) return false; break;
-        case "never": if (daysSince !== Infinity) return false; break;
-      }
-    }
-
-    // Location filter
-    if (selectedLocation !== "all") {
-      const hasCoords = enriched?.hasCoords ?? false;
-      if (selectedLocation === "with" && !hasCoords) return false;
-      if (selectedLocation === "without" && hasCoords) return false;
-    }
-
-    // Visit frequency
-    if (selectedVisitFrequency !== "all") {
-      const count = enriched?.visitCount ?? 0;
-      switch (selectedVisitFrequency) {
-        case "0": if (count !== 0) return false; break;
-        case "1-5": if (count < 1 || count > 5) return false; break;
-        case "6-20": if (count < 6 || count > 20) return false; break;
-        case "20+": if (count <= 20) return false; break;
-      }
-    }
-
-    // Distributor filter
-    if (selectedDistributorFilter !== "all") {
-      const ids = pdvDistributorIds || [];
-      if (selectedDistributorFilter === "none") {
-        if (ids.length > 0) return false;
-      } else {
-        if (!ids.includes(Number(selectedDistributorFilter))) return false;
-      }
-    }
-
-    // Route assignment filter
-    if (selectedRouteFilter !== "all") {
-      const hasRoute = enriched?.hasRoute ?? false;
-      if (selectedRouteFilter === "with" && !hasRoute) return false;
-      if (selectedRouteFilter === "without" && hasRoute) return false;
-    }
-
-    return true;
-  };
-
-  // Filter map data by all filters (client-side)
+  // Filtro client-side SOLO para el mapa (necesita todos los pins a la vez;
+  // la lista usa filtros server-side vía /pdvs/admin-list)
   const mapData = useMemo(() => {
     return allMapData.filter((p) => {
       const matchesSearch =
         !searchTerm ||
         p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (p.address && p.address.toLowerCase().includes(searchTerm.toLowerCase()));
-      const matchesChannel = selectedChannel === "all" || p.channel === selectedChannel;
+      const matchesChannel = selectedChannel === "all" || p.channelId === Number(selectedChannel);
 
-      // Trade marketer — usa PDV.AssignedUserId (consistente con el dropdown)
+      // Trade marketer — usa assignedTmId (PDV.AssignedUserId, consistente
+      // con el dropdown del card), no la asignación route-based
       let matchesTM = true;
       if (selectedTradeMarketer !== "all") {
-        const tmName = tmNameByPdvId.get(p.pdvId) ?? "Sin asignar";
         if (selectedTradeMarketer === "unassigned") {
-          matchesTM = tmName === "Sin asignar";
+          matchesTM = p.assignedTmId == null;
         } else {
-          matchesTM = tmName === selectedTradeMarketer;
+          matchesTM = p.assignedTmId === Number(selectedTradeMarketer);
         }
       }
 
@@ -431,7 +372,7 @@ export function POSManagement() {
 
       return matchesSearch && matchesChannel && matchesTM && matchesDays && matchesLoc && matchesFreq && matchesRoute;
     });
-  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency, selectedRouteFilter, tmNameByPdvId]);
+  }, [allMapData, searchTerm, selectedChannel, selectedTradeMarketer, selectedDaysSinceVisit, selectedLocation, selectedVisitFrequency, selectedRouteFilter]);
 
   const pdvsWithCoords = useMemo(() => mapData.filter((p: any) => p.hasCoords), [mapData]);
   const pdvsWithoutCoords = useMemo(() => mapData.filter((p: any) => !p.hasCoords), [mapData]);
@@ -442,61 +383,31 @@ export function POSManagement() {
     [distributors]
   );
 
-  const posList: POSData[] = useMemo(
+  // La página ya viene filtrada y enriquecida del server — acá solo se mapea al shape del card
+  const filteredPOS: POSData[] = useMemo(
     () =>
-      pdvs.map((p) => {
-        const enriched = enrichedLookup.get(p.PdvId);
-        return {
-          id: String(p.PdvId),
-          name: p.Name,
-          address: p.Address || p.City || "-",
-          channel: p.ChannelName || p.Channel || "-",
-          distributor: p.Distributors && p.Distributors.length > 0
+      pdvs.map((p) => ({
+        id: String(p.PdvId),
+        name: p.Name,
+        address: p.Address || p.City || "-",
+        channel: p.ChannelName || p.Channel || "-",
+        distributor: p.Distributors && p.Distributors.length > 0
           ? p.Distributors.map((d) => d.Name).join(", ")
           : p.DistributorId ? distributorMap.get(p.DistributorId) || `#${p.DistributorId}` : "-",
-          contact: p.ContactName || "-",
-          phone: p.ContactPhone || "-",
-          zone: p.ZoneId ? zoneMap.get(p.ZoneId) || `#${p.ZoneId}` : "-",
-          status: (p.IsActive ? "active" : "inactive") as POSData["status"],
-          compliance: 0,
-          lastVisit: enriched?.lastVisit || "-",
-          // tradeMarketer ahora viene de PDV.AssignedUserId, no del enriched
-          // route-based. Esto evita que la card muestre "Sin asignar" en rojo
-          // cuando hay TM asignado pero el PDV no está en una ruta.
-          tradeMarketer: tmNameByPdvId.get(p.PdvId) ?? "Sin asignar",
-          visitCount: enriched?.visitCount ?? 0,
-          hasCoords: enriched?.hasCoords ?? false,
-          worksEspert: p.WorksEspertProducts ?? null,
-          sellsLoose: p.SellsLooseCigarettes ?? null,
-        };
-      }),
-    [pdvs, zoneMap, distributorMap, enrichedLookup, tmNameByPdvId]
+        contact: p.ContactName || "-",
+        phone: p.ContactPhone || "-",
+        zone: p.ZoneId ? zoneMap.get(p.ZoneId) || `#${p.ZoneId}` : "-",
+        status: (p.IsActive ? "active" : "inactive") as POSData["status"],
+        compliance: 0,
+        lastVisit: p.LastVisit || "-",
+        tradeMarketer: p.TradeMarketerName ?? "Sin asignar",
+        visitCount: p.VisitCount,
+        hasCoords: p.HasCoords,
+        worksEspert: p.WorksEspertProducts ?? null,
+        sellsLoose: p.SellsLooseCigarettes ?? null,
+      })),
+    [pdvs, zoneMap, distributorMap]
   );
-
-  const channelFilterOptions = useMemo(
-    () => ["Todos", ...Array.from(new Set(pdvs.map((p) => p.ChannelName || p.Channel).filter(Boolean))).sort()],
-    [pdvs]
-  );
-
-  const filteredPOS = posList.filter((pos) => {
-    const matchesSearch =
-      pos.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      pos.address.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesChannel = selectedChannel === "all" || pos.channel === selectedChannel;
-
-    // Status filter
-    let matchesStatus = true;
-    if (selectedStatus !== "all") {
-      matchesStatus = selectedStatus === "active" ? pos.status === "active" : pos.status === "inactive";
-    }
-
-    // Advanced filters using enriched data
-    const pdv = pdvs.find((p) => String(p.PdvId) === pos.id);
-    const distIds = pdv?.Distributors?.map((d) => d.DistributorId) || (pdv?.DistributorId ? [pdv.DistributorId] : []);
-    const matchesAdvanced = matchesAdvancedFilters(Number(pos.id), distIds);
-
-    return matchesSearch && matchesChannel && matchesStatus && matchesAdvanced;
-  });
 
   const getStatusChipType = (status: string) => {
     switch (status) {
@@ -741,16 +652,12 @@ export function POSManagement() {
         <CardContent className="p-4 space-y-4">
           {/* Primary filters */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Search */}
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={20} />
-              <Input
-                placeholder="Buscar por nombre o dirección..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
+            {/* Search (server-side, debounced por usePaginated) */}
+            <SearchInput
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Buscar por nombre, dirección o código..."
+            />
 
             {/* Channel Filter */}
             <div>
@@ -760,9 +667,9 @@ export function POSManagement() {
                 className="w-full px-3 py-2 border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
               >
                 <option value="all">Todos los canales</option>
-                {channelFilterOptions.slice(1).map((channel) => (
-                  <option key={channel} value={channel}>
-                    {channel}
+                {channels.map((ch) => (
+                  <option key={ch.ChannelId} value={String(ch.ChannelId)}>
+                    {ch.Name}
                   </option>
                 ))}
               </select>
@@ -827,7 +734,7 @@ export function POSManagement() {
                   <option value="all">Todos</option>
                   <option value="unassigned">Sin asignar</option>
                   {tradeMarketers.map((tm) => (
-                    <option key={tm.id} value={tm.name}>{tm.name}</option>
+                    <option key={tm.id} value={String(tm.id)}>{tm.name}</option>
                   ))}
                 </select>
               </div>
@@ -991,7 +898,8 @@ export function POSManagement() {
       <div className="flex items-center gap-4 text-sm text-muted-foreground">
         <span>
           Mostrando <span className="font-semibold text-foreground">{filteredPOS.length}</span> de{" "}
-          <span className="font-semibold text-foreground">{posList.length}</span> PDV
+          <span className="font-semibold text-foreground">{total}</span> PDV
+          {totalPages > 1 && <> · Página {page} de {totalPages}</>}
         </span>
       </div>
 
@@ -1245,6 +1153,13 @@ export function POSManagement() {
             </CardContent>
           </Card>
         ))}
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={total}
+          onPageChange={setPage}
+          loading={loading}
+        />
       </div>}
 
       {/* Create/Edit Modal */}

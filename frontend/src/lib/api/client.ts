@@ -134,7 +134,9 @@ async function doFetch(url: string, init: RequestInit, withAuth: boolean): Promi
   // Si viene Content-Type vacío (trick de upload), lo removemos para que el browser setee el boundary multipart
   if (headers.get("Content-Type") === "") {
     headers.delete("Content-Type");
-  } else if (!headers.has("Content-Type")) {
+  } else if (!headers.has("Content-Type") && init.body != null) {
+    // Solo requests con body llevan Content-Type; en GETs era header inútil
+    // que sumaba motivo de preflight CORS.
     headers.set("Content-Type", "application/json");
   }
   if (withAuth) {

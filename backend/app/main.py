@@ -44,6 +44,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
+    max_age=86400,  # cachear preflights OPTIONS 24h (default 600s duplicaba cada GET en Network)
 )
 app.add_middleware(RequestIdMiddleware)
 
