@@ -409,6 +409,11 @@ const PROD_SHORT={
 };
 const SCORE_COLORS={'Excelente':'#2a9d8f','Muy Bueno':'#457b9d','Bueno':'#e9c46a','Regular':'#f4a261','No cuenta':'#e63946'};
 
+/** Precio con separador de miles, sin decimales: 9000 -> "9.000". */
+function fmtPrecio(v){
+  return Math.round(Number(v)||0).toLocaleString('es-AR');
+}
+
 function ef_pill(v){return v>=70?'p-g':v>=40?'p-y':'p-r';}
 function cname(n){return n.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();}
 function setKval(id,val){var el=document.getElementById(id);if(!el)return;var nodes=[...el.childNodes];var txt=nodes.find(n=>n.nodeType===3);if(txt)txt.textContent=val;else el.insertBefore(document.createTextNode(val),el.firstChild);}
@@ -1216,8 +1221,9 @@ function renderTmrProdRuta(trade){
           var diff=globalAvg?pd.avg-globalAvg:0;
           var col=diff>300?C.acc:diff<-300?C.grn:'var(--tx)';
           var arrow=diff>300?' ▲':diff<-300?' ▼':'';
-          cells+='<td style="text-align:center;font-size:10px;font-weight:700;color:'+col+';padding:5px 4px" title="n='+pd.n+'">'
-            +'$'+Math.round(pd.avg/1000)+'k'+arrow+'</td>';
+          cells+='<td style="text-align:center;font-size:10px;font-weight:700;color:'+col+';padding:5px 4px;white-space:nowrap" '
+            +'title="promedio $'+fmtPrecio(pd.avg)+' · min $'+fmtPrecio(pd.min)+' · max $'+fmtPrecio(pd.max)+' · n='+pd.n+'">'
+            +'$'+fmtPrecio(pd.avg)+arrow+'</td>';
         } else {
           // Fallback: coverage %
           var pct=(r.prod_cob||{})[prod]||0;
@@ -1302,13 +1308,28 @@ var PERIOD = (function(){
 })();
 var PQ = 'year=' + PERIOD.year + '&month=' + PERIOD.month;
 
+// Cache local del ultimo `team` por periodo (stale-while-revalidate): al
+// volver a entrar se pinta al instante lo ultimo visto y el fetch corre atras.
+// Solo team (agregados por vendedor) — el detalle por PDV nunca se persiste.
+var CACHE_KEY = 'tmr.dd.v1.' + PERIOD.year + '.' + PERIOD.month;
+function readCache(){
+  try { var raw = localStorage.getItem(CACHE_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+}
+function writeCache(team){
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify({ at: Date.now(), team: team })); }
+  catch (e) { /* storage lleno o bloqueado: el SWR es best-effort */ }
+}
+
 // El detalle de un TMR (rutas + PDVs) se pide recien al seleccionarlo y queda
 // cacheado: es el escaneo de cobertura, lo mas caro del tablero, y solo aplica
 // al vendedor que se esta mirando.
 var _tmrLoaded = {};
 var _tmrLoading = {};
+var _userNavigated = false;
 
 async function ensureTmrDetail(name){
+  _userNavigated = true;
   if (_tmrLoaded[name]) return true;
   if (_tmrLoading[name]) return _tmrLoading[name];
   var t = (DD.trades || []).find(function(x){ return x.n === name; });
@@ -1316,6 +1337,9 @@ async function ensureTmrDetail(name){
 
   _tmrLoading[name] = (async function(){
     setStatus('Cargando ' + name + '…');
+    // La matriz producto x ruta necesita el catalogo, que ya no bloquea el
+    // primer render — se espera aca, recien cuando se abre un detalle.
+    if (_catalogPromise) { try { await _catalogPromise; } catch (e) { /* sin catalogo igual se muestra */ } }
     var [routes, pdvs] = await Promise.all([
       apiGet('/kpi/tmr/routes?' + PQ + '&user_id=' + t.id),
       apiGet('/kpi/tmr/pdvs?' + PQ + '&user_id=' + t.id),
@@ -1343,26 +1367,30 @@ async function ensureTmrDetail(name){
   return _tmrLoading[name];
 }
 
+var _catalogPromise = null;
+
 async function loadDD(){
-  // La vista general solo necesita `team`; el catalogo va en paralelo porque lo
-  // usa la matriz producto x ruta del detalle.
-  var [team, catalog] = await Promise.all([
-    apiGet('/kpi/tmr/team?' + PQ),
-    apiGet('/kpi/tmr/catalog?' + PQ),
-  ]);
+  // La vista general solo necesita `team`. El catalogo se dispara en paralelo
+  // pero NO bloquea el primer render: solo lo usa la matriz producto x ruta
+  // del detalle, que lo espera via _catalogPromise en ensureTmrDetail.
+  _catalogPromise = apiGet('/kpi/tmr/catalog?' + PQ);
+  var team = await apiGet('/kpi/tmr/team?' + PQ);
   if (team.status === 401) return { needsLogin: true };
   if (team.status !== 200) {
     console.error('[tmr] /kpi/tmr/team respondio ' + team.status);
     return { failed: team.status };
   }
+  writeCache(team.body); // antes de agregar los campos vacios de abajo
   var dd = team.body;
   dd.rutas = [];
   dd.tmr_pdvs = {};
   dd.quick_wins = [];
   dd.pdvs = [];
   dd.visits_semanal = {};
-  if (catalog.status === 200) Object.assign(dd, catalog.body);
-  else { dd.espert_prods = []; dd.all_prods = []; dd.prod_fab_groups = {}; dd.precios = { prod: {} }; }
+  dd.espert_prods = []; dd.all_prods = []; dd.prod_fab_groups = {}; dd.precios = { prod: {} };
+  _catalogPromise.then(function(catalog){
+    if (catalog.status === 200) Object.assign(dd, catalog.body);
+  }).catch(function(){ /* el detalle se muestra sin catalogo */ });
   return { dd: dd, live: true };
 }
 
@@ -1371,19 +1399,50 @@ async function loadDD(){
 var _indTemplate = '';
 var _gralTemplate = '';
 
+function _hydrateCachedTeam(team){
+  // Un team cacheado no trae los campos de detalle/catalogo: se completan
+  // vacios para que el render general funcione igual que con datos vivos.
+  team.rutas = []; team.tmr_pdvs = {}; team.quick_wins = [];
+  team.pdvs = []; team.visits_semanal = {};
+  team.espert_prods = team.espert_prods || []; team.all_prods = team.all_prods || [];
+  team.prod_fab_groups = team.prod_fab_groups || {}; team.precios = team.precios || { prod: {} };
+  return team;
+}
+
+function _renderAll(){
+  // El loader piso los <canvas> de los graficos: se restauran antes de render.
+  document.getElementById('tmr-vista-gral').innerHTML = _gralTemplate;
+  buildTmrChips();
+  renderTmrTab();
+  renderTmrGeneral();
+}
+
 document.addEventListener('DOMContentLoaded', async function () {
   _indTemplate = document.getElementById('tmr-vista-ind').innerHTML;
   _gralTemplate = document.getElementById('tmr-vista-gral').innerHTML;
-  setStatus('Cargando…');
-  document.getElementById('tmr-vista-gral').innerHTML =
-    loaderHtml('Cargando el equipo…', 'visitas, GPS, fotos y acciones del mes');
-  var cardsEl = document.getElementById('tmr-cards');
-  if (cardsEl) cardsEl.innerHTML = skeletonCards(6);
+
+  // Stale-while-revalidate: si hay datos del periodo en localStorage se pintan
+  // al instante y el fetch corre atras; sin cache, loader como siempre.
+  var cached = readCache();
+  if (cached && cached.team && cached.team.trades) {
+    DD = _hydrateCachedTeam(cached.team);
+    _renderAll();
+    setStatus('Actualizando… (visto por ultima vez ' +
+      new Date(cached.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ')');
+  } else {
+    cached = null;
+    setStatus('Cargando…');
+    document.getElementById('tmr-vista-gral').innerHTML =
+      loaderHtml('Cargando el equipo…', 'visitas, GPS, fotos y acciones del mes');
+    var cardsEl = document.getElementById('tmr-cards');
+    if (cardsEl) cardsEl.innerHTML = skeletonCards(6);
+  }
+
   var loaded;
   try {
     loaded = await loadDD();
   } catch (e) {
-    setStatus('No se pudieron cargar los datos', true);
+    setStatus(cached ? 'Sin conexion — mostrando datos guardados' : 'No se pudieron cargar los datos', true);
     console.error(e);
     return;
   }
@@ -1395,6 +1454,10 @@ document.addEventListener('DOMContentLoaded', async function () {
     return;
   }
   if (loaded && loaded.failed) {
+    if (cached) {
+      setStatus('No se pudo actualizar (error ' + loaded.failed + ') — mostrando datos guardados', true);
+      return;
+    }
     setStatus('No se pudo cargar el tablero (error ' + loaded.failed + ')', true);
     document.getElementById('tmr-vista-gral').innerHTML =
       '<div class="tmr-load"><div class="tmr-load-msg">No se pudieron cargar los datos</div>' +
@@ -1402,21 +1465,19 @@ document.addEventListener('DOMContentLoaded', async function () {
     return;
   }
   DD = loaded.dd;
+  // El DD nuevo arranca sin detalles: lo que se haya abierto sobre el cache
+  // viejo se refetchea al proximo click (el backend ahora lo cachea, es barato).
+  _tmrLoaded = {}; _tmrLoading = {};
 
-  setStatus(loaded.live
-    ? 'Seguimiento TMR · ' + (DD.periodo_label || DD.fecha_datos || '')
-    : '⚠ Snapshot de julio (sin backend) · Datos al ' + (DD.fecha_datos || '—'), !loaded.live);
+  setStatus('Seguimiento TMR · ' + (DD.periodo_label || DD.fecha_datos || ''));
 
-  // El loader piso los <canvas> de los graficos: se restauran antes de render.
-  document.getElementById('tmr-vista-gral').innerHTML = _gralTemplate;
-
-  buildTmrChips();
-  renderTmrTab();
-  renderTmrGeneral();
+  // Si el usuario ya esta navegando sobre los datos cacheados no se lo pisa;
+  // los datos frescos quedan en DD para la proxima interaccion.
+  if (!_userNavigated) _renderAll();
 
   // Deep-link: ?tmr=<nombre> abre directo la vista individual de ese TMR.
   var wanted = new URLSearchParams(location.search).get('tmr');
-  if (wanted) {
+  if (wanted && !_userNavigated) {
     var chip = document.getElementById('tmr-chip-' + wanted.replace(/\s+/g, '_'));
     if (chip) chip.click();
   }

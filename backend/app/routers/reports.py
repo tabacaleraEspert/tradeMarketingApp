@@ -1,7 +1,10 @@
+import functools
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc
+
+from ..utils.ttl_cache import TTLCache
 
 from ..database import get_db
 from ..auth import get_current_user
@@ -27,6 +30,29 @@ import json as _json
 
 router = APIRouter(prefix="/reports", tags=["Reportes"], dependencies=[Depends(get_current_user)])
 
+# Cache TTL de los reportes del panel de inicio del admin: los 7 endpoints se
+# disparan a la vez al entrar y, con la DB en S0 (10 DTU), compiten entre sí
+# (p95 medido 2026-08-19: 33-56s en cache-miss simultáneo). Son analytics de
+# lectura — 10 min de staleness son aceptables. Key por (endpoint, solicitante,
+# params) para respetar la visibilidad jerárquica.
+_REPORTS_CACHE = TTLCache(ttl_seconds=600.0)
+
+
+def cached_report(*param_names: str):
+    """Cachea el response del endpoint por (nombre, current_user, params).
+
+    Requiere que el endpoint reciba `current_user` como kwarg (FastAPI siempre
+    llama con kwargs). Solo para endpoints GET de lectura."""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(**kwargs):
+            key = (fn.__name__, kwargs["current_user"].UserId) + tuple(
+                kwargs.get(p) for p in param_names
+            )
+            return _REPORTS_CACHE.get_or_build(key, lambda: fn(**kwargs))
+        return wrapper
+    return deco
+
 
 def _date_range(year: int, month: int):
     first = datetime(year, month, 1, tzinfo=timezone.utc)
@@ -38,6 +64,7 @@ def _date_range(year: int, month: int):
 
 
 @router.get("/summary")
+@cached_report("year", "month")
 def report_summary(
     year: int = Query(default=None),
     month: int = Query(default=None),
@@ -113,6 +140,7 @@ def report_summary(
 
 
 @router.get("/vendor-ranking")
+@cached_report("year", "month")
 def vendor_ranking(
     year: int = Query(default=None),
     month: int = Query(default=None),
@@ -202,6 +230,7 @@ def vendor_ranking(
 
 
 @router.get("/channel-coverage")
+@cached_report("year", "month")
 def channel_coverage(
     year: int = Query(default=None),
     month: int = Query(default=None),
@@ -377,11 +406,21 @@ def pdv_map_data(
     channels_db = db.query(ChannelModel).all()
     ch_map = {c.ChannelId: c.Name for c in channels_db}
 
+    # TM asignado directo (PDV.AssignedUserId) — semántica del dropdown de
+    # Gestión de PDV; assignedUserName (route-based) se desfasa si el PDV no
+    # está en una ruta.
+    tm_ids = {p.AssignedUserId for p in pdvs if getattr(p, "AssignedUserId", None)}
+    tm_name_map = (
+        dict(db.query(UserModel.UserId, UserModel.DisplayName).filter(UserModel.UserId.in_(tm_ids)).all())
+        if tm_ids else {}
+    )
+
     result = []
     for p in pdvs:
         has_coords = p.Lat is not None and p.Lon is not None
         vs = visit_map.get(p.PdvId, {"count": 0, "lastVisit": None})
         assigned = assigned_map.get(p.PdvId)
+        tm_id = getattr(p, "AssignedUserId", None)
         result.append({
             "pdvId": p.PdvId,
             "name": p.Name,
@@ -395,6 +434,8 @@ def pdv_map_data(
             "lastVisit": vs["lastVisit"],
             "assignedUserId": assigned["userId"] if assigned else None,
             "assignedUserName": assigned["userName"] if assigned else "Sin asignar",
+            "assignedTmId": tm_id,
+            "assignedTmName": tm_name_map.get(tm_id) if tm_id else None,
             "hasCoords": has_coords,
             "hasRoute": p.PdvId in pdv_ids_in_route,
         })
@@ -403,6 +444,7 @@ def pdv_map_data(
 
 
 @router.get("/gps-alerts")
+@cached_report("days", "user_id")
 def report_gps_alerts(
     days: int = Query(default=30, description="Visitas de los últimos N días"),
     user_id: int | None = Query(default=None, description="Filtrar por TM Rep"),
@@ -792,6 +834,7 @@ def territory_overview(
 # PERFECT STORE SCORE
 # ============================================================
 @router.get("/perfect-store")
+@cached_report()
 def perfect_store_scores(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
@@ -934,6 +977,7 @@ def perfect_store_scores(
 # TRENDING (month over month)
 # ============================================================
 @router.get("/trending")
+@cached_report("months")
 def trending_report(
     months: int = Query(default=3, ge=2, le=12),
     db: Session = Depends(get_db),
@@ -1020,6 +1064,7 @@ def trending_report(
 # SMART ALERTS
 # ============================================================
 @router.get("/smart-alerts")
+@cached_report()
 def smart_alerts(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),

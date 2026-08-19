@@ -268,3 +268,64 @@ def test_mes_cerrado_con_snapshot_no_pasa_por_cache(client, db, monkeypatch):
     second = client.get("/kpi/variable", params={"year": PAST_YEAR, "month": PAST_MONTH, "user_id": user.UserId})
     assert second.status_code == 200, second.text
     assert len(calls) == 2  # mes con snapshot: nunca se cachea, compute_kpis se llama siempre
+
+
+# ---------------------------------------------------------------------------
+# Cache del Tablero TMR (`/kpi/tmr/*`) — mismo esquema in-process, TTL 10 min,
+# response completo cacheado por (endpoint, solicitante, periodo).
+# ---------------------------------------------------------------------------
+
+def _spy_build_team(monkeypatch, calls):
+    from app.services import tmr_dashboard
+    original = tmr_dashboard.build_team
+
+    def _wrapped(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr("app.routers.kpi.tmr.build_team", _wrapped)
+
+
+def test_tmr_team_segunda_llamada_no_recomputa(client, db, monkeypatch):
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, TODAY.year, TODAY.month)
+
+    calls = []
+    _spy_build_team(monkeypatch, calls)
+
+    first = client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month})
+    assert first.status_code == 200, first.text
+    assert len(calls) == 1
+
+    second = client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month})
+    assert second.status_code == 200, second.text
+    assert len(calls) == 1  # servido del cache
+    assert second.json() == first.json()
+
+
+def test_tmr_team_ttl_vencido_recomputa(client, db, monkeypatch):
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, TODAY.year, TODAY.month)
+
+    calls = []
+    _spy_build_team(monkeypatch, calls)
+
+    assert client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month}).status_code == 200
+    monkeypatch.setattr("app.routers.kpi._TMR_CACHE_TTL_SECONDS", -1.0)
+    assert client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month}).status_code == 200
+    assert len(calls) == 2
+
+
+def test_tmr_cache_invalidado_por_invalidate(client, db, monkeypatch):
+    """_invalidate_kpi_cache (config/scoring-rules/close-month) vacía también el
+    cache TMR."""
+    user, _ = _user_with_role(db, "vendedor")
+    _cobertura_setup(db, user, TODAY.year, TODAY.month)
+
+    calls = []
+    _spy_build_team(monkeypatch, calls)
+
+    assert client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month}).status_code == 200
+    _invalidate_kpi_cache()
+    assert client.get("/kpi/tmr/team", params={"year": TODAY.year, "month": TODAY.month}).status_code == 200
+    assert len(calls) == 2

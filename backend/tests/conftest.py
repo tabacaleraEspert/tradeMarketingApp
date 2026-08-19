@@ -102,3 +102,16 @@ def client(admin_user):
     headers = {"Authorization": f"Bearer {token}"}
     with TestClient(app, headers=headers) as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _clear_response_caches():
+    """Los caches TTL in-process de reports (`_REPORTS_CACHE`) y del Tablero TMR
+    (`_TMR_CACHE`) sobreviven entre tests del mismo proceso: sin esto, un test
+    que seedea datos y pega al endpoint puede recibir el response cacheado por
+    un test anterior con la misma key (mismo admin, mismos params)."""
+    from app.routers import reports as _reports
+    from app.routers import kpi as _kpi
+    _reports._REPORTS_CACHE.clear()
+    _kpi._TMR_CACHE.clear()
+    yield

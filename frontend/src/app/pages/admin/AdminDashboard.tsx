@@ -39,15 +39,31 @@ export function AdminDashboard() {
   const [gpsAlerts, setGpsAlerts] = useState<Awaited<ReturnType<typeof reportsApi.gpsAlerts>>>([]);
 
   useEffect(() => {
-    const onErr = () => toast.error("Error al cargar datos del dashboard");
-    api.get<TodayOverview>("/routes/today-overview").then(setTodayOverview).catch(() => {});
-    reportsApi.summary().then(setSummary).catch(onErr);
-    reportsApi.vendorRanking().then(setVendors).catch(onErr);
-    reportsApi.channelCoverage().then(setChannels).catch(onErr);
-    reportsApi.perfectStore().then(setPerfectStore).catch(onErr);
-    reportsApi.trending({ months: 3 }).then(setTrending).catch(onErr);
-    reportsApi.smartAlerts().then(setSmartAlerts).catch(onErr);
-    reportsApi.gpsAlerts({ days: 7 }).then(setGpsAlerts).catch(onErr);
+    // En olas, no los 8 juntos: en cache-miss estos reportes compiten entre sí
+    // por los DTU de la DB (medido 2026-08-19 en S0: p95 de 33-56s cuando se
+    // disparaban simultáneos). Primero lo que se ve arriba del fold; el resto
+    // arranca cuando termina la ola anterior.
+    let cancelled = false;
+    const onErr = () => { if (!cancelled) toast.error("Error al cargar datos del dashboard"); };
+    (async () => {
+      await Promise.allSettled([
+        api.get<TodayOverview>("/routes/today-overview").then(setTodayOverview).catch(() => {}),
+        reportsApi.summary().then(setSummary).catch(onErr),
+        reportsApi.vendorRanking().then(setVendors).catch(onErr),
+      ]);
+      if (cancelled) return;
+      await Promise.allSettled([
+        reportsApi.channelCoverage().then(setChannels).catch(onErr),
+        reportsApi.perfectStore().then(setPerfectStore).catch(onErr),
+        reportsApi.trending({ months: 3 }).then(setTrending).catch(onErr),
+      ]);
+      if (cancelled) return;
+      await Promise.allSettled([
+        reportsApi.smartAlerts().then(setSmartAlerts).catch(onErr),
+        reportsApi.gpsAlerts({ days: 7 }).then(setGpsAlerts).catch(onErr),
+      ]);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const openIncidents = incidents.filter((i) => i.Status === "OPEN" || i.Status === "IN_PROGRESS");

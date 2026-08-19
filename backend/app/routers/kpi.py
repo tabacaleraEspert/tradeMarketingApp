@@ -171,12 +171,38 @@ def _kpi_cache_clock() -> float:
 
 
 def _invalidate_kpi_cache() -> None:
-    """Vacía el cache completo de filas de `/kpi/variable`. Se llama al escribir
-    configuración de KPIs (pesos/metas de `/kpi/config` y `/kpi/config/bulk`,
-    reglas de `/kpi/scoring-rules`) y al ejecutar un cierre de mes
-    (`_close_month_core`, manual o automático): un cambio de metas o un cierre
-    recién hecho se tienen que reflejar al toque, no esperar el TTL."""
+    """Vacía el cache completo de filas de `/kpi/variable` y de respuestas del
+    Tablero TMR. Se llama al escribir configuración de KPIs (pesos/metas de
+    `/kpi/config` y `/kpi/config/bulk`, reglas de `/kpi/scoring-rules`) y al
+    ejecutar un cierre de mes (`_close_month_core`, manual o automático): un
+    cambio de metas o un cierre recién hecho se tienen que reflejar al toque,
+    no esperar el TTL."""
     _KPI_VARIABLE_CACHE.clear()
+    _TMR_CACHE.clear()
+
+
+# Cache TTL de las respuestas del Tablero TMR (`/kpi/tmr/*`). Mismo esquema
+# in-process que _KPI_VARIABLE_CACHE (ver nota de los 4 workers arriba), pero
+# cachea el response completo del endpoint. La key incluye al solicitante
+# (current_user) porque el scope jerárquico depende de quién pregunta. TTL más
+# largo que /kpi/variable: es un tablero de lectura gerencial, 10 min de
+# staleness del mes en curso son aceptables y evitan recalcular ~12 agregados
+# sobre Visit/VisitCoverage en cada carga de página.
+_TMR_CACHE: dict[tuple, tuple[float, object]] = {}
+_TMR_CACHE_TTL_SECONDS = 600.0
+_TMR_CACHE_MAX_ENTRIES = 2000
+
+
+def _tmr_cached(key: tuple, build):
+    """Devuelve el valor cacheado para `key` o lo construye con `build()`."""
+    entry = _TMR_CACHE.get(key)
+    if entry is not None and _kpi_cache_clock() - entry[0] <= _TMR_CACHE_TTL_SECONDS:
+        return entry[1]
+    value = build()
+    if len(_TMR_CACHE) >= _TMR_CACHE_MAX_ENTRIES:
+        _TMR_CACHE.clear()
+    _TMR_CACHE[key] = (_kpi_cache_clock(), value)
+    return value
 
 
 def _get_cached_kpi_row(user_id: int, year: int, month: int) -> dict | None:
@@ -299,7 +325,10 @@ def get_tmr_team(
     current_user: UserModel = Depends(get_current_user),
 ):
     """Equipo con KPIs de actividad (visitas, GPS, foto, acciones, entregas)."""
-    return tmr.build_team(db, _tmr_scope(db, current_user, None), year, month)
+    return _tmr_cached(
+        ("team", current_user.UserId, year, month),
+        lambda: tmr.build_team(db, _tmr_scope(db, current_user, None), year, month),
+    )
 
 
 @router.get("/tmr/routes")
@@ -315,8 +344,11 @@ def get_tmr_routes(
 
     Sin `user_id` computa todo el scope visible — caro; la página siempre pasa
     el vendedor seleccionado."""
-    return tmr.build_routes(
-        db, _tmr_scope(db, current_user, user_id), year, month, with_products=with_products
+    return _tmr_cached(
+        ("routes", current_user.UserId, user_id, year, month, with_products),
+        lambda: tmr.build_routes(
+            db, _tmr_scope(db, current_user, user_id), year, month, with_products=with_products
+        ),
     )
 
 
@@ -329,7 +361,10 @@ def get_tmr_pdvs(
     current_user: UserModel = Depends(get_current_user),
 ):
     """PDVs del vendedor con la matriz producto x PDV y sus quick wins."""
-    return tmr.build_pdvs(db, _tmr_scope(db, current_user, user_id), year, month)
+    return _tmr_cached(
+        ("pdvs", current_user.UserId, user_id, year, month),
+        lambda: tmr.build_pdvs(db, _tmr_scope(db, current_user, user_id), year, month),
+    )
 
 
 @router.get("/tmr/catalog")
@@ -341,7 +376,7 @@ def get_tmr_catalog(
 ):
     """Catálogo de productos y precio de referencia por producto (no depende
     del vendedor: mismo resultado para todo el equipo)."""
-    return tmr.build_catalog(db, year, month)
+    return _tmr_cached(("catalog", year, month), lambda: tmr.build_catalog(db, year, month))
 
 
 # ---------------------------------------------------------------------------
