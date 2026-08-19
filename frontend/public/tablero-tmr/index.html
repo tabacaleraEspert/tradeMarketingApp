@@ -1254,7 +1254,11 @@ function renderTmrProdRuta(trade){
 const API_BASE = (function(){
   var h = location.hostname;
   if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8011';
-  return '/api-proxy';
+  // Directo a la API (mismo host que usa la app React). El '/api-proxy'
+  // anterior asumía un proxy que SWA no soporta (solo linked backend en
+  // /api): devolvía el index.html del SPA con 200 → res.json() explotaba y
+  // el tablero moría en "No se pudieron cargar los datos".
+  return 'https://espert-trade-api.azurewebsites.net';
 })();
 
 function qs(name, def){ var v = new URLSearchParams(location.search).get(name); return v ? Number(v) : def; }
@@ -1299,7 +1303,12 @@ async function apiGet(path){
     res = await fetch(API_BASE + path, { headers: { Authorization: 'Bearer ' + fresh } });
   }
   if (!res.ok) return { status: res.status };
-  return { status: 200, body: await res.json() };
+  try {
+    return { status: 200, body: await res.json() };
+  } catch (e) {
+    // 200 con body no-JSON (ej: un fallback HTML): error de gateway, no crash
+    return { status: 502 };
+  }
 }
 
 var PERIOD = (function(){
