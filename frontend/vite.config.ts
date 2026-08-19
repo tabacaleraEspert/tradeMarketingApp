@@ -48,6 +48,12 @@ export default defineConfig({
       workbox: {
         // Pre-cache all JS/CSS/HTML chunks so they work offline
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // El tablero TMR estático se sirve SIEMPRE de red: precacheado, cada
+        // deploy suyo quedaba tapado por la copia vieja del SW hasta la
+        // proxima activacion (incidente 2026-08-19). No necesita offline.
+        globIgnores: ['**/tablero-tmr/**'],
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/tablero-tmr\//],
         // Max file size to pre-cache (5MB — covers large chunks like recharts)
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         // Activate new SW immediately (don't wait for all tabs to close)
