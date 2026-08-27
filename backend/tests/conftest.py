@@ -112,6 +112,8 @@ def _clear_response_caches():
     un test anterior con la misma key (mismo admin, mismos params)."""
     from app.routers import reports as _reports
     from app.routers import kpi as _kpi
+    from app.routers import intelligence as _intelligence
     _reports._REPORTS_CACHE.clear()
     _kpi._TMR_CACHE.clear()
+    _intelligence._INTEL_CACHE.clear()
     yield

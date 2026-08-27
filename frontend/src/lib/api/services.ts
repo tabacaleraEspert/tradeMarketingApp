@@ -1235,6 +1235,121 @@ export const kpiApi = {
     api.delete<void>(`/kpi/scoring-rules/${ruleId}?type=${type}`),
 };
 
+// --- Inteligencia Comercial (/intelligence) ---
+export interface IntelZona {
+  zonaId: number;
+  zona: string;
+  pdvs: number;
+  censados: number;
+  conEspert: number;
+  cobertura: number;
+  skusPromEspert: number;
+  visitas30d: number;
+  trades30d: number;
+}
+
+export interface IntelTrade {
+  userId: number;
+  nombre: string;
+  zona: string;
+  reportaA: string;
+  cartera: number;
+  censados: number;
+  pctCensado: number;
+  conEspert: number;
+  skusProm: number;
+  visitas30d: number;
+  gps: number;
+  foto: number;
+  ultimaVisita: string | null;
+}
+
+export interface IntelAlerta {
+  tipo: string;
+  severidad: "critica" | "alta" | "media";
+  titulo: string;
+  detalle: string;
+}
+
+export interface IntelPortfolioRow {
+  producto: string;
+  categoria: string;
+  pdvs: number;
+  pct: number;
+  precioProm: number | null;
+  porZona: Record<string, number>;
+}
+
+export interface IntelOverview {
+  generadoEl: string;
+  resumen: {
+    pdvsActivos: number;
+    censados: number;
+    conEspert: number;
+    cobertura: number;
+    pctCensado: number;
+    relevamientos: number;
+    visitas: number;
+  };
+  visitasPorMes: Array<{ mes: string; visitas: number }>;
+  zonas: IntelZona[];
+  competencia: Record<string, { pdvsCig: number; presencia: Record<string, number> }>;
+  precioFab: Record<string, { prom: number; n: number }>;
+  portfolio: IntelPortfolioRow[];
+  trades: IntelTrade[];
+  alertas: IntelAlerta[];
+}
+
+export interface IntelOpportunity {
+  pdvId: number;
+  pdv: string;
+  zona: string;
+  canal: string;
+  tradeId: number | null;
+  trade: string;
+  tipo: string;
+  tipoLabel: string;
+  prioridad: "Crítica" | "Alta" | "Media";
+  detalle: string;
+  sugerencia: string;
+}
+
+export interface IntelOpportunitiesResponse {
+  items: IntelOpportunity[];
+  filteredTotal: number;
+  page: number;
+  pageSize: number;
+  total: number;
+  porTipo: Record<string, number>;
+  porZona: Record<string, Record<string, number>>;
+  porTrade: Record<string, number>;
+  porPrioridad: Record<string, number>;
+}
+
+export interface IntelMapResponse {
+  zonas: Record<string, string>;
+  // [pdvId, lat, lon, zoneId, status]  status: 2 Espert · 1 censado sin · 0 sin censo
+  puntos: Array<[number, number, number, number, number]>;
+  counts: { espert: number; censadoSin: number; sinCenso: number };
+}
+
+export const intelligenceApi = {
+  overview: () => api.get<IntelOverview>("/intelligence/overview"),
+  opportunities: (params?: {
+    zona?: string;
+    trade_id?: number;
+    prioridad?: string;
+    tipo?: string;
+    page?: number;
+    page_size?: number;
+  }) =>
+    api.get<IntelOpportunitiesResponse>(
+      "/intelligence/opportunities",
+      params as Record<string, string | number | undefined>
+    ),
+  map: () => api.get<IntelMapResponse>("/intelligence/map"),
+};
+
 // --- Supplier Types (admin lookup) ---
 export const supplierTypesApi = {
   list: () => api.get<SupplierType[]>("/supplier-types"),

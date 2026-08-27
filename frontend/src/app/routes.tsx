@@ -53,6 +53,7 @@ const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m =>
 const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
 const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").then(m => ({ default: m.ProductDeliveries })));
 const TableroPage = lazy(() => import("./pages/tablero/TableroPage").then(m => ({ default: m.TableroPage })));
+const InteligenciaPage = lazy(() => import("./pages/inteligencia/InteligenciaPage").then(m => ({ default: m.InteligenciaPage })));
 
 function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
@@ -221,6 +222,14 @@ export const router = createBrowserRouter([
     Component: AdminGuard,
     children: [
       { index: true, element: <SuspenseWrap><TableroPage /></SuspenseWrap> },
+      { path: "*", element: <Navigate to="/login" replace /> },
+    ],
+  },
+  {
+    path: "/inteligencia",
+    Component: AdminGuard,
+    children: [
+      { index: true, element: <SuspenseWrap><InteligenciaPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },
