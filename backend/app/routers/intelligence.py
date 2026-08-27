@@ -6,9 +6,9 @@ Tres recursos de solo lectura sobre `services/intelligence.py`:
     GET /intelligence/opportunities  motor de 5 reglas, con filtros y paginado
     GET /intelligence/map            puntos para el mapa canvas
 
-Visibilidad jerárquica (patrón de /kpi y /reports): admin ve todo; managers su
-sub-árbol vía `visible_pdv_ids` / `visible_user_ids`. Sin `require_role` — el
-recorte es por datos, no por endpoint (la página vive detrás del AdminGuard).
+Solo admin (decisión 2026-08-27: Inteligencia y Tablero TMR son de dirección).
+El recorte jerárquico por `visible_pdv_ids`/`visible_user_ids` se mantiene por
+si mañana se abre a managers — hoy es un no-op porque admin ve todo.
 
 Cache TTL in-process de 30 min: el censo histórico completo de `VisitCoverage`
 es el escaneo más caro del backend y estos datos cambian a ritmo de visitas de
@@ -21,14 +21,18 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import get_current_user, require_role
 from ..database import get_db
 from ..hierarchy import visible_pdv_ids, visible_user_ids
 from ..models import User as UserModel
 from ..services import intelligence as I
 from ..utils.ttl_cache import TTLCache
 
-router = APIRouter(prefix="/intelligence", tags=["Inteligencia Comercial"])
+router = APIRouter(
+    prefix="/intelligence",
+    tags=["Inteligencia Comercial"],
+    dependencies=[Depends(require_role("admin"))],
+)
 
 _INTEL_CACHE = TTLCache(ttl_seconds=1800.0, max_entries=500)
 

@@ -317,7 +317,7 @@ def _tmr_scope(db: Session, current_user: UserModel, user_id: int | None) -> lis
     return _resolve_target_user_ids(db, current_user, user_id)
 
 
-@router.get("/tmr/team")
+@router.get("/tmr/team", dependencies=[Depends(require_role("admin"))])
 def get_tmr_team(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -331,7 +331,7 @@ def get_tmr_team(
     )
 
 
-@router.get("/tmr/routes")
+@router.get("/tmr/routes", dependencies=[Depends(require_role("admin"))])
 def get_tmr_routes(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -352,7 +352,7 @@ def get_tmr_routes(
     )
 
 
-@router.get("/tmr/pdvs")
+@router.get("/tmr/pdvs", dependencies=[Depends(require_role("admin"))])
 def get_tmr_pdvs(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -367,7 +367,7 @@ def get_tmr_pdvs(
     )
 
 
-@router.get("/tmr/catalog")
+@router.get("/tmr/catalog", dependencies=[Depends(require_role("admin"))])
 def get_tmr_catalog(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),

@@ -116,9 +116,13 @@ function SuspenseWrap({ children }: { children: React.ReactNode }) {
 }
 
 function TableroTmrRedirect() {
+  // El Tablero TMR es solo-admin (los endpoints /kpi/tmr/* devuelven 403 al
+  // resto); acá se corta antes de llegar a la página estática.
+  const isAdmin = getCurrentUser().role === "admin";
   useEffect(() => {
-    window.location.replace("/tablero-tmr/index.html" + window.location.search);
-  }, []);
+    if (isAdmin) window.location.replace("/tablero-tmr/index.html" + window.location.search);
+  }, [isAdmin]);
+  if (!isAdmin) return <Navigate to="/" replace />;
   return null;
 }
 
@@ -126,6 +130,14 @@ function AdminGuard() {
   const user = getCurrentUser();
   const adminRoles = ["admin", "regional_manager", "territory_manager", "ejecutivo", "supervisor"];
   if (!adminRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return <SuspenseWrap><AdminLayout /></SuspenseWrap>;
+}
+
+/** Inteligencia y los tableros TMR son de dirección: solo admin. */
+function AdminOnlyGuard() {
+  if (getCurrentUser().role !== "admin") {
     return <Navigate to="/" replace />;
   }
   return <SuspenseWrap><AdminLayout /></SuspenseWrap>;
@@ -219,7 +231,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/tablero",
-    Component: AdminGuard,
+    Component: AdminOnlyGuard,
     children: [
       { index: true, element: <SuspenseWrap><TableroPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
@@ -227,7 +239,7 @@ export const router = createBrowserRouter([
   },
   {
     path: "/inteligencia",
-    Component: AdminGuard,
+    Component: AdminOnlyGuard,
     children: [
       { index: true, element: <SuspenseWrap><InteligenciaPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },

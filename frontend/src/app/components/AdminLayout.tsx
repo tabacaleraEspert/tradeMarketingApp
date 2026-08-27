@@ -21,6 +21,7 @@ import {
   Gift,
   LayoutGrid,
   Brain,
+  Smartphone,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -44,6 +45,9 @@ export function AdminLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   );
+  // Desktop: sidebar colapsada a solo-iconos; se expande al pasar el mouse.
+  // En mobile no aplica (ahí manda isSidebarOpen con el overlay).
+  const [isHovered, setIsHovered] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
   useEffect(() => {
@@ -76,12 +80,19 @@ export function AdminLayout() {
     return <Navigate to="/" replace />;
   }
 
+  // Tablero TMR e Inteligencia son solo-admin (los endpoints devuelven 403 al
+  // resto); para managers directamente no aparecen en el menú.
+  const isAdmin = currentUser?.Role === "admin";
   const menuItems = [
     { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
     // "Objetivos TMR" (/tablero) sale del menu: lo reemplaza el Tablero TMR.
     // La ruta sigue existiendo y es accesible por URL, no se borro nada.
-    { path: "/tablero-tmr/index.html", icon: LayoutGrid, label: "Tablero TMR", external: true },
-    { path: "/inteligencia", icon: Brain, label: "Inteligencia" },
+    ...(isAdmin
+      ? [
+          { path: "/tablero-tmr/index.html", icon: LayoutGrid, label: "Tablero TMR", external: true },
+          { path: "/inteligencia", icon: Brain, label: "Inteligencia" },
+        ]
+      : []),
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
     { path: "/admin/channels", icon: Layers, label: "Canales" },
     { path: "/admin/supplier-config", icon: Truck, label: "Proveedores" },
@@ -172,11 +183,15 @@ export function AdminLayout() {
       <div className="flex">
         {/* Sidebar */}
         <aside
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
           className={`${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 bg-card border-r border-border transition-transform duration-300 z-20`}
+          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 ${
+            isHovered ? "lg:w-64" : "lg:w-[72px]"
+          } bg-card border-r border-border transition-all duration-300 ease-in-out z-20 overflow-x-hidden`}
         >
-          <nav className="p-4 space-y-1">
+          <nav className="p-3 space-y-1">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = isActivePath(item.path);
@@ -184,6 +199,7 @@ export function AdminLayout() {
               return (
                 <button
                   key={item.path}
+                  title={item.label}
                   onClick={() => {
                     if (item.external) {
                       window.open(item.path, "_blank", "noopener");
@@ -192,27 +208,41 @@ export function AdminLayout() {
                     }
                     setIsSidebarOpen(false);
                   }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
+                  className={`w-full flex items-center px-3 py-3 rounded-lg transition-colors ${
                     isActive
                       ? "bg-secondary text-espert-gold font-semibold"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   }`}
                 >
-                  <Icon size={20} />
-                  <span>{item.label}</span>
+                  <Icon size={20} className="shrink-0" />
+                  <span
+                    className={`overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${
+                      isHovered ? "ml-3 max-w-[180px] opacity-100" : "ml-3 max-w-[180px] opacity-100 lg:ml-0 lg:max-w-0 lg:opacity-0"
+                    }`}
+                  >
+                    {item.label}
+                  </span>
                 </button>
               );
             })}
           </nav>
 
           {/* Back to Mobile */}
-          <div className="absolute bottom-4 left-4 right-4">
+          <div className="absolute bottom-4 left-3 right-3">
             <Button
               variant="outline"
-              className="w-full border-espert-gold/30 text-espert-gold hover:bg-espert-gold/10"
+              title="Volver a Modo Campo"
+              className="w-full border-espert-gold/30 text-espert-gold hover:bg-espert-gold/10 px-2"
               onClick={() => navigate("/")}
             >
-              Volver a Modo Campo
+              <Smartphone size={16} className="shrink-0" />
+              <span
+                className={`overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${
+                  isHovered ? "ml-2 max-w-[180px] opacity-100" : "ml-2 max-w-[180px] opacity-100 lg:ml-0 lg:max-w-0 lg:opacity-0"
+                }`}
+              >
+                Volver a Modo Campo
+              </span>
             </Button>
           </div>
         </aside>
