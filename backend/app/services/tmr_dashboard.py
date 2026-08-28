@@ -708,6 +708,9 @@ def build_pdvs(db: Session, user_ids: list[int], year: int, month: int) -> dict[
             acts = sorted(ctx.actions_by_pdv.get((uid, pdv_id), ()))
             ruta = ctx.route_of_pdv.get((uid, pdv_id), "Sin ruta asignada")
             rows.append({
+                # `id`: para el drill al PDV desde Inteligencia (la página
+                # estática lo ignora).
+                "id": pdv_id,
                 "n": p.Name,
                 "loc": ctx.pdv_loc(p),
                 "canal": ctx.pdv_channel(p),

@@ -39,7 +39,8 @@ from typing import Any, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import PDV, Channel, Product, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
+from ..models import PDV, Channel, Product, Route, RoutePdv, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
+from ..models.pdv_contact import PdvContact
 from ..models.user import Role as RoleModel, UserRole as UserRoleModel
 from .kpi_engine import filter_price_outliers
 
@@ -244,18 +245,30 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
     visits = [v for v in visits if v.PdvId in c.pdvs]
 
     by_month: dict[str, int] = defaultdict(int)
+    users_by_month: dict[str, set[int]] = defaultdict(set)
     visits_30d_by_zone: dict[int, int] = defaultdict(int)
     users_30d_by_zone: dict[int, set[int]] = defaultdict(set)
     for v in visits:
         opened = v.OpenedAt if v.OpenedAt.tzinfo else v.OpenedAt.replace(tzinfo=timezone.utc)
-        by_month[opened.strftime("%Y-%m")] += 1
+        mes = opened.strftime("%Y-%m")
+        by_month[mes] += 1
+        users_by_month[mes].add(v.UserId)
         if opened >= since_30d:
             zid = c.pdvs[v.PdvId].ZoneId
             visits_30d_by_zone[zid] += 1
             users_30d_by_zone[zid].add(v.UserId)
     visitas_por_mes = [
-        {"mes": m, "visitas": n} for m, n in sorted(by_month.items())[-6:]
+        {
+            "mes": m,
+            "visitas": n,
+            "trades": len(users_by_month[m]),
+            "promPorTrade": round(n / len(users_by_month[m])) if users_by_month[m] else 0,
+        }
+        for m, n in sorted(by_month.items())[-6:]
     ]
+    # Desde cuándo hay datos de verdad: meses distintos con al menos una visita.
+    datos_desde = min(by_month) if by_month else None
+    meses_de_datos = len(by_month)
 
     # ── Zonas ──────────────────────────────────────────────────────────────
     pdvs_by_zone: dict[int, list[int]] = defaultdict(list)
@@ -267,6 +280,9 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
         censados = [p for p in pdv_list if p in c.censados]
         con = [p for p in censados if p in con_espert]
         depths = [len(c.own_works(p)) for p in con]
+        # Venta de sueltos: el flag es nullable — solo cuentan los PDVs con dato.
+        sueltos_con_dato = [p for p in pdv_list if c.pdvs[p].SellsLooseCigarettes is not None]
+        sueltos_si = sum(1 for p in sueltos_con_dato if c.pdvs[p].SellsLooseCigarettes)
         zonas.append({
             "zonaId": zid,
             "zona": c.zone_names.get(zid, "Sin zona"),
@@ -277,6 +293,8 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             "skusPromEspert": round(mean(depths), 1) if depths else 0,
             "visitas30d": visits_30d_by_zone.get(zid, 0),
             "trades30d": len(users_30d_by_zone.get(zid, ())),
+            "sueltosPct": _pct(sueltos_si, len(sueltos_con_dato), 0),
+            "sueltosConDato": len(sueltos_con_dato),
         })
     zonas.sort(key=lambda z: -z["pdvs"])
 
@@ -336,6 +354,67 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             },
         })
     portfolio.sort(key=lambda r: -r["pdvs"])
+
+    # ── Análisis de góndola: familias propias + rivales por SKU ────────────
+    OWN_BRANDS = ("Milenio", "Melbourne", "Mill", "Bold", "Van Kiff", "Lebonn", "Blank", "Dito", "Fleek")
+
+    def _brand_of(name: str) -> Optional[str]:
+        return next((b for b in OWN_BRANDS if name.startswith(b)), None)
+
+    # Conteo de PDVs que trabajan cada producto (censo consolidado).
+    works_count: dict[int, int] = defaultdict(int)
+    for pid in c.censados:
+        for prod_id in c.works.get(pid, ()):
+            works_count[prod_id] += 1
+
+    familias = []
+    for brand in OWN_BRANDS:
+        brand_ids = {pid for pid, info in c.products.items() if info.is_own and info.name.startswith(brand)}
+        if not brand_ids:
+            continue
+        pdvs_con = [p for p in c.censados if c.works.get(p, set()) & brand_ids]
+        if not pdvs_con:
+            continue
+        depths = [len(c.works[p] & brand_ids) for p in pdvs_con]
+        precios = [v for pid in brand_ids for v in c.valid_prices.get(pid, [])]
+        familias.append({
+            "marca": brand,
+            "pdvs": len(pdvs_con),
+            "pct": _pct(len(pdvs_con), len(c.censados)),
+            "skusActivos": sum(1 for pid in brand_ids if works_count.get(pid, 0) > 0),
+            "skusPromPorPdv": round(mean(depths), 1),
+            "precioProm": round(mean(precios)) if precios else None,
+        })
+    familias.sort(key=lambda f: -f["pdvs"])
+
+    # Rivales directos: para cada SKU propio de cigarrillos, los 3 productos de
+    # competencia con mediana de precio más cercana (la pelea real de góndola).
+    rivales = []
+    comp_cigs = [
+        pid for pid in cig_ids
+        if not c.products[pid].is_own and pid in c.median_by_product and works_count.get(pid, 0) > 0
+    ]
+    for pid in own_ids:
+        info = c.products[pid]
+        if pid not in cig_ids or pid not in c.median_by_product or works_count.get(pid, 0) == 0:
+            continue
+        med = c.median_by_product[pid]
+        cercanos = sorted(comp_cigs, key=lambda cp: abs(c.median_by_product[cp] - med))[:3]
+        rivales.append({
+            "sku": info.name,
+            "precio": round(med),
+            "pct": _pct(works_count[pid], len(c.censados)),
+            "rivales": [
+                {
+                    "producto": c.products[cp].name,
+                    "fabricante": c.products[cp].manufacturer,
+                    "precio": round(c.median_by_product[cp]),
+                    "pct": _pct(works_count[cp], len(c.censados)),
+                }
+                for cp in cercanos
+            ],
+        })
+    rivales.sort(key=lambda r: -r["pct"])
 
     # ── Trades (vendedores activos del scope, últimos 30 días) ─────────────
     vendedor_ids = {
@@ -454,6 +533,8 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
 
     return {
         "generadoEl": now.strftime("%Y-%m-%d %H:%M UTC"),
+        "datosDesde": datos_desde,
+        "mesesDeDatos": meses_de_datos,
         "resumen": {
             "pdvsActivos": len(c.pdvs),
             "censados": len(c.censados),
@@ -468,6 +549,7 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
         "competencia": competencia,
         "precioFab": precio_fab,
         "portfolio": portfolio,
+        "gondola": {"familias": familias, "rivales": rivales},
         "trades": trades,
         "alertas": alertas,
     }
@@ -604,11 +686,25 @@ def build_opportunities(census: Census) -> dict[str, Any]:
 # Mapa
 # ---------------------------------------------------------------------------
 
-def build_map(census: Census) -> dict[str, Any]:
-    """Puntos livianos para el canvas: [pdvId, lat, lon, zoneId, status].
+def build_map(db: Session, census: Census) -> dict[str, Any]:
+    """Puntos para el canvas: [pdvId, lat, lon, zoneId, status, rutaId, nombre].
 
-    status: 2 = trabaja Espert · 1 = censado sin Espert · 0 = sin censo."""
+    status: 2 = trabaja Espert · 1 = censado sin Espert · 0 = sin censo.
+    rutaId: primera ruta activa que contiene al PDV (0 = sin ruta) — para
+    colorear por ruta en la vista de zona."""
     c = census
+    ruta_of: dict[int, int] = {}
+    ruta_names: dict[int, str] = {}
+    for pdv_id, rid, rname in (
+        db.query(RoutePdv.PdvId, Route.RouteId, Route.Name)
+        .join(Route, Route.RouteId == RoutePdv.RouteId)
+        .filter(Route.IsActive == True)  # noqa: E712
+        .all()
+    ):
+        if pdv_id in c.pdvs and pdv_id not in ruta_of:
+            ruta_of[pdv_id] = rid
+            ruta_names[rid] = rname
+
     points = []
     counts = {"espert": 0, "censadoSin": 0, "sinCenso": 0}
     for pid, p in c.pdvs.items():
@@ -619,9 +715,181 @@ def build_map(census: Census) -> dict[str, Any]:
         else:
             status = 0
         counts["espert" if status == 2 else "censadoSin" if status == 1 else "sinCenso"] += 1
-        points.append([pid, float(p.Lat), float(p.Lon), p.ZoneId or 0, status])
+        points.append([
+            pid, float(p.Lat), float(p.Lon), p.ZoneId or 0, status,
+            ruta_of.get(pid, 0), p.Name,
+        ])
     return {
         "zonas": {zid: name for zid, name in c.zone_names.items()},
+        "rutas": ruta_names,
         "puntos": points,
         "counts": counts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Ficha de PDV (último nivel de drill)
+# ---------------------------------------------------------------------------
+
+def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[str, Any]]:
+    """Ficha completa de UN punto de venta: contacto, censo consolidado con
+    precio y fecha por producto, evolución mensual, visitas y fotos."""
+    c = census
+    p = c.pdvs.get(pdv_id)
+    if p is None:
+        return None  # fuera del scope del solicitante (o inactivo)
+
+    contacts = [
+        {
+            "nombre": ct.ContactName,
+            "telefono": ct.ContactPhone,
+            "rol": ct.ContactRole,
+            "decision": ct.DecisionPower,
+            "notas": ct.Notes,
+        }
+        for ct in db.query(PdvContact).filter(PdvContact.PdvId == pdv_id).all()
+    ]
+    if not contacts and (p.ContactName or p.ContactPhone):
+        contacts = [{"nombre": p.ContactName or "—", "telefono": p.ContactPhone,
+                     "rol": None, "decision": None, "notas": None}]
+
+    visits = (
+        db.query(Visit)
+        .filter(Visit.PdvId == pdv_id)
+        .order_by(Visit.OpenedAt.desc())
+        .all()
+    )
+    visit_ids = [v.VisitId for v in visits]
+    user_of = {v.VisitId: v.UserId for v in visits}
+
+    # Las Url guardadas en VisitPhoto son SAS firmadas al momento de subir y
+    # EXPIRAN — siempre regenerar desde File.BlobKey (mismo criterio que
+    # routers/files.py), y solo para las que efectivamente se muestran.
+    from ..models import File as FileModel
+    from ..storage import storage
+
+    fotos_por_visita: dict[int, int] = defaultdict(int)
+    fotos_raw: list[dict] = []
+    gps_visits: set[int] = set()
+    if visit_ids:
+        for i in range(0, len(visit_ids), 1000):
+            chunk = visit_ids[i:i + 1000]
+            for vid, stored_url, ptype, blob_key in (
+                db.query(VisitPhoto.VisitId, VisitPhoto.Url, VisitPhoto.PhotoType, FileModel.BlobKey)
+                .join(FileModel, FileModel.FileId == VisitPhoto.FileId)
+                .filter(VisitPhoto.VisitId.in_(chunk))
+                .all()
+            ):
+                fotos_por_visita[vid] += 1
+                fotos_raw.append({"visitId": vid, "tipo": ptype, "blobKey": blob_key, "storedUrl": stored_url})
+            gps_visits.update(
+                v for (v,) in db.query(VisitCheck.VisitId)
+                .filter(VisitCheck.VisitId.in_(chunk), VisitCheck.Lat.isnot(None))
+                .distinct().all()
+            )
+
+    fecha_de_visita = {v.VisitId: v.OpenedAt for v in visits}
+    fotos_raw.sort(key=lambda f: fecha_de_visita.get(f["visitId"], datetime.min), reverse=True)
+    fotos = []
+    for f in fotos_raw[:12]:
+        try:
+            url = storage.get_url(f["blobKey"]) if f["blobKey"] else (f["storedUrl"] or "")
+        except Exception:
+            url = f["storedUrl"] or ""
+        if not url:
+            continue
+        opened = fecha_de_visita.get(f["visitId"])
+        fotos.append({
+            "visitId": f["visitId"],
+            "url": url,
+            "tipo": f["tipo"],
+            "fecha": opened.strftime("%Y-%m-%d") if opened else None,
+        })
+
+    # Censo consolidado del PDV: última observación por producto, con precio.
+    cov_rows = (
+        db.query(Visit.OpenedAt, VisitCoverage.ProductId, VisitCoverage.Works,
+                 VisitCoverage.Price, VisitCoverage.Availability)
+        .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
+        .filter(Visit.PdvId == pdv_id, VisitCoverage.ProductId.isnot(None))
+        .all()
+    )
+    latest: dict[int, tuple] = {}
+    by_month_skus: dict[str, set[int]] = defaultdict(set)
+    for opened_at, prod_id, works, price, avail in cov_rows:
+        if prod_id not in c.products:
+            continue
+        mes = opened_at.strftime("%Y-%m")
+        if works and c.products[prod_id].is_own:
+            by_month_skus[mes].add(prod_id)
+        prev = latest.get(prod_id)
+        if prev is None or opened_at > prev[0]:
+            latest[prod_id] = (opened_at, bool(works), float(price) if price else None, avail)
+
+    censo = [
+        {
+            "producto": c.products[pid].name,
+            "fabricante": c.products[pid].manufacturer,
+            "esEspert": c.products[pid].is_own,
+            "categoria": c.products[pid].category,
+            "trabaja": works,
+            "precio": price,
+            "disponibilidad": avail,
+            "fecha": opened_at.strftime("%Y-%m-%d"),
+        }
+        for pid, (opened_at, works, price, avail) in latest.items()
+    ]
+    censo.sort(key=lambda r: (not r["esEspert"], not r["trabaja"], r["producto"]))
+
+    visitas_por_mes: dict[str, int] = defaultdict(int)
+    for v in visits:
+        visitas_por_mes[v.OpenedAt.strftime("%Y-%m")] += 1
+    evolucion = [
+        {"mes": m, "visitas": visitas_por_mes.get(m, 0), "skusEspert": len(by_month_skus.get(m, ()))}
+        for m in sorted(set(visitas_por_mes) | set(by_month_skus))[-8:]
+    ]
+
+    def _dur(v) -> Optional[int]:
+        if not v.ClosedAt or not v.OpenedAt:
+            return None
+        return round((v.ClosedAt - v.OpenedAt).total_seconds() / 60)
+
+    visitas = [
+        {
+            "visitId": v.VisitId,
+            "fecha": v.OpenedAt.strftime("%Y-%m-%d %H:%M"),
+            "trade": c.user_names.get(user_of.get(v.VisitId), "—"),
+            "duracionMin": _dur(v),
+            "fotos": fotos_por_visita.get(v.VisitId, 0),
+            "gps": v.VisitId in gps_visits,
+            "estado": v.Status,
+        }
+        for v in visits[:20]
+    ]
+
+    own_hoy = sorted(
+        c.products[pid].name for pid in c.own_works(pdv_id)
+    )
+    return {
+        "info": {
+            "pdvId": pdv_id,
+            "nombre": p.Name,
+            "codigo": p.Code,
+            "direccion": ", ".join(x for x in [p.Address, p.City] if x),
+            "canal": c.pdv_channel(p),
+            "zona": c.pdv_zone(p),
+            "trade": c.user_names.get(p.AssignedUserId, "Sin asignar"),
+            "tradeId": p.AssignedUserId,
+            "sueltos": p.SellsLooseCigarettes,
+            "volumenMensual": p.MonthlyVolume,
+            "categoria": p.Category,
+            "horario": f"{p.OpeningTime or '—'} a {p.ClosingTime or '—'}" if (p.OpeningTime or p.ClosingTime) else None,
+        },
+        "contactos": contacts,
+        "skusEspertHoy": own_hoy,
+        "censo": censo,
+        "evolucion": evolucion,
+        "visitas": visitas,
+        "totalVisitas": len(visits),
+        "fotos": fotos,
     }

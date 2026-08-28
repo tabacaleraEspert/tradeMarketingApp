@@ -267,7 +267,7 @@ def test_map_estados_y_puntos(db):
     _censo(db, sin_espert, comp, works=True, user=u)
 
     scope = {con_espert.PdvId, sin_espert.PdvId, sin_censo.PdvId, sin_coords.PdvId}
-    result = build_map(load_census(db, scope))
+    result = build_map(db, load_census(db, scope))
     status_by_pdv = {p[0]: p[4] for p in result["puntos"]}
     assert status_by_pdv[con_espert.PdvId] == 2
     assert status_by_pdv[sin_espert.PdvId] == 1

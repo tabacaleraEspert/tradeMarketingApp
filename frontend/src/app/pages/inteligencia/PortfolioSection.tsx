@@ -1,5 +1,6 @@
 import { Card, CardContent } from "../../components/ui/card";
 import type { IntelPortfolioRow, IntelZona } from "@/lib/api";
+import { SkuName } from "./SkuName";
 
 const TOP_SKUS = 14;
 
@@ -22,7 +23,7 @@ export function PortfolioSection({ portfolio, zonas }: Props) {
   return (
     <Card>
       <CardContent className="p-4">
-        <h3 className="font-bold text-foreground text-sm mb-1">Portfolio Espert en góndola</h3>
+        <h3 className="font-bold text-foreground text-sm mb-1">¿Qué tenemos en góndola?</h3>
         <p className="text-xs text-muted-foreground mb-3">
           Presencia de cada SKU sobre los PDVs censados — nacional y por zona (top {TOP_SKUS}).
         </p>
@@ -42,8 +43,8 @@ export function PortfolioSection({ portfolio, zonas }: Props) {
             <tbody>
               {top.map((p) => (
                 <tr key={p.producto}>
-                  <td className="py-0.5 pr-2 whitespace-nowrap font-medium text-foreground">
-                    {p.producto}
+                  <td className="py-0.5 pr-2 whitespace-nowrap">
+                    <SkuName name={p.producto} />
                     {p.categoria !== "cigarrillos" && (
                       <span className="ml-1.5 text-[10px] text-muted-foreground uppercase">{p.categoria}</span>
                     )}

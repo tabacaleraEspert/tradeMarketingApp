@@ -102,6 +102,22 @@ def get_opportunities(
     }
 
 
+@router.get("/pdv/{pdv_id}")
+def get_pdv_detail(
+    pdv_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Ficha completa de un PDV (último nivel de drill). Sin cache propio:
+    el costo es un puñado de queries por PDV; el censo compartido ya está."""
+    census, _pdv_scope = _census_cached(db, current_user)
+    detail = I.build_pdv_detail(db, census, pdv_id)
+    if detail is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="PDV no encontrado o fuera de tu alcance")
+    return detail
+
+
 @router.get("/map")
 def get_map(
     db: Session = Depends(get_db),
@@ -109,4 +125,4 @@ def get_map(
 ):
     census, pdv_scope = _census_cached(db, current_user)
     key = ("map", _scope_key(pdv_scope, current_user))
-    return _INTEL_CACHE.get_or_build(key, lambda: I.build_map(census))
+    return _INTEL_CACHE.get_or_build(key, lambda: I.build_map(db, census))

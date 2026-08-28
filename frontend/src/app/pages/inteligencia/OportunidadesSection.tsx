@@ -6,6 +6,7 @@ import {
   type IntelOpportunitiesResponse,
   type IntelZona,
 } from "@/lib/api";
+import { useIntelNav } from "./nav-context";
 
 const PAGE_SIZE = 50;
 
@@ -23,15 +24,22 @@ const TIPOS: Array<{ value: string; label: string }> = [
   { value: "franja_precio", label: "Franja descubierta" },
 ];
 
-export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
+interface OportunidadesProps {
+  zonas: IntelZona[];
+  fixedZona?: string;
+  fixedTradeId?: number;
+}
+
+export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: OportunidadesProps) {
   const [data, setData] = useState<IntelOpportunitiesResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [exporting, setExporting] = useState(false);
-  const [zona, setZona] = useState("");
+  const [zona, setZona] = useState(fixedZona ?? "");
   const [prioridad, setPrioridad] = useState("");
   const [tipo, setTipo] = useState("");
   const [page, setPage] = useState(1);
+  const { openPdv } = useIntelNav();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -39,6 +47,7 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
     intelligenceApi
       .opportunities({
         zona: zona || undefined,
+        trade_id: fixedTradeId,
         prioridad: prioridad || undefined,
         tipo: tipo || undefined,
         page,
@@ -47,7 +56,7 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
       .then(setData)
       .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [zona, prioridad, tipo, page]);
+  }, [zona, prioridad, tipo, page, fixedTradeId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -57,6 +66,7 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
     intelligenceApi
       .opportunities({
         zona: zona || undefined,
+        trade_id: fixedTradeId,
         prioridad: prioridad || undefined,
         tipo: tipo || undefined,
         page: 1,
@@ -93,8 +103,13 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
       <CardContent className="p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 className="font-bold text-foreground text-sm">
-            Motor de oportunidades
-            {data && <span className="ml-2 text-espert-gold">{data.total.toLocaleString("es-AR")} gaps</span>}
+            ¿Dónde está la próxima venta?
+            {data && (
+              <span className="ml-2 text-espert-gold">
+                {(fixedZona || fixedTradeId ? data.filteredTotal : data.total).toLocaleString("es-AR")} oportunidades
+                {fixedZona ? " en la zona" : fixedTradeId ? " del trade" : ""}
+              </span>
+            )}
           </h3>
           <button
             onClick={exportCsv}
@@ -109,7 +124,9 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
           categoría solo competencia, capsulados, extensión Milenio y franjas de precio descubiertas.
         </p>
 
-        {data && (
+        {/* Los chips agregados son del total del scope — en la vista de zona
+            confundirían (mezclan zonas), así que solo van en la general. */}
+        {data && !fixedZona && !fixedTradeId && (
           <div className="flex flex-wrap gap-2 mb-3 text-xs">
             {Object.entries(data.porPrioridad).map(([p, n]) => (
               <span key={p} className={`px-2 py-1 rounded-full font-semibold ${PRIORITY_STYLES[p]}`}>
@@ -125,10 +142,12 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
         )}
 
         <div className="flex flex-wrap gap-2 mb-3">
-          <select value={zona} onChange={(e) => { setZona(e.target.value); setPage(1); }} className={selectClass}>
-            <option value="">Todas las zonas</option>
-            {zonas.map((z) => <option key={z.zonaId} value={z.zona}>{z.zona}</option>)}
-          </select>
+          {!fixedZona && (
+            <select value={zona} onChange={(e) => { setZona(e.target.value); setPage(1); }} className={selectClass}>
+              <option value="">Todas las zonas</option>
+              {zonas.map((z) => <option key={z.zonaId} value={z.zona}>{z.zona}</option>)}
+            </select>
+          )}
           <select value={prioridad} onChange={(e) => { setPrioridad(e.target.value); setPage(1); }} className={selectClass}>
             <option value="">Toda prioridad</option>
             {Object.keys(PRIORITY_STYLES).map((p) => <option key={p} value={p}>{p}</option>)}
@@ -170,7 +189,15 @@ export function OportunidadesSection({ zonas }: { zonas: IntelZona[] }) {
                 <tbody>
                   {data.items.map((r, i) => (
                     <tr key={`${r.pdvId}-${r.tipo}-${i}`} className="border-b border-border/60 hover:bg-muted/40 align-top">
-                      <td className="py-1.5 pr-3 font-medium text-foreground whitespace-nowrap max-w-[180px] truncate">{r.pdv}</td>
+                      <td className="py-1.5 pr-3 font-medium text-foreground whitespace-nowrap max-w-[180px] truncate">
+                        <button
+                          onClick={() => openPdv(r.pdvId)}
+                          className="hover:text-espert-gold hover:underline transition-colors truncate max-w-full"
+                          title={`Ver la ficha de ${r.pdv}`}
+                        >
+                          {r.pdv}
+                        </button>
+                      </td>
                       <td className="py-1.5 pr-3 whitespace-nowrap">{r.zona}</td>
                       <td className="py-1.5 pr-3 whitespace-nowrap">{r.trade}</td>
                       <td className="py-1.5 pr-3">

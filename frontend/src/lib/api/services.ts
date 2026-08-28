@@ -1246,6 +1246,8 @@ export interface IntelZona {
   skusPromEspert: number;
   visitas30d: number;
   trades30d: number;
+  sueltosPct: number; // % que vende sueltos, sobre los PDVs con dato
+  sueltosConDato: number;
 }
 
 export interface IntelTrade {
@@ -1282,6 +1284,8 @@ export interface IntelPortfolioRow {
 
 export interface IntelOverview {
   generadoEl: string;
+  datosDesde: string | null; // "YYYY-MM" del primer mes con visitas
+  mesesDeDatos: number;
   resumen: {
     pdvsActivos: number;
     censados: number;
@@ -1291,11 +1295,27 @@ export interface IntelOverview {
     relevamientos: number;
     visitas: number;
   };
-  visitasPorMes: Array<{ mes: string; visitas: number }>;
+  visitasPorMes: Array<{ mes: string; visitas: number; trades: number; promPorTrade: number }>;
   zonas: IntelZona[];
   competencia: Record<string, { pdvsCig: number; presencia: Record<string, number> }>;
   precioFab: Record<string, { prom: number; n: number }>;
   portfolio: IntelPortfolioRow[];
+  gondola: {
+    familias: Array<{
+      marca: string;
+      pdvs: number;
+      pct: number;
+      skusActivos: number;
+      skusPromPorPdv: number;
+      precioProm: number | null;
+    }>;
+    rivales: Array<{
+      sku: string;
+      precio: number;
+      pct: number;
+      rivales: Array<{ producto: string; fabricante: string; precio: number; pct: number }>;
+    }>;
+  };
   trades: IntelTrade[];
   alertas: IntelAlerta[];
 }
@@ -1328,12 +1348,154 @@ export interface IntelOpportunitiesResponse {
 
 export interface IntelMapResponse {
   zonas: Record<string, string>;
-  // [pdvId, lat, lon, zoneId, status]  status: 2 Espert · 1 censado sin · 0 sin censo
-  puntos: Array<[number, number, number, number, number]>;
+  rutas: Record<string, string>;
+  // [pdvId, lat, lon, zoneId, status, rutaId, nombre]
+  // status: 2 Espert · 1 censado sin · 0 sin censo · rutaId 0 = sin ruta
+  puntos: Array<[number, number, number, number, number, number, string]>;
   counts: { espert: number; censadoSin: number; sinCenso: number };
 }
 
+// Fila de /kpi/tmr/team (actividad del mes por trade — misma data que el
+// Tablero TMR estático; acá se cruza con el censo en la sección Equipo).
+export interface TmrTeamRow {
+  id: number;
+  n: string;
+  zona: string;
+  tot: number; // visitas del mes
+  vis: number; // PDVs del universo foco visitados
+  pdvs: number; // universo foco
+  plan: number;
+  vis_plan: number;
+  ef_pct: number;
+  gps: number;
+  foto: number;
+  dur: number; // duración promedio (min)
+  accion_pct: number;
+  tot_ent: number;
+  ent: Record<string, number>;
+}
+
+export interface TmrTeamResponse {
+  periodo_label: string;
+  fecha_datos: string;
+  res: { vis: number; ent: number; foto: number; ef: number; acc: number };
+  trades: TmrTeamRow[];
+}
+
+// Fila de la matriz producto x PDV de /kpi/tmr/pdvs (por vendedor).
+export interface TmrPdvRow {
+  id?: number; // PdvId (puede faltar en responses cacheados viejos)
+  n: string;
+  loc: string;
+  canal: string;
+  vis: number;
+  ha: boolean;
+  at: string[];
+  vs: string;
+  score: string | null;
+  // 1 trabaja · 0 no trabaja · null no relevado, indexado contra espert_prods
+  pr: Array<number | null>;
+  ruta: string;
+}
+
+export interface TmrPdvsResponse {
+  tmr_pdvs: Record<string, TmrPdvRow[]>;
+  quick_wins: Array<{
+    n: string; loc: string; canal: string; vis: number;
+    gaps: number; missing: string[]; ruta: string; trade: string; zona: string;
+  }>;
+  espert_prods: string[];
+}
+
+// Ruta foco de /kpi/tmr/routes (por vendedor): cobertura y precios por producto.
+export interface TmrRutaRow {
+  nombre: string;
+  trade: string;
+  user_id: number;
+  zona: string;
+  pdvs: number;
+  relevados: number;
+  buenos: number;
+  vis_pdvs_jul: number; // PDVs visitados en el mes
+  vis_plan: number;
+  planned_mes: number;
+  vende_sueltos: number;
+  con_canje: number;
+  con_promo: number;
+  con_material: number;
+  ef_jul: number; // efectividad del mes (%)
+  cob_score_pct: number;
+  freq: string;
+  score_dist: Record<string, number>;
+  prod_cob?: Record<string, number>;
+  precios_ruta?: Record<string, { avg: number; min: number; max: number; n: number }>;
+}
+
+export interface TmrCatalogResponse {
+  espert_prods: string[];
+  all_prods: string[];
+  prod_fab_groups: Record<string, string[]>;
+  precios: { prod: Record<string, { avg: number; min: number; max: number; n: number }> };
+}
+
+// Ficha completa de un PDV (último nivel de drill de Inteligencia).
+export interface IntelPdvDetail {
+  info: {
+    pdvId: number;
+    nombre: string;
+    codigo: string | null;
+    direccion: string;
+    canal: string;
+    zona: string;
+    trade: string;
+    tradeId: number | null;
+    sueltos: boolean | null;
+    volumenMensual: number | null;
+    categoria: string | null;
+    horario: string | null;
+  };
+  contactos: Array<{
+    nombre: string;
+    telefono: string | null;
+    rol: string | null;
+    decision: string | null;
+    notas: string | null;
+  }>;
+  skusEspertHoy: string[];
+  censo: Array<{
+    producto: string;
+    fabricante: string;
+    esEspert: boolean;
+    categoria: string;
+    trabaja: boolean;
+    precio: number | null;
+    disponibilidad: string | null;
+    fecha: string;
+  }>;
+  evolucion: Array<{ mes: string; visitas: number; skusEspert: number }>;
+  visitas: Array<{
+    visitId: number;
+    fecha: string;
+    trade: string;
+    duracionMin: number | null;
+    fotos: number;
+    gps: boolean;
+    estado: string | null;
+  }>;
+  totalVisitas: number;
+  fotos: Array<{ visitId: number; url: string; tipo: string; fecha: string | null }>;
+}
+
 export const intelligenceApi = {
+  pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
+  tmrTeam: (params: { year: number; month: number }) =>
+    api.get<TmrTeamResponse>("/kpi/tmr/team", params as Record<string, number>),
+  tmrPdvs: (params: { year: number; month: number; user_id: number }) =>
+    api.get<TmrPdvsResponse>("/kpi/tmr/pdvs", params as Record<string, number>),
+  tmrRoutes: (params: { year: number; month: number; user_id: number }) =>
+    api.get<{ rutas: TmrRutaRow[] }>("/kpi/tmr/routes", params as Record<string, number>),
+  tmrCatalog: (params: { year: number; month: number }) =>
+    api.get<TmrCatalogResponse>("/kpi/tmr/catalog", params as Record<string, number>),
   overview: () => api.get<IntelOverview>("/intelligence/overview"),
   opportunities: (params?: {
     zona?: string;
