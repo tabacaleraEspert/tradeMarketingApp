@@ -155,7 +155,15 @@ class RefreshResponse(BaseModel):
     expires_in: int
 
 
-def _build_login_response(user: UserModel, db: Session) -> LoginResponse:
+def _build_login_response(
+    user: UserModel,
+    db: Session,
+    *,
+    must_change_password: bool | None = None,
+    token_extra: dict | None = None,
+) -> LoginResponse:
+    """Arma la sesión. `must_change_password=False` la exime del cambio forzado
+    (sesión SSO: la password local no se usó para entrar)."""
     role_name = get_user_role(db, user.UserId)
 
     zone_name = None
@@ -165,8 +173,8 @@ def _build_login_response(user: UserModel, db: Session) -> LoginResponse:
             zone_name = z.Name
 
     from .config import settings
-    access = create_access_token(subject=user.UserId, role=role_name)
-    refresh = create_refresh_token(subject=user.UserId)
+    access = create_access_token(subject=user.UserId, role=role_name, extra=token_extra)
+    refresh = create_refresh_token(subject=user.UserId, extra=token_extra)
 
     return LoginResponse(
         UserId=user.UserId,
@@ -177,7 +185,11 @@ def _build_login_response(user: UserModel, db: Session) -> LoginResponse:
         ManagerUserId=getattr(user, "ManagerUserId", None),
         Role=role_name,
         IsActive=user.IsActive,
-        MustChangePassword=bool(getattr(user, "MustChangePassword", False)),
+        MustChangePassword=(
+            bool(getattr(user, "MustChangePassword", False))
+            if must_change_password is None
+            else must_change_password
+        ),
         access_token=access,
         refresh_token=refresh,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -222,7 +234,10 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
 
     role_name = get_user_role(db, user.UserId)
     from .config import settings
-    access = create_access_token(subject=user.UserId, role=role_name)
+    # Conservar la marca de sesión SSO: si se pierde acá, el próximo /auth/me
+    # volvería a pedir cambio de contraseña.
+    extra = {"sso": True} if payload.get("sso") else None
+    access = create_access_token(subject=user.UserId, role=role_name, extra=extra)
     return RefreshResponse(
         access_token=access,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -382,7 +397,11 @@ def sso_login(data: SsoRequest, db: Session = Depends(get_db)):
     except Exception:
         db.rollback()
 
-    return _build_login_response(user, db)
+    # La sesión viene autenticada por el Command Center: la password local no
+    # participó, así que no tiene sentido forzar su cambio acá.
+    return _build_login_response(
+        user, db, must_change_password=False, token_extra={"sso": True}
+    )
 
 
 class ChangePasswordRequest(BaseModel):
@@ -427,6 +446,14 @@ class MeResponse(BaseModel):
     MustChangePassword: bool = False
 
 
+def _must_change_password(user: UserModel) -> bool:
+    """False en sesiones que no usaron la password local (SSO, impersonation)."""
+    claims = getattr(user, "_token_claims", None) or {}
+    if claims.get("sso") or claims.get("imp_by"):
+        return False
+    return bool(getattr(user, "MustChangePassword", False))
+
+
 @app.get("/auth/me", response_model=MeResponse, tags=["Auth"])
 def me(
     current_user: UserModel = Depends(get_current_user),
@@ -447,7 +474,7 @@ def me(
         ZoneName=zone_name,
         Role=role_name,
         IsActive=current_user.IsActive,
-        MustChangePassword=bool(getattr(current_user, "MustChangePassword", False)),
+        MustChangePassword=_must_change_password(current_user),
     )
 
 

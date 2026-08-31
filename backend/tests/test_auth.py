@@ -503,3 +503,28 @@ class TestSso:
             assert resp.status_code == 503
         finally:
             settings.sso_shared_secret = old
+
+    def test_sso_session_never_forces_password_change(self, client, sso_secret):
+        """Entrando por el Command Center la password local no se usó: no hay
+        que forzar su cambio ni en el login ni en /auth/me (ni tras refresh)."""
+        user = _make_sso_user(client, dni="30111231", email="sso_nochange@test.com")
+        # El alta deja MustChangePassword=True (default de UserCreate)
+        assert _login(client, "sso_nochange@test.com", "Pass123!").json()["MustChangePassword"] is True
+
+        resp = client.post("/auth/sso", json={"ticket": _make_ticket("30111231")})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["MustChangePassword"] is False
+
+        me = client.get("/auth/me", headers=_auth_header(data["access_token"]))
+        assert me.status_code == 200
+        assert me.json()["MustChangePassword"] is False
+
+        # La marca sobrevive al refresh del access token
+        refreshed = client.post("/auth/refresh", json={"refresh_token": data["refresh_token"]})
+        assert refreshed.status_code == 200, refreshed.text
+        me2 = client.get("/auth/me", headers=_auth_header(refreshed.json()["access_token"]))
+        assert me2.json()["MustChangePassword"] is False
+
+        # Y el usuario sigue marcado en la DB para un login normal con password
+        assert _login(client, "sso_nochange@test.com", "Pass123!").json()["MustChangePassword"] is True

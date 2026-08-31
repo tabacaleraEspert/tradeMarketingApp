@@ -54,15 +54,17 @@ def create_access_token(
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def create_refresh_token(subject: int | str) -> str:
+def create_refresh_token(subject: int | str, extra: dict[str, Any] | None = None) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=settings.jwt_refresh_expire_minutes)
-    payload = {
+    payload: dict[str, Any] = {
         "sub": str(subject),
         "type": "refresh",
         "iat": int(now.timestamp()),
         "exp": int(exp.timestamp()),
     }
+    if extra:
+        payload.update(extra)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -137,6 +139,9 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario no encontrado")
     if not user.IsActive:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario inactivo")
+    # Claims del token disponibles para los endpoints (sesión SSO, impersonation).
+    # No se persiste: el objeto vive lo que dura el request.
+    user._token_claims = payload  # type: ignore[attr-defined]
     return user
 
 
