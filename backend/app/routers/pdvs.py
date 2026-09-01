@@ -26,6 +26,7 @@ from ..schemas.pdv_contact import PdvContact
 from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
 from ..hierarchy import visible_pdv_ids
 from ..utils.pagination import PageParams, paginate, make_page
+from ..utils.geo_zones import zone_id_from_coords
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
@@ -444,6 +445,16 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
 
     category = volume_to_category(data.MonthlyVolume)
 
+    # Zona: default heredado (del body o del creador), pero si las coordenadas
+    # caen claramente en OTRA zona, ganan las coordenadas. Evita que un vendedor
+    # censando fuera de su territorio (o con la zona de usuario mal asignada)
+    # genere PDVs mal zonificados — causa del backfill 2026-09-01.
+    zone_id = data.ZoneId if data.ZoneId is not None else current_user.ZoneId
+    if data.Lat is not None and data.Lon is not None:
+        geo_zone_id = zone_id_from_coords(db, float(data.Lat), float(data.Lon))
+        if geo_zone_id is not None and geo_zone_id != zone_id:
+            zone_id = geo_zone_id
+
     pdv = PDVModel(
         Code=code,
         Name=data.Name,
@@ -453,10 +464,7 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
         SubChannelId=data.SubChannelId,
         Address=data.Address,
         City=data.City,
-        # Fallback a la zona del creador: las sesiones viejas del frontend no
-        # mandaban ZoneId y los PDVs quedaban sin zona (invisibles en listados
-        # filtrados por zona).
-        ZoneId=data.ZoneId if data.ZoneId is not None else current_user.ZoneId,
+        ZoneId=zone_id,
         DistributorId=legacy_dist_id,
         Lat=data.Lat,
         Lon=data.Lon,

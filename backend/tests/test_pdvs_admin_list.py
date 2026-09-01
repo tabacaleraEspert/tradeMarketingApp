@@ -52,7 +52,7 @@ def _admin_list(client, **params):
 def test_envelope_and_enriched_fields(client):
     ch = _make_channel(client)
     z = _make_zone(client)
-    pdv = _make_pdv(client, ch["ChannelId"], z["ZoneId"], Lat=-34.6, Lon=-58.4)
+    pdv = _make_pdv(client, ch["ChannelId"], z["ZoneId"], Lat=-35.6, Lon=-60.0)
 
     data = _admin_list(client, zone_id=z["ZoneId"])
     assert set(data.keys()) == {"items", "total", "page", "page_size", "has_more"}
@@ -178,7 +178,7 @@ def test_filter_distributor(client):
 def test_filter_has_coords(client):
     ch = _make_channel(client)
     z = _make_zone(client)
-    located = _make_pdv(client, ch["ChannelId"], z["ZoneId"], Lat=-34.6, Lon=-58.4)
+    located = _make_pdv(client, ch["ChannelId"], z["ZoneId"], Lat=-35.6, Lon=-60.0)
     _make_pdv(client, ch["ChannelId"], z["ZoneId"])
 
     with_c = _admin_list(client, zone_id=z["ZoneId"], has_coords=True)

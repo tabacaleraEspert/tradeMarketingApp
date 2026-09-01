@@ -520,8 +520,11 @@ class TestPdvFullLifecycle:
             ZoneId=zone["ZoneId"],
             Address="Av. Sáenz 1302",
             City="Buenos Aires",
-            Lat=-34.6505,
-            Lon=-58.3948,
+            # Coords fuera de toda caja de geo_zones: el alta deriva la zona de
+            # las coordenadas cuando caen en una zona real conocida (ver
+            # test_geo_zones.py), y este test asegura el ZoneId explícito.
+            Lat=-35.6000,
+            Lon=-60.0000,
             OpeningTime="08:00",
             ClosingTime="18:00",
             VisitDay=1,
