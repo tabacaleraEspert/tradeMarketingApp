@@ -158,7 +158,9 @@ export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: Oportun
           </select>
         </div>
 
-        {loading && (
+        {/* Spinner grande solo en la carga inicial; al paginar/filtrar la tabla
+            anterior queda visible atenuada (mismo patrón que las matrices). */}
+        {loading && !data && (
           <div className="flex items-center justify-center h-32">
             <div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
           </div>
@@ -172,8 +174,8 @@ export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: Oportun
           </div>
         )}
 
-        {data && !loading && !error && (
-          <>
+        {data && !error && (
+          <div className={`transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -237,7 +239,7 @@ export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: Oportun
                 </button>
               </div>
             </div>
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
