@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type TmrTeamResponse, type TmrTeamRow } from "@/lib/api";
+import { DEFAULT_PERIOD, PeriodFilter, periodParams, type TmrPeriod } from "./PeriodFilter";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -25,15 +26,15 @@ function estado(r: TmrTeamRow): { label: string; cls: string } {
 export function EquipoTablaCruda() {
   const [team, setTeam] = useState<TmrTeamResponse | null>(null);
   const [error, setError] = useState(false);
+  const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   const load = useCallback(() => {
     setError(false);
-    const now = new Date();
     intelligenceApi
-      .tmrTeam({ year: now.getFullYear(), month: now.getMonth() + 1 })
+      .tmrTeam(periodParams(period))
       .then(setTeam)
       .catch(() => setError(true));
-  }, []);
+  }, [period]);
   useEffect(() => { load(); }, [load]);
 
   return (
@@ -43,8 +44,11 @@ export function EquipoTablaCruda() {
           <h3 className="font-bold text-foreground text-sm">La tabla completa, sin vueltas</h3>
           {team && <span className="text-xs text-muted-foreground">{team.periodo_label}</span>}
         </div>
+        <div className="mb-2">
+          <PeriodFilter value={period} onChange={setPeriod} />
+        </div>
         <p className="text-xs text-muted-foreground mb-3">
-          Una fila por TMR con toda la actividad del mes — la misma tabla del Tablero TMR.
+          Una fila por TMR con toda la actividad del período — la misma tabla del Tablero TMR.
         </p>
 
         {error && (

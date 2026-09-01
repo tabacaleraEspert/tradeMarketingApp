@@ -3,6 +3,7 @@ import { ChevronDown, Grid3x3, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { TradePdvMatrix } from "./TradePdvMatrix";
 import { TradeRutaMatrix } from "./TradeRutaMatrix";
+import { DEFAULT_PERIOD, PeriodFilter, periodParams, periodSuffix, type TmrPeriod } from "./PeriodFilter";
 import {
   intelligenceApi,
   type IntelTrade,
@@ -45,6 +46,7 @@ interface Props {
 export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Props) {
   const [team, setTeam] = useState<TmrTeamResponse | null>(null);
   const [error, setError] = useState(false);
+  const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
   const [openZona, setOpenZona] = useState<string | null>(null);
   // Con una sola zona en el scope (p.ej. dentro de la vista de zona) el
   // acordeón sobra: los trades van directo, ya desplegados.
@@ -57,12 +59,11 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
 
   const load = useCallback(() => {
     setError(false);
-    const now = new Date();
     intelligenceApi
-      .tmrTeam({ year: now.getFullYear(), month: now.getMonth() + 1 })
+      .tmrTeam(periodParams(period))
       .then(setTeam)
       .catch(() => setError(true));
-  }, []);
+  }, [period]);
   useEffect(() => { load(); }, [load]);
 
   const tmrById = useMemo(() => {
@@ -94,6 +95,9 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
           <h3 className="font-bold text-foreground text-sm">¿Cómo está trabajando el equipo?</h3>
           {team && <span className="text-xs text-muted-foreground">{team.periodo_label}</span>}
+        </div>
+        <div className="mb-2">
+          <PeriodFilter value={period} onChange={setPeriod} />
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           {singleZona
@@ -222,7 +226,7 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
                                   {m ? nf(m.tot) : nf(t.visitas30d)}
                                 </p>
                                 <p className="text-[10px] text-muted-foreground">
-                                  visitas {m ? "del mes" : "30d"}
+                                  visitas {m ? periodSuffix(period) : "30d"}
                                   {m && m.dur > 0 ? ` · ${m.dur} min prom.` : ""}
                                 </p>
                               </div>
@@ -258,10 +262,11 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
                                   <TradePdvMatrix
                                     userId={t.userId}
                                     title={t.nombre}
+                                    period={period}
                                     onRutaClick={onRutaClick ? (ruta) => onRutaClick(ruta, t) : undefined}
                                   />
                                 ) : (
-                                  <TradeRutaMatrix userId={t.userId} title={t.nombre} />
+                                  <TradeRutaMatrix userId={t.userId} title={t.nombre} period={period} />
                                 )}
                               </div>
                             )}

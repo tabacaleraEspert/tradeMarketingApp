@@ -1486,16 +1486,25 @@ export interface IntelPdvDetail {
   fotos: Array<{ visitId: number; url: string; tipo: string; fecha: string | null }>;
 }
 
+// Ventana de los recursos /kpi/tmr/*: year/month (mes calendario) o, con
+// date_from/date_to (yyyy-mm-dd), un rango arbitrario que la reemplaza.
+export interface TmrQueryPeriod {
+  year: number;
+  month: number;
+  date_from?: string;
+  date_to?: string;
+}
+
 export const intelligenceApi = {
   pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
-  tmrTeam: (params: { year: number; month: number }) =>
-    api.get<TmrTeamResponse>("/kpi/tmr/team", params as Record<string, number>),
-  tmrPdvs: (params: { year: number; month: number; user_id: number }) =>
-    api.get<TmrPdvsResponse>("/kpi/tmr/pdvs", params as Record<string, number>),
-  tmrRoutes: (params: { year: number; month: number; user_id: number }) =>
-    api.get<{ rutas: TmrRutaRow[] }>("/kpi/tmr/routes", params as Record<string, number>),
-  tmrCatalog: (params: { year: number; month: number }) =>
-    api.get<TmrCatalogResponse>("/kpi/tmr/catalog", params as Record<string, number>),
+  tmrTeam: (params: TmrQueryPeriod) =>
+    api.get<TmrTeamResponse>("/kpi/tmr/team", { ...params } as Record<string, number | string | undefined>),
+  tmrPdvs: (params: TmrQueryPeriod & { user_id: number }) =>
+    api.get<TmrPdvsResponse>("/kpi/tmr/pdvs", { ...params } as Record<string, number | string | undefined>),
+  tmrRoutes: (params: TmrQueryPeriod & { user_id: number }) =>
+    api.get<{ rutas: TmrRutaRow[] }>("/kpi/tmr/routes", { ...params } as Record<string, number | string | undefined>),
+  tmrCatalog: (params: TmrQueryPeriod) =>
+    api.get<TmrCatalogResponse>("/kpi/tmr/catalog", { ...params } as Record<string, number | string | undefined>),
   overview: () => api.get<IntelOverview>("/intelligence/overview"),
   opportunities: (params?: {
     zona?: string;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Maximize2, RefreshCw, X } from "lucide-react";
 import { intelligenceApi, type TmrRutaRow, type TmrCatalogResponse } from "@/lib/api";
+import { DEFAULT_PERIOD, periodParams, type TmrPeriod } from "./PeriodFilter";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -13,7 +14,7 @@ type Modo = "precio" | "cobertura";
  * Modo precio (promedio relevado en la ruta) o cobertura (% de PDVs que lo
  * trabajan). Filtro por fabricante, y los productos sin dato se ocultan.
  */
-export function TradeRutaMatrix({ userId, title }: { userId: number; title?: string }) {
+export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { userId: number; title?: string; period?: TmrPeriod }) {
   const [rutas, setRutas] = useState<TmrRutaRow[] | null>(null);
   const [catalog, setCatalog] = useState<TmrCatalogResponse | null>(null);
   const [error, setError] = useState(false);
@@ -43,8 +44,7 @@ export function TradeRutaMatrix({ userId, title }: { userId: number; title?: str
 
   const load = useCallback(() => {
     setError(false);
-    const now = new Date();
-    const params = { year: now.getFullYear(), month: now.getMonth() + 1 };
+    const params = periodParams(period);
     Promise.all([
       intelligenceApi.tmrRoutes({ ...params, user_id: userId }),
       intelligenceApi.tmrCatalog(params),
@@ -54,7 +54,7 @@ export function TradeRutaMatrix({ userId, title }: { userId: number; title?: str
         setCatalog(c);
       })
       .catch(() => setError(true));
-  }, [userId]);
+  }, [userId, period]);
   useEffect(() => { load(); }, [load]);
 
   const cols = useMemo(

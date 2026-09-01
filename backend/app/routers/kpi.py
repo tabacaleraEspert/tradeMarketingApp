@@ -321,13 +321,21 @@ def _tmr_scope(db: Session, current_user: UserModel, user_id: int | None) -> lis
 def get_tmr_team(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Equipo con KPIs de actividad (visitas, GPS, foto, acciones, entregas)."""
+    """Equipo con KPIs de actividad (visitas, GPS, foto, acciones, entregas).
+
+    `date_from`/`date_to` (opcionales) cambian la ventana del mes por un rango
+    arbitrario — el filtro de período de Inteligencia. Aplica a los cuatro
+    recursos `/tmr/*`."""
     return _tmr_cached(
-        ("team", current_user.UserId, year, month),
-        lambda: tmr.build_team(db, _tmr_scope(db, current_user, None), year, month),
+        ("team", current_user.UserId, year, month, date_from, date_to),
+        lambda: tmr.build_team(
+            db, _tmr_scope(db, current_user, None), year, month, date_from, date_to
+        ),
     )
 
 
@@ -337,6 +345,8 @@ def get_tmr_routes(
     month: int = Query(..., ge=1, le=12),
     user_id: int | None = Query(default=None),
     with_products: bool = Query(default=True),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -345,9 +355,10 @@ def get_tmr_routes(
     Sin `user_id` computa todo el scope visible — caro; la página siempre pasa
     el vendedor seleccionado."""
     return _tmr_cached(
-        ("routes", current_user.UserId, user_id, year, month, with_products),
+        ("routes", current_user.UserId, user_id, year, month, with_products, date_from, date_to),
         lambda: tmr.build_routes(
-            db, _tmr_scope(db, current_user, user_id), year, month, with_products=with_products
+            db, _tmr_scope(db, current_user, user_id), year, month,
+            with_products=with_products, date_from=date_from, date_to=date_to,
         ),
     )
 
@@ -357,13 +368,17 @@ def get_tmr_pdvs(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
     user_id: int | None = Query(default=None),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """PDVs del vendedor con la matriz producto x PDV y sus quick wins."""
     return _tmr_cached(
-        ("pdvs", current_user.UserId, user_id, year, month),
-        lambda: tmr.build_pdvs(db, _tmr_scope(db, current_user, user_id), year, month),
+        ("pdvs", current_user.UserId, user_id, year, month, date_from, date_to),
+        lambda: tmr.build_pdvs(
+            db, _tmr_scope(db, current_user, user_id), year, month, date_from, date_to
+        ),
     )
 
 
@@ -371,12 +386,17 @@ def get_tmr_pdvs(
 def get_tmr_catalog(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
+    date_from: date | None = Query(default=None),
+    date_to: date | None = Query(default=None),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
     """Catálogo de productos y precio de referencia por producto (no depende
     del vendedor: mismo resultado para todo el equipo)."""
-    return _tmr_cached(("catalog", year, month), lambda: tmr.build_catalog(db, year, month))
+    return _tmr_cached(
+        ("catalog", year, month, date_from, date_to),
+        lambda: tmr.build_catalog(db, year, month, date_from, date_to),
+    )
 
 
 # ---------------------------------------------------------------------------

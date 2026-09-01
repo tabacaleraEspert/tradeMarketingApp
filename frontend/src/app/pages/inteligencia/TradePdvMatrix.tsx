@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { Maximize2, RefreshCw, X } from "lucide-react";
 import { intelligenceApi, type TmrPdvRow } from "@/lib/api";
 import { useIntelNav } from "./nav-context";
+import { DEFAULT_PERIOD, periodParams, type TmrPeriod } from "./PeriodFilter";
 
 /** "Milenio Icergy" → "M.ICERGY", "Melbourne Aura" → "MELB.A", como el Tablero TMR. */
 function shortSku(name: string): string {
@@ -38,11 +39,13 @@ interface TradePdvMatrixProps {
   title?: string;
   /** Muestra solo esa ruta, abierta y sin cabecera de grupo (página de ruta). */
   fixedRuta?: string;
+  /** Ventana de datos (filtro de período); default: mes en curso. */
+  period?: TmrPeriod;
   /** Click en el nombre de una ruta → navegar a su página. */
   onRutaClick?: (ruta: string) => void;
 }
 
-export function TradePdvMatrix({ userId, title, fixedRuta, onRutaClick }: TradePdvMatrixProps) {
+export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERIOD, onRutaClick }: TradePdvMatrixProps) {
   const [rows, setRows] = useState<TmrPdvRow[] | null>(null);
   const [prods, setProds] = useState<string[]>([]);
   const [error, setError] = useState(false);
@@ -64,15 +67,14 @@ export function TradePdvMatrix({ userId, title, fixedRuta, onRutaClick }: TradeP
 
   const load = useCallback(() => {
     setError(false);
-    const now = new Date();
     intelligenceApi
-      .tmrPdvs({ year: now.getFullYear(), month: now.getMonth() + 1, user_id: userId })
+      .tmrPdvs({ ...periodParams(period), user_id: userId })
       .then((resp) => {
         setRows(Object.values(resp.tmr_pdvs)[0] ?? []);
         setProds(resp.espert_prods);
       })
       .catch(() => setError(true));
-  }, [userId]);
+  }, [userId, period]);
   useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => {

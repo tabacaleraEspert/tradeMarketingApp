@@ -269,3 +269,62 @@ def test_team_efectividad_parcial(db):
     assert t["plan"] == 2
     assert t["vis_plan"] == 1
     assert t["ef_pct"] == 50
+
+
+# ---------------------------------------------------------------------------
+# Filtro de período (date_from/date_to) — resolve_periodo y su efecto en team
+# ---------------------------------------------------------------------------
+
+def test_periodo_default_es_el_mes(db):
+    from datetime import date
+    from app.services.tmr_dashboard import resolve_periodo
+
+    p = resolve_periodo(YEAR, MONTH)
+    assert p.d_start == date(YEAR, MONTH, 1)
+    assert p.d_end == date(YEAR, MONTH + 1, 1)
+    assert "Abril" in p.label
+
+
+def test_periodo_rango_incluye_hasta_inclusive(db):
+    from datetime import date
+    from app.services.tmr_dashboard import resolve_periodo
+
+    p = resolve_periodo(YEAR, MONTH, date(2026, 3, 10), date(2026, 4, 20))
+    assert p.d_start == date(2026, 3, 10)
+    assert p.d_end == date(2026, 4, 21)  # exclusivo: el 20 entra completo
+    assert p.label == "10/03/2026 – 20/04/2026"
+
+
+def test_periodo_todo_sin_date_from(db):
+    from datetime import date
+    from app.services.tmr_dashboard import RANGE_START_MIN, resolve_periodo
+
+    p = resolve_periodo(YEAR, MONTH, None, date(2026, 4, 30))
+    assert p.d_start == RANGE_START_MIN
+    assert p.label.startswith("Histórico completo")
+
+
+def test_team_con_rango_suma_meses_anteriores(db):
+    """Una visita en marzo no cuenta en el mes de abril, pero sí en el rango
+    marzo-abril y en el histórico completo."""
+    from datetime import date
+
+    u = _user(db)
+    r = _route(db, u.UserId)
+    p = _pdv(db)
+    _link(db, r, p)
+    _visit(db, p, u)                                      # abril (DAY)
+    _visit(db, p, u, opened=DAY - timedelta(days=40))     # marzo
+
+    solo_mes = _row_for(build_team(db, [u.UserId], YEAR, MONTH), u)
+    assert solo_mes["tot"] == 1
+
+    rango = _row_for(
+        build_team(db, [u.UserId], YEAR, MONTH, date(2026, 3, 1), date(2026, 4, 30)), u
+    )
+    assert rango["tot"] == 2
+
+    todo = _row_for(
+        build_team(db, [u.UserId], YEAR, MONTH, None, date(2026, 4, 30)), u
+    )
+    assert todo["tot"] == 2

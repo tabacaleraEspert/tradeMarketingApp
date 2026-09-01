@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 from typing import Any, Optional
 
@@ -91,6 +91,67 @@ def periodo_label(year: int, month: int) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Período: el mes calendario (default) o un rango desde/hasta arbitrario
+# ---------------------------------------------------------------------------
+
+# `date_from` ausente con `date_to` presente = "todo el histórico hasta".
+RANGE_START_MIN = date(2000, 1, 1)
+
+
+@dataclass(frozen=True)
+class Periodo:
+    """La ventana de datos que comparten los cuatro recursos TMR.
+
+    `d_start`/`d_end` son fechas de calendario puras (para `RouteDay.WorkDate`);
+    `dt_start`/`dt_end` la misma ventana en hora argentina convertida a UTC naive
+    (para `Visit.OpenedAt`) — mismo criterio B2 que `E._month_datetime_range`.
+    Límites exclusivos en ambos casos."""
+
+    d_start: date
+    d_end: date
+    dt_start: datetime
+    dt_end: datetime
+    ref_date: date  # vigencia de reglas de scoring
+    label: str
+
+
+def resolve_periodo(
+    year: int,
+    month: int,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> Periodo:
+    """Sin `date_from`/`date_to` la ventana es el mes (comportamiento histórico,
+    con su label "Mes · Día X de Y"). Con al menos uno, es el rango [date_from,
+    date_to] inclusive — el filtro de período de Inteligencia."""
+    if date_from is None and date_to is None:
+        d_start, d_end = E._month_range(year, month)
+        ref_date = E._reference_date(year, month)
+        label = periodo_label(year, month)
+    else:
+        today = E._business_today()
+        d_start = date_from or RANGE_START_MIN
+        d_end = (date_to or today) + timedelta(days=1)
+        last = d_end - timedelta(days=1)
+        ref_date = min(last, today)
+        label = (
+            f"Histórico completo · hasta {last:%d/%m/%Y}"
+            if d_start <= RANGE_START_MIN
+            else f"{d_start:%d/%m/%Y} – {last:%d/%m/%Y}"
+        )
+    start_ar = datetime.combine(d_start, datetime.min.time(), tzinfo=E.BUSINESS_TZ)
+    end_ar = datetime.combine(d_end, datetime.min.time(), tzinfo=E.BUSINESS_TZ)
+    return Periodo(
+        d_start=d_start,
+        d_end=d_end,
+        dt_start=start_ar.astimezone(timezone.utc).replace(tzinfo=None),
+        dt_end=end_ar.astimezone(timezone.utc).replace(tzinfo=None),
+        ref_date=ref_date,
+        label=label,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Contexto compartido
 # ---------------------------------------------------------------------------
 
@@ -142,15 +203,22 @@ class TmrContext:
 
 
 def load_context(
-    db: Session, user_ids: list[int], year: int, month: int, *, with_coverage: bool
+    db: Session,
+    user_ids: list[int],
+    year: int,
+    month: int,
+    *,
+    with_coverage: bool,
+    periodo: Optional[Periodo] = None,
 ) -> TmrContext:
     ctx = TmrContext(year=year, month=month, user_ids=list(user_ids))
     if not user_ids:
         return ctx
 
-    dt_start, dt_end = E._month_datetime_range(year, month)
-    d_start, d_end = E._month_range(year, month)
-    ref_date = E._reference_date(year, month)
+    periodo = periodo or resolve_periodo(year, month)
+    dt_start, dt_end = periodo.dt_start, periodo.dt_end
+    d_start, d_end = periodo.d_start, periodo.d_end
+    ref_date = periodo.ref_date
 
     # ── Usuarios + zonas ───────────────────────────────────────────────────
     users = db.query(User).filter(User.UserId.in_(user_ids)).all()
@@ -409,7 +477,14 @@ def _focus_route_join(q):
     )
 
 
-def build_team(db: Session, user_ids: list[int], year: int, month: int) -> dict[str, Any]:
+def build_team(
+    db: Session,
+    user_ids: list[int],
+    year: int,
+    month: int,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> dict[str, Any]:
     """Equipo con sus KPIs de actividad.
 
     Todo sale de agregados `GROUP BY` — ~8 queries que devuelven una fila por
@@ -417,16 +492,17 @@ def build_team(db: Session, user_ids: list[int], year: int, month: int) -> dict[
     los PDVs de todas las rutas (~5.000) para contarlos en Python; el resultado
     es idéntico pero viaja tres órdenes de magnitud menos de datos, que es lo
     que domina el tiempo contra Azure SQL."""
+    periodo = resolve_periodo(year, month, date_from, date_to)
     if not user_ids:
         return {
-            "periodo_label": periodo_label(year, month),
-            "fecha_datos": E._reference_date(year, month).strftime("%d/%m/%Y"),
+            "periodo_label": periodo.label,
+            "fecha_datos": periodo.ref_date.strftime("%d/%m/%Y"),
             "res": {"vis": 0, "ent": 0, "foto": 0, "ef": 0, "acc": 0},
             "trades": [], "tmrs": [], "tmr_zona": {}, "zonas": {},
         }
 
-    dt_start, dt_end = E._month_datetime_range(year, month)
-    d_start, d_end = E._month_range(year, month)
+    dt_start, dt_end = periodo.dt_start, periodo.dt_end
+    d_start, d_end = periodo.d_start, periodo.d_end
 
     users = db.query(User).filter(User.UserId.in_(user_ids)).all()
     zone_names = {z.ZoneId: z.Name for z in db.query(Zone).all()}
@@ -575,8 +651,8 @@ def build_team(db: Session, user_ids: list[int], year: int, month: int) -> dict[
     trades.sort(key=lambda t: -t["tot"])
     total_vis = sum(t["tot"] for t in trades)
     return {
-        "periodo_label": periodo_label(year, month),
-        "fecha_datos": E._reference_date(year, month).strftime("%d/%m/%Y"),
+        "periodo_label": periodo.label,
+        "fecha_datos": periodo.ref_date.strftime("%d/%m/%Y"),
         "res": {
             "vis": total_vis,
             "ent": sum(t["tot_ent"] for t in trades),
@@ -596,14 +672,22 @@ def build_team(db: Session, user_ids: list[int], year: int, month: int) -> dict[
 # ---------------------------------------------------------------------------
 
 def build_routes(
-    db: Session, user_ids: list[int], year: int, month: int, *, with_products: bool = True
+    db: Session,
+    user_ids: list[int],
+    year: int,
+    month: int,
+    *,
+    with_products: bool = True,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
 ) -> dict[str, Any]:
     """Rutas foco con cobertura, precios y distribución de niveles.
 
     `with_products=False` omite `prod_cob`/`precios_ruta` (las matrices por
     producto, que son el grueso del payload) para quien solo quiere los
     agregados de la ruta."""
-    ctx = load_context(db, user_ids, year, month, with_coverage=True)
+    periodo = resolve_periodo(year, month, date_from, date_to)
+    ctx = load_context(db, user_ids, year, month, with_coverage=True, periodo=periodo)
     all_prod_names = sorted({name for (_u, _p, name) in ctx.latest})
 
     rutas = []
@@ -681,9 +765,17 @@ def build_routes(
 # GET /kpi/tmr/pdvs
 # ---------------------------------------------------------------------------
 
-def build_pdvs(db: Session, user_ids: list[int], year: int, month: int) -> dict[str, Any]:
+def build_pdvs(
+    db: Session,
+    user_ids: list[int],
+    year: int,
+    month: int,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> dict[str, Any]:
     """PDVs por vendedor con la matriz producto x PDV, más los quick wins."""
-    ctx = load_context(db, user_ids, year, month, with_coverage=True)
+    periodo = resolve_periodo(year, month, date_from, date_to)
+    ctx = load_context(db, user_ids, year, month, with_coverage=True, periodo=periodo)
     espert_prods = sorted(
         p.Name
         for p in db.query(Product).filter(
@@ -748,7 +840,13 @@ def build_pdvs(db: Session, user_ids: list[int], year: int, month: int) -> dict[
 # GET /kpi/tmr/catalog
 # ---------------------------------------------------------------------------
 
-def build_catalog(db: Session, year: int, month: int) -> dict[str, Any]:
+def build_catalog(
+    db: Session,
+    year: int,
+    month: int,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> dict[str, Any]:
     """Catálogo de productos + precio de referencia por producto.
 
     Los precios salen agregados en SQL (una query, una fila por producto) en vez
@@ -763,7 +861,8 @@ def build_catalog(db: Session, year: int, month: int) -> dict[str, Any]:
     for f in fab_groups:
         fab_groups[f].sort()
 
-    dt_start, dt_end = E._month_datetime_range(year, month)
+    periodo = resolve_periodo(year, month, date_from, date_to)
+    dt_start, dt_end = periodo.dt_start, periodo.dt_end
     price_rows = (
         db.query(
             Product.Name,

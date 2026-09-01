@@ -10,6 +10,7 @@ import {
 import { TradeRutaMatrix } from "./TradeRutaMatrix";
 import { TradePdvMatrix } from "./TradePdvMatrix";
 import { OportunidadesSection } from "./OportunidadesSection";
+import { DEFAULT_PERIOD, PeriodFilter, periodParams, periodSuffix, type TmrPeriod } from "./PeriodFilter";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -34,6 +35,7 @@ interface Props {
 export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
   const [entered, setEntered] = useState(false);
   const [m, setM] = useState<TmrTeamRow | null>(null);
+  const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   useLayoutEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -41,18 +43,19 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
   }, []);
   useEffect(() => {
     const raf = requestAnimationFrame(() => setEntered(true));
-    const now = new Date();
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  useEffect(() => {
     intelligenceApi
-      .tmrTeam({ year: now.getFullYear(), month: now.getMonth() + 1 })
+      .tmrTeam(periodParams(period))
       .then((team) => setM(team.trades.find((r) => r.id === t.userId) ?? null))
       .catch(() => {});
-    return () => cancelAnimationFrame(raf);
-  }, [t.userId]);
+  }, [t.userId, period]);
 
   const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
     {
       v: m ? nf(m.tot) : nf(t.visitas30d),
-      l: m ? "Visitas del mes" : "Visitas 30d",
+      l: m ? `Visitas ${periodSuffix(period)}` : "Visitas 30d",
       d: m && m.dur > 0 ? `${m.dur} min promedio` : undefined,
     },
     {
@@ -97,6 +100,9 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
           {t.reportaA && <> · reporta a {t.reportaA}</>}
           {t.ultimaVisita && <> · última visita: {t.ultimaVisita}</>}
         </p>
+        <div className="mt-3">
+          <PeriodFilter value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -116,14 +122,14 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
       <Card>
         <CardContent className="p-4">
           <h3 className="font-bold text-foreground text-sm mb-3">Cobertura por marca y ruta</h3>
-          <TradeRutaMatrix userId={t.userId} title={t.nombre} />
+          <TradeRutaMatrix userId={t.userId} title={t.nombre} period={period} />
         </CardContent>
       </Card>
 
       <Card>
         <CardContent className="p-4">
           <h3 className="font-bold text-foreground text-sm mb-3">Matriz producto × PDV</h3>
-          <TradePdvMatrix userId={t.userId} title={t.nombre} onRutaClick={onRutaClick} />
+          <TradePdvMatrix userId={t.userId} title={t.nombre} period={period} onRutaClick={onRutaClick} />
         </CardContent>
       </Card>
 

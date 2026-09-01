@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type TmrRutaRow } from "@/lib/api";
 import { TradePdvMatrix } from "./TradePdvMatrix";
+import { DEFAULT_PERIOD, PeriodFilter, periodParams, type TmrPeriod } from "./PeriodFilter";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -39,6 +40,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
   const [entered, setEntered] = useState(false);
   const [ruta, setRuta] = useState<TmrRutaRow | null>(null);
   const [error, setError] = useState(false);
+  const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   useLayoutEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -47,16 +49,15 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
 
   const load = useCallback(() => {
     setError(false);
-    const now = new Date();
     intelligenceApi
-      .tmrRoutes({ year: now.getFullYear(), month: now.getMonth() + 1, user_id: userId })
+      .tmrRoutes({ ...periodParams(period), user_id: userId })
       .then((resp) => {
         const found = resp.rutas.find((r) => r.nombre === rutaNombre);
         if (found) setRuta(found);
         else setError(true);
       })
       .catch(() => setError(true));
-  }, [userId, rutaNombre]);
+  }, [userId, rutaNombre, period]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setEntered(true));
@@ -119,6 +120,9 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
           )}
           {ruta?.freq && <> · frecuencia {ruta.freq === "biweekly" ? "quincenal" : "mensual"}</>}
         </p>
+        <div className="mt-3">
+          <PeriodFilter value={period} onChange={setPeriod} />
+        </div>
       </div>
 
       {error && (
@@ -203,7 +207,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
           <Card>
             <CardContent className="p-4">
               <h3 className="font-bold text-foreground text-sm mb-3">PDVs de la ruta</h3>
-              <TradePdvMatrix userId={userId} title={`${rutaNombre} · ${tradeNombre}`} fixedRuta={rutaNombre} />
+              <TradePdvMatrix userId={userId} title={`${rutaNombre} · ${tradeNombre}`} fixedRuta={rutaNombre} period={period} />
             </CardContent>
           </Card>
         </>
