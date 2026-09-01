@@ -18,6 +18,7 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
   const [rutas, setRutas] = useState<TmrRutaRow[] | null>(null);
   const [catalog, setCatalog] = useState<TmrCatalogResponse | null>(null);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [modo, setModo] = useState<Modo>("precio");
   const [fabFilter, setFabFilter] = useState<string>("");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -44,6 +45,7 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
 
   const load = useCallback(() => {
     setError(false);
+    setLoading(true);
     const params = periodParams(period);
     Promise.all([
       intelligenceApi.tmrRoutes({ ...params, user_id: userId }),
@@ -53,7 +55,8 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
         setRutas(r.rutas);
         setCatalog(c);
       })
-      .catch(() => setError(true));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [userId, period]);
   useEffect(() => { load(); }, [load]);
 
@@ -137,6 +140,9 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
             <option key={g.fab} value={g.fab}>{g.fab}</option>
           ))}
         </select>
+        {loading && (
+          <span className="w-3.5 h-3.5 border-2 border-espert-gold border-t-transparent rounded-full animate-spin ml-1" role="status" aria-label="Cargando" />
+        )}
         <span className="text-[11px] text-muted-foreground ml-auto">
           {modo === "precio" ? "precio promedio relevado en la ruta" : "% de PDVs de la ruta que lo trabajan"}
         </span>
@@ -172,7 +178,7 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
         })}
       </div>
 
-      <div className={`overflow-x-auto overflow-y-auto border border-border rounded-lg ${full ? "flex-1 min-h-0" : "max-h-[420px]"}`}>
+      <div className={`overflow-x-auto overflow-y-auto border border-border rounded-lg transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""} ${full ? "flex-1 min-h-0" : "max-h-[420px]"}`}>
         <table className="w-full text-[11px] tabular-nums">
           <thead className="sticky top-0 z-20 bg-card">
             <tr className="text-left text-[9px] uppercase tracking-wider text-muted-foreground border-b border-border">

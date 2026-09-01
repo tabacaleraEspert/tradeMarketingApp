@@ -46,6 +46,7 @@ interface Props {
 export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Props) {
   const [team, setTeam] = useState<TmrTeamResponse | null>(null);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
   const [openZona, setOpenZona] = useState<string | null>(null);
   // Con una sola zona en el scope (p.ej. dentro de la vista de zona) el
@@ -59,10 +60,12 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
 
   const load = useCallback(() => {
     setError(false);
+    setLoading(true);
     intelligenceApi
       .tmrTeam(periodParams(period))
       .then(setTeam)
-      .catch(() => setError(true));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [period]);
   useEffect(() => { load(); }, [load]);
 
@@ -97,7 +100,7 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
           {team && <span className="text-xs text-muted-foreground">{team.periodo_label}</span>}
         </div>
         <div className="mb-2">
-          <PeriodFilter value={period} onChange={setPeriod} />
+          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           {singleZona
@@ -117,7 +120,7 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
         )}
 
         {/* Sin cajas anidadas: zonas y trades separados solo por divisores */}
-        <div className="divide-y divide-border">
+        <div className={`divide-y divide-border transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
           {grupos.map((g) => {
             const abierta = singleZona || openZona === g.zona;
             return (

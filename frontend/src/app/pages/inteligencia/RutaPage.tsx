@@ -40,6 +40,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
   const [entered, setEntered] = useState(false);
   const [ruta, setRuta] = useState<TmrRutaRow | null>(null);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   useLayoutEffect(() => {
@@ -49,6 +50,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
 
   const load = useCallback(() => {
     setError(false);
+    setLoading(true);
     intelligenceApi
       .tmrRoutes({ ...periodParams(period), user_id: userId })
       .then((resp) => {
@@ -56,7 +58,8 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
         if (found) setRuta(found);
         else setError(true);
       })
-      .catch(() => setError(true));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [userId, rutaNombre, period]);
 
   useEffect(() => {
@@ -121,7 +124,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
           {ruta?.freq && <> · frecuencia {ruta.freq === "biweekly" ? "quincenal" : "mensual"}</>}
         </p>
         <div className="mt-3">
-          <PeriodFilter value={period} onChange={setPeriod} />
+          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
         </div>
       </div>
 
@@ -138,7 +141,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
 
       {ruta && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+          <div className={`grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
             {[
               { v: nf(ruta.pdvs), l: "PDVs en ruta" },
               { v: nf(ruta.relevados), l: "Relevados", d: `${ruta.buenos} con score bueno+` },

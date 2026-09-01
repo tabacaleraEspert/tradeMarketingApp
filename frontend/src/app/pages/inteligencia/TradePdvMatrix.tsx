@@ -49,6 +49,7 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
   const [rows, setRows] = useState<TmrPdvRow[] | null>(null);
   const [prods, setProds] = useState<string[]>([]);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [filtro, setFiltro] = useState<Filtro>("visitados");
   const [full, setFull] = useState(false);
   // Marcas ocultas: sacar/poner las columnas de una marca con un click.
@@ -67,13 +68,15 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
 
   const load = useCallback(() => {
     setError(false);
+    setLoading(true);
     intelligenceApi
       .tmrPdvs({ ...periodParams(period), user_id: userId })
       .then((resp) => {
         setRows(Object.values(resp.tmr_pdvs)[0] ?? []);
         setProds(resp.espert_prods);
       })
-      .catch(() => setError(true));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [userId, period]);
   useEffect(() => { load(); }, [load]);
 
@@ -147,6 +150,9 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
         {btn("visitados", "Solo visitados")}
         {btn("sin_visitar", "Sin visitar")}
         <span className="text-[11px] text-muted-foreground ml-1">{filtered.length} PDVs</span>
+        {loading && (
+          <span className="w-3.5 h-3.5 border-2 border-espert-gold border-t-transparent rounded-full animate-spin" role="status" aria-label="Cargando" />
+        )}
         <span className="text-[11px] text-muted-foreground ml-auto hidden sm:flex items-center gap-3">
           <span className="text-green-600 dark:text-green-400">✓ trabaja</span>
           <span className="text-red-500">✗ no trabaja</span>
@@ -184,7 +190,7 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
         })}
       </div>
 
-      <div className={`overflow-x-auto overflow-y-auto border border-border rounded-lg ${full ? "flex-1 min-h-0" : "max-h-[420px]"}`}>
+      <div className={`overflow-x-auto overflow-y-auto border border-border rounded-lg transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""} ${full ? "flex-1 min-h-0" : "max-h-[420px]"}`}>
         <table className="w-full text-[11px] tabular-nums">
           <thead className="sticky top-0 z-20 bg-card">
             <tr className="text-left text-[9px] uppercase tracking-wider text-muted-foreground border-b border-border">

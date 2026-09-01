@@ -63,9 +63,11 @@ const CHIPS: Array<[PeriodChip, string]> = [
 interface Props {
   value: TmrPeriod;
   onChange: (p: TmrPeriod) => void;
+  /** Muestra un spinner al final de los chips mientras se refetchea. */
+  loading?: boolean;
 }
 
-export function PeriodFilter({ value, onChange }: Props) {
+export function PeriodFilter({ value, onChange, loading }: Props) {
   // Las fechas custom se conservan al pasar por otros chips y volver.
   const [customFrom, setCustomFrom] = useState(value.from ?? "");
   const [customTo, setCustomTo] = useState(value.to ?? "");
@@ -114,6 +116,13 @@ export function PeriodFilter({ value, onChange }: Props) {
             aria-label="Hasta"
           />
         </span>
+      )}
+      {loading && (
+        <span
+          className="w-3.5 h-3.5 border-2 border-espert-gold border-t-transparent rounded-full animate-spin"
+          role="status"
+          aria-label="Cargando período"
+        />
       )}
     </div>
   );

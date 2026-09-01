@@ -35,6 +35,7 @@ interface Props {
 export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
   const [entered, setEntered] = useState(false);
   const [m, setM] = useState<TmrTeamRow | null>(null);
+  const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   useLayoutEffect(() => {
@@ -46,10 +47,12 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
     return () => cancelAnimationFrame(raf);
   }, []);
   useEffect(() => {
+    setLoading(true);
     intelligenceApi
       .tmrTeam(periodParams(period))
       .then((team) => setM(team.trades.find((r) => r.id === t.userId) ?? null))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [t.userId, period]);
 
   const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
@@ -101,11 +104,11 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
           {t.ultimaVisita && <> · última visita: {t.ultimaVisita}</>}
         </p>
         <div className="mt-3">
-          <PeriodFilter value={period} onChange={setPeriod} />
+          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {tiles.map((tile) => (
           <Card key={tile.l}>
             <CardContent className="p-4">

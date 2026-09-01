@@ -26,14 +26,17 @@ function estado(r: TmrTeamRow): { label: string; cls: string } {
 export function EquipoTablaCruda() {
   const [team, setTeam] = useState<TmrTeamResponse | null>(null);
   const [error, setError] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
 
   const load = useCallback(() => {
     setError(false);
+    setLoading(true);
     intelligenceApi
       .tmrTeam(periodParams(period))
       .then(setTeam)
-      .catch(() => setError(true));
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
   }, [period]);
   useEffect(() => { load(); }, [load]);
 
@@ -45,7 +48,7 @@ export function EquipoTablaCruda() {
           {team && <span className="text-xs text-muted-foreground">{team.periodo_label}</span>}
         </div>
         <div className="mb-2">
-          <PeriodFilter value={period} onChange={setPeriod} />
+          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
         </div>
         <p className="text-xs text-muted-foreground mb-3">
           Una fila por TMR con toda la actividad del período — la misma tabla del Tablero TMR.
@@ -66,7 +69,7 @@ export function EquipoTablaCruda() {
         )}
 
         {team && (
-          <div className="overflow-x-auto">
+          <div className={`overflow-x-auto transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`}>
             <table className="w-full text-xs tabular-nums">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
