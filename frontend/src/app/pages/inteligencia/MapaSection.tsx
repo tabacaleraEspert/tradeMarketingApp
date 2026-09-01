@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { GoogleMap, InfoWindowF, MarkerF, useJsApiLoader } from "@react-google-maps/api";
-import { RefreshCw } from "lucide-react";
+import { Maximize2, RefreshCw, X } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type IntelMapResponse } from "@/lib/api";
 import { useIntelNav } from "./nav-context";
@@ -54,7 +55,16 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
   const [colorBy, setColorBy] = useState<"estado" | "ruta">(fixedZoneId != null ? "ruta" : "estado");
   const [view, setView] = useState<View>({ scale: 1, tx: 0, ty: 0 });
   const [hover, setHover] = useState<{ x: number; y: number; p: Pt } | null>(null);
+  const [full, setFull] = useState(false);
   const drag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
+
+  // Mismo patrón que las matrices Trade×Ruta/PDV: Escape cierra la vista ampliada.
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full]);
 
   const load = useCallback(() => {
     setError(false);
@@ -178,7 +188,10 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
     const dpr = window.devicePixelRatio || 1;
     const cssW = canvas.clientWidth || 420;
     // El alto acompaña la forma de los datos, acotado para no romper el layout.
-    const cssH = Math.round(cssW * Math.min(1.35, Math.max(0.45, projection.aspect)));
+    // En pantalla completa manda el alto del contenedor.
+    const cssH = full
+      ? Math.max(240, canvas.parentElement?.clientHeight ?? 400)
+      : Math.round(cssW * Math.min(1.35, Math.max(0.45, projection.aspect)));
     canvas.width = cssW * dpr;
     canvas.height = cssH * dpr;
     canvas.style.height = `${cssH}px`;
@@ -223,7 +236,7 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
       ctx.stroke();
     }
     return { px, cssW, cssH, scale0 };
-  }, [points, projection, view, colorBy, rutaColor, hover]);
+  }, [points, projection, view, colorBy, rutaColor, hover, full]);
 
   useEffect(() => { draw(); }, [draw]);
 
@@ -276,7 +289,8 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
     };
     canvas.addEventListener("wheel", onWheelNative, { passive: false });
     return () => canvas.removeEventListener("wheel", onWheelNative);
-  }, [data]);
+    // `full` remonta el canvas (portal) → hay que re-registrar el listener.
+  }, [data, full]);
   const onMouseDown = (e: React.MouseEvent) => {
     drag.current = { ...toCanvas(e), moved: false };
   };
@@ -323,9 +337,8 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
       return next;
     });
 
-  return (
-    <Card>
-      <CardContent className="p-4">
+  const inner = (
+      <CardContent className={`p-4 ${full ? "h-full flex flex-col" : ""}`}>
         <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
           <h3 className="font-bold text-foreground text-sm">¿Dónde estamos parados?</h3>
           <div className="flex items-center gap-2 flex-wrap">
@@ -362,6 +375,14 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
                 })}
               </div>
             )}
+            <button
+              onClick={() => setFull((f) => !f)}
+              title={full ? "Cerrar" : "Ampliar"}
+              aria-label={full ? "Cerrar" : "Ampliar"}
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              {full ? <X size={16} /> : <Maximize2 size={14} />}
+            </button>
           </div>
         </div>
         <p className="text-xs text-muted-foreground mb-3">
@@ -383,7 +404,11 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
         )}
 
         {data && (
-          <div className={fixedZoneId != null ? "" : "grid md:grid-cols-[210px_1fr] gap-4"}>
+          <div
+            className={`${fixedZoneId != null ? "" : "grid md:grid-cols-[210px_1fr] gap-4"} ${
+              full ? "flex-1 min-h-0" : ""
+            }`}
+          >
             {fixedZoneId == null && (
               <div className="flex md:flex-col flex-wrap gap-1.5 content-start">
                 <button
@@ -410,9 +435,10 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
                 colorBy={colorBy}
                 rutaColor={rutaColor}
                 rutas={data.rutas}
+                height={full ? "100%" : "520px"}
               />
             ) : (
-            <div className="relative">
+            <div className={`relative ${full ? "h-full" : ""}`}>
               <canvas
                 ref={canvasRef}
                 className={`w-full rounded-lg bg-muted/30 ${drag.current ? "cursor-grabbing" : hover ? "cursor-pointer" : "cursor-grab"}`}
@@ -481,19 +507,39 @@ export function MapaSection({ fixedZoneId }: { fixedZoneId?: number }) {
           </div>
         )}
       </CardContent>
-    </Card>
   );
+
+  // Mismo patrón de ampliado que las matrices: overlay con portal, click
+  // afuera o Escape cierran.
+  if (full) {
+    return createPortal(
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        onClick={() => setFull(false)}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="w-[92vw] h-[90vh] rounded-xl border border-border bg-card shadow-2xl overflow-hidden"
+        >
+          {inner}
+        </div>
+      </div>,
+      document.body
+    );
+  }
+  return <Card>{inner}</Card>;
 }
 
 /** Mapa real (Google) para la vista de zona: calles debajo de los puntos,
  * encuadre robusto (percentil 3-97), hover/click con ficha del PDV. */
 function ZonaGoogleMap({
-  points, colorBy, rutaColor, rutas,
+  points, colorBy, rutaColor, rutas, height = "520px",
 }: {
   points: Pt[];
   colorBy: "estado" | "ruta";
   rutaColor: (rid: number) => string;
   rutas: Record<string, string>;
+  height?: string;
 }) {
   const [selected, setSelected] = useState<Pt | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
@@ -526,7 +572,7 @@ function ZonaGoogleMap({
 
   return (
     <GoogleMap
-      mapContainerStyle={{ width: "100%", height: "520px", borderRadius: "12px" }}
+      mapContainerStyle={{ width: "100%", height, borderRadius: "12px" }}
       options={{
         styles: DARK_MAP_STYLE,
         disableDefaultUI: true,
