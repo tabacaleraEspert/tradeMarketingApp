@@ -310,7 +310,7 @@ def routes_map_overview(
         routes_q = routes_q.filter(RouteModel.AssignedUserId.in_(visible))
     routes = routes_q.all()
     if not routes:
-        return {"routes": [], "unrouted": []}
+        return {"routes": [], "unroutedPdvs": []}
 
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
 
@@ -330,11 +330,10 @@ def routes_map_overview(
         route_pdvs_map.setdefault(rp.RouteId, []).append(rp)
         all_pdv_ids.add(rp.PdvId)
 
-    # Batch-load all referenced PDVs (1 query instead of N)
-    pdv_map: dict[int, object] = {}
-    if all_pdv_ids:
-        pdvs = db.query(PDVModel).filter(PDVModel.PdvId.in_(all_pdv_ids)).all()
-        pdv_map = {p.PdvId: p for p in pdvs}
+    # Una sola query por toda la tabla PDV — IN/NOT IN con miles de params
+    # hace timeout en S0 (TDS timeout visto en App Insights 2026-09-04)
+    all_pdvs = db.query(PDVModel).all()
+    pdv_map = {p.PdvId: p for p in all_pdvs}
 
     # Batch-load all assigned users (1 query instead of N)
     user_ids = {r.AssignedUserId for r in routes if r.AssignedUserId}
@@ -375,16 +374,11 @@ def routes_map_overview(
             "pdvs": pdv_list,
         })
 
-    # PDVs without any route (for coverage gaps)
-    unrouted = (
-        db.query(PDVModel)
-        .filter(
-            PDVModel.IsActive== True,
-            PDVModel.Lat.isnot(None),
-            ~PDVModel.PdvId.in_(all_routed_pdv_ids) if all_routed_pdv_ids else True,
-        )
-        .all()
-    )
+    # PDVs without any route (for coverage gaps) — filtrado en memoria
+    unrouted = [
+        p for p in all_pdvs
+        if p.IsActive and p.Lat is not None and p.PdvId not in all_routed_pdv_ids
+    ]
     unrouted_list = [
         {
             "pdvId": p.PdvId,
