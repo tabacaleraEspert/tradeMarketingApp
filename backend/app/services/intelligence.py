@@ -30,6 +30,7 @@ relevado por (PDV, producto) — el export tenía precios de $4 y de $26M.
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,8 @@ from sqlalchemy.orm import Session
 
 from ..models import PDV, Channel, Product, Route, RoutePdv, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
 from ..models.pdv_contact import PdvContact
+from ..models.pdv_supplier import PdvSupplier
+from ..models.supplier_type import SupplierType
 from ..models.user import Role as RoleModel, UserRole as UserRoleModel
 from .kpi_engine import filter_price_outliers
 
@@ -870,6 +873,24 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
     own_hoy = sorted(
         c.products[pid].name for pid in c.own_works(pdv_id)
     )
+
+    # Proveedores cargados en el PDV (censo de proveedores; dato del PDV, no de la visita)
+    proveedores = [
+        {
+            "nombre": s.Name,
+            "telefono": s.Phone or None,
+            "tipo": tipo,
+            "productos": _supplier_products(s.Products),
+        }
+        for s, tipo in (
+            db.query(PdvSupplier, SupplierType.Name)
+            .outerjoin(SupplierType, SupplierType.SupplierTypeId == PdvSupplier.SupplierTypeId)
+            .filter(PdvSupplier.PdvId == pdv_id, PdvSupplier.IsActive == True)
+            .order_by(PdvSupplier.Name)
+            .all()
+        )
+    ]
+
     return {
         "info": {
             "pdvId": pdv_id,
@@ -886,6 +907,7 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
             "horario": f"{p.OpeningTime or '—'} a {p.ClosingTime or '—'}" if (p.OpeningTime or p.ClosingTime) else None,
         },
         "contactos": contacts,
+        "proveedores": proveedores,
         "skusEspertHoy": own_hoy,
         "censo": censo,
         "evolucion": evolucion,
@@ -893,3 +915,77 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
         "totalVisitas": len(visits),
         "fotos": fotos,
     }
+
+
+def _supplier_products(raw: Optional[str]) -> list[str]:
+    """Products es un JSON array serializado ('["Cigarrillos","Golosinas"]') o NULL."""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        return [str(x) for x in parsed] if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def build_suppliers(db: Session, trade_user_id: int, ruta_nombre: Optional[str] = None) -> dict[str, Any]:
+    """Proveedores cargados en los PDVs de las rutas foco de un trade (o de UNA
+    ruta si se pasa `ruta_nombre`), agregados por proveedor.
+
+    El mismo proveedor aparece en varios PDVs (el teléfono es la clave lógica;
+    sin teléfono, el nombre): se devuelve una fila por proveedor con la cantidad
+    de PDVs donde está cargado. Set-logic en SQL (joins), agregado liviano acá.
+    """
+    q = (
+        db.query(
+            PdvSupplier.Name,
+            PdvSupplier.Phone,
+            PdvSupplier.Products,
+            SupplierType.Name.label("tipo"),
+            PDV.PdvId,
+            PDV.Name.label("pdv_nombre"),
+        )
+        .join(RoutePdv, RoutePdv.PdvId == PdvSupplier.PdvId)
+        .join(Route, Route.RouteId == RoutePdv.RouteId)
+        .join(PDV, PDV.PdvId == PdvSupplier.PdvId)
+        .outerjoin(SupplierType, SupplierType.SupplierTypeId == PdvSupplier.SupplierTypeId)
+        .filter(
+            Route.IsActive == True,  # noqa: E712
+            Route.AssignedUserId == trade_user_id,
+            PdvSupplier.IsActive == True,  # noqa: E712
+        )
+    )
+    if ruta_nombre:
+        q = q.filter(Route.Name == ruta_nombre)
+
+    agg: dict[str, dict[str, Any]] = {}
+    for nombre, phone, products_raw, tipo, pdv_id, pdv_nombre in q.all():
+        key = phone.strip() if phone and phone.strip() else f"n:{nombre.strip().lower()}"
+        row = agg.get(key)
+        if row is None:
+            row = agg[key] = {
+                "nombre": nombre,
+                "telefono": phone.strip() if phone and phone.strip() else None,
+                "tipo": tipo,
+                "productos": set(),
+                "_pdv_ids": set(),
+                "pdvNombres": [],
+            }
+        row["tipo"] = row["tipo"] or tipo
+        row["productos"].update(_supplier_products(products_raw))
+        if pdv_id not in row["_pdv_ids"]:
+            row["_pdv_ids"].add(pdv_id)
+            row["pdvNombres"].append(pdv_nombre)
+
+    items = []
+    for row in agg.values():
+        items.append({
+            "nombre": row["nombre"],
+            "telefono": row["telefono"],
+            "tipo": row["tipo"],
+            "productos": sorted(row["productos"]),
+            "pdvs": len(row["_pdv_ids"]),
+            "pdvNombres": sorted(row["pdvNombres"])[:30],
+        })
+    items.sort(key=lambda r: (-r["pdvs"], r["nombre"].lower()))
+    return {"items": items, "total": len(items)}

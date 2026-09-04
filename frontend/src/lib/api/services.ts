@@ -1461,6 +1461,12 @@ export interface IntelPdvDetail {
     decision: string | null;
     notas: string | null;
   }>;
+  proveedores: Array<{
+    nombre: string;
+    telefono: string | null;
+    tipo: string | null;
+    productos: string[];
+  }>;
   skusEspertHoy: string[];
   censo: Array<{
     producto: string;
@@ -1495,8 +1501,22 @@ export interface TmrQueryPeriod {
   date_to?: string;
 }
 
+export interface IntelSupplierRow {
+  nombre: string;
+  telefono: string | null;
+  tipo: string | null;
+  productos: string[];
+  pdvs: number;
+  pdvNombres: string[];
+}
+
 export const intelligenceApi = {
   pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
+  suppliers: (params: { user_id: number; ruta?: string }) =>
+    api.get<{ items: IntelSupplierRow[]; total: number }>(
+      "/intelligence/suppliers",
+      params as Record<string, string | number | undefined>
+    ),
   tmrTeam: (params: TmrQueryPeriod) =>
     api.get<TmrTeamResponse>("/kpi/tmr/team", { ...params } as Record<string, number | string | undefined>),
   tmrPdvs: (params: TmrQueryPeriod & { user_id: number }) =>

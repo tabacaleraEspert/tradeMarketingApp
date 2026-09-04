@@ -118,6 +118,19 @@ def get_pdv_detail(
     return detail
 
 
+@router.get("/suppliers")
+def get_suppliers(
+    user_id: int = Query(..., description="Trade dueño de las rutas foco"),
+    ruta: Optional[str] = Query(default=None, description="Nombre de UNA ruta foco (opcional)"),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Proveedores cargados en los PDVs de las rutas foco de un trade (o de una
+    ruta). Sin cache: es un join chico e indexado, y el censo de proveedores se
+    edita en campo — mejor verlo fresco."""
+    return I.build_suppliers(db, user_id, ruta)
+
+
 @router.get("/map")
 def get_map(
     db: Session = Depends(get_db),

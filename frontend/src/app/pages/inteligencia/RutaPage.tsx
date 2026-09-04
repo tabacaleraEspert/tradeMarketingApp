@@ -3,6 +3,7 @@ import { ArrowLeft, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type TmrRutaRow } from "@/lib/api";
 import { TradePdvMatrix } from "./TradePdvMatrix";
+import { ProveedoresCard } from "./ProveedoresCard";
 import { DEFAULT_PERIOD, PeriodFilter, periodParams, type TmrPeriod } from "./PeriodFilter";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
@@ -206,6 +207,8 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
               </CardContent>
             </Card>
           )}
+
+          <ProveedoresCard userId={userId} ruta={rutaNombre} />
 
           <Card>
             <CardContent className="p-4">

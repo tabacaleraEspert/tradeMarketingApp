@@ -9,6 +9,7 @@ import {
 } from "@/lib/api";
 import { TradeRutaMatrix } from "./TradeRutaMatrix";
 import { TradePdvMatrix } from "./TradePdvMatrix";
+import { ProveedoresCard } from "./ProveedoresCard";
 import { OportunidadesSection } from "./OportunidadesSection";
 import { DEFAULT_PERIOD, PeriodFilter, periodParams, periodSuffix, type TmrPeriod } from "./PeriodFilter";
 
@@ -135,6 +136,8 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
           <TradePdvMatrix userId={t.userId} title={t.nombre} period={period} onRutaClick={onRutaClick} />
         </CardContent>
       </Card>
+
+      <ProveedoresCard userId={t.userId} />
 
       <OportunidadesSection zonas={overview.zonas} fixedTradeId={t.userId} />
     </div>

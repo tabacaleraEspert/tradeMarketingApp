@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import { ArrowLeft, Camera, MapPin, Phone, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type IntelPdvDetail } from "@/lib/api";
+import { ProveedorRow } from "./ProveedoresCard";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -159,6 +160,26 @@ export function PdvPage({ pdvId, onBack }: Props) {
                       </div>
                     ))}
                   </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-4">
+                  <h3 className="font-bold text-foreground text-sm mb-1">
+                    Proveedores
+                    {(d.proveedores?.length ?? 0) > 0 && (
+                      <span className="text-muted-foreground font-normal"> · {d.proveedores.length}</span>
+                    )}
+                  </h3>
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Cargados por los reps en el censo de proveedores del PDV.
+                  </p>
+                  {(d.proveedores?.length ?? 0) === 0 && (
+                    <p className="text-sm text-muted-foreground">Sin proveedores cargados.</p>
+                  )}
+                  {(d.proveedores ?? []).map((p) => (
+                    <ProveedorRow key={`${p.telefono ?? ""}|${p.nombre}`} p={p} />
+                  ))}
                 </CardContent>
               </Card>
 
