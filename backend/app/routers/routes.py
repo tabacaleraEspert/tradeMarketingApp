@@ -15,6 +15,7 @@ from ..models import (
 )
 from ..models.channel import Channel as ChannelModel
 from ..utils.pagination import Page, PageParams, make_page, paginate
+from ..utils.ttl_cache import TTLCache
 from ..schemas.route import (
     Route,
     RouteCreate,
@@ -298,12 +299,54 @@ def today_overview(
 
 
 # --- Route Map Overview ---
+# Cache TTL del mapa de rutas: lo abren pocos usuarios y las rutas cambian
+# poco. Key por usuario (respeta la jerarquía). Los endpoints que escriben
+# Route/RoutePdv llaman a _MAP_CACHE.clear() para que la edición se vea al
+# volver al mapa, no 5 minutos después.
+_MAP_CACHE = TTLCache(ttl_seconds=300.0)
+
+# Columnas del PDV que necesita el mapa (id, nombre, dirección, coordenadas y
+# canal): traer la fila entera del ORM (34 columnas con JSONs) multiplicaba
+# DB, red y serialización sin aportar nada.
+_MAP_PDV_COLS = (
+    PDVModel.PdvId,
+    PDVModel.Name,
+    PDVModel.Address,
+    PDVModel.City,
+    PDVModel.Lat,
+    PDVModel.Lon,
+    PDVModel.ChannelId,
+    PDVModel.Channel,
+)
+
+
+def _map_pdv_dict(row, ch_map: dict) -> dict:
+    return {
+        "pdvId": row.PdvId,
+        "name": row.Name,
+        "address": row.Address or row.City or "",
+        "lat": float(row.Lat) if row.Lat is not None else None,
+        "lon": float(row.Lon) if row.Lon is not None else None,
+        "channel": ch_map.get(row.ChannelId, row.Channel or ""),
+    }
+
+
 @router.get("/map-overview")
 def routes_map_overview(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
     """All routes with their PDV coordinates for map visualization (filtrado por jerarquía)."""
+    return _MAP_CACHE.get_or_build(
+        ("map_overview", current_user.UserId),
+        lambda: _build_map_overview(db, current_user),
+    )
+
+
+def _build_map_overview(db: Session, current_user) -> dict:
+    # La lógica de conjuntos la resuelve la DB con joins/NOT EXISTS: nada de
+    # IN/NOT IN con miles de parámetros (TDS timeout en S0, App Insights
+    # 2026-09-04) ni de bajar la tabla PDV completa para filtrar en memoria.
     routes_q = db.query(RouteModel).filter(RouteModel.IsActive == True)
     visible = visible_user_ids(db, current_user)
     if visible is not None:
@@ -314,26 +357,23 @@ def routes_map_overview(
 
     ch_map = {c.ChannelId: c.Name for c in db.query(ChannelModel).all()}
 
-    route_ids = [r.RouteId for r in routes]
-
-    # Batch-load all RoutePdv rows for active routes (1 query instead of N)
-    all_route_pdvs = (
-        db.query(RoutePdvModel)
-        .filter(RoutePdvModel.RouteId.in_(route_ids))
-        .order_by(RoutePdvModel.RouteId, RoutePdvModel.SortOrder)
-        .all()
+    # PDVs ruteados: RoutePdv ⋈ PDV ⋈ Route en UNA query con solo las columnas
+    # del mapa (el inner join descarta RoutePdv huérfanos, igual que antes).
+    routed_q = (
+        db.query(RoutePdvModel.RouteId, RoutePdvModel.SortOrder, *_MAP_PDV_COLS)
+        .join(PDVModel, PDVModel.PdvId == RoutePdvModel.PdvId)
+        .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+        .filter(RouteModel.IsActive == True)
     )
-    # Group by RouteId
-    route_pdvs_map: dict[int, list] = {}
-    all_pdv_ids: set[int] = set()
-    for rp in all_route_pdvs:
-        route_pdvs_map.setdefault(rp.RouteId, []).append(rp)
-        all_pdv_ids.add(rp.PdvId)
+    if visible is not None:
+        routed_q = routed_q.filter(RouteModel.AssignedUserId.in_(visible))
+    routed_rows = routed_q.order_by(RoutePdvModel.RouteId, RoutePdvModel.SortOrder).all()
 
-    # Una sola query por toda la tabla PDV — IN/NOT IN con miles de params
-    # hace timeout en S0 (TDS timeout visto en App Insights 2026-09-04)
-    all_pdvs = db.query(PDVModel).all()
-    pdv_map = {p.PdvId: p for p in all_pdvs}
+    route_pdvs_map: dict[int, list] = {}
+    for row in routed_rows:
+        route_pdvs_map.setdefault(row.RouteId, []).append(
+            _map_pdv_dict(row, ch_map) | {"sortOrder": row.SortOrder}
+        )
 
     # Batch-load all assigned users (1 query instead of N)
     user_ids = {r.AssignedUserId for r in routes if r.AssignedUserId}
@@ -342,28 +382,11 @@ def routes_map_overview(
         users = db.query(UserModel).filter(UserModel.UserId.in_(user_ids)).all()
         user_name_map = {u.UserId: u.DisplayName for u in users}
 
-    all_routed_pdv_ids = all_pdv_ids
     route_list = []
     for r in routes:
-        rp_list = route_pdvs_map.get(r.RouteId, [])
-        if not rp_list:
+        pdv_list = route_pdvs_map.get(r.RouteId)
+        if not pdv_list:
             continue
-
-        pdv_list = []
-        for rp in rp_list:
-            p = pdv_map.get(rp.PdvId)
-            if not p:
-                continue
-            pdv_list.append({
-                "pdvId": p.PdvId,
-                "name": p.Name,
-                "address": p.Address or p.City or "",
-                "lat": float(p.Lat) if p.Lat is not None else None,
-                "lon": float(p.Lon) if p.Lon is not None else None,
-                "channel": ch_map.get(p.ChannelId, p.Channel or ""),
-                "sortOrder": rp.SortOrder,
-            })
-
         route_list.append({
             "routeId": r.RouteId,
             "name": r.Name,
@@ -374,23 +397,27 @@ def routes_map_overview(
             "pdvs": pdv_list,
         })
 
-    # PDVs without any route (for coverage gaps) — filtrado en memoria
-    unrouted = [
-        p for p in all_pdvs
-        if p.IsActive and p.Lat is not None and p.PdvId not in all_routed_pdv_ids
-    ]
-    unrouted_list = [
-        {
-            "pdvId": p.PdvId,
-            "name": p.Name,
-            "address": p.Address or p.City or "",
-            "lat": float(p.Lat) if p.Lat is not None else None,
-            "lon": float(p.Lon) if p.Lon is not None else None,
-            "channel": ch_map.get(p.ChannelId, p.Channel or ""),
-        }
-        for p in unrouted
-        if p.Lat is not None
-    ]
+    # PDVs sin ruta (huecos de cobertura): NOT EXISTS correlacionado — la DB
+    # devuelve solo los sin ruta, con cero parámetros. Mismo alcance que
+    # siempre: "ruteado" = presente en alguna ruta activa VISIBLE para este
+    # usuario.
+    en_alguna_ruta = (
+        db.query(RoutePdvModel.PdvId)
+        .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+        .filter(RouteModel.IsActive == True, RoutePdvModel.PdvId == PDVModel.PdvId)
+    )
+    if visible is not None:
+        en_alguna_ruta = en_alguna_ruta.filter(RouteModel.AssignedUserId.in_(visible))
+    unrouted_rows = (
+        db.query(*_MAP_PDV_COLS)
+        .filter(
+            PDVModel.IsActive == True,
+            PDVModel.Lat.isnot(None),
+            ~en_alguna_ruta.exists(),
+        )
+        .all()
+    )
+    unrouted_list = [_map_pdv_dict(row, ch_map) for row in unrouted_rows]
 
     return {
         "routes": route_list,
@@ -635,6 +662,7 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user 
         rf = RouteFormModel(RouteId=r.RouteId, FormId=data.FormId, SortOrder=0)
         db.add(rf)
     db.commit()
+    _MAP_CACHE.clear()
     db.refresh(r)
     return _route_to_response(r, db)
 
@@ -710,6 +738,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
 
     db.commit()
+    _MAP_CACHE.clear()
     db.refresh(r)
     return _route_to_response(r, db)
 
@@ -744,6 +773,7 @@ def delete_route(route_id: int, db: Session = Depends(get_db)):
 
     db.delete(r)
     db.commit()
+    _MAP_CACHE.clear()
 
 
 # --- RoutePdv ---
@@ -771,6 +801,7 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel =
             existing.SortOrder = data.SortOrder
             existing.Priority = data.Priority
             db.commit()
+            _MAP_CACHE.clear()
             db.refresh(existing)
             return existing
         other = db.query(RouteModel).filter(RouteModel.RouteId == existing.RouteId).first()
@@ -821,6 +852,7 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel =
             ))
 
     db.commit()
+    _MAP_CACHE.clear()
     db.refresh(rp)
     return rp
 
@@ -856,6 +888,7 @@ def remove_route_pdv(route_id: int, pdv_id: int, current_user: UserModel = Depen
     route.IsOptimized = False
 
     db.commit()
+    _MAP_CACHE.clear()
 
 
 @router.put("/{route_id}/pdvs/reorder", response_model=list[RoutePdv])
@@ -899,6 +932,7 @@ def reorder_route_pdvs(
                 rdp.PlannedOrder = order_map[rdp.PdvId]
 
     db.commit()
+    _MAP_CACHE.clear()
     return db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).order_by(RoutePdvModel.SortOrder).all()
 
 
