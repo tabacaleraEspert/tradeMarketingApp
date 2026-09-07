@@ -51,18 +51,20 @@ export function ProveedorRow({ p, showPdvCount }: { p: ProveedorItem; showPdvCou
 }
 
 interface Props {
-  /** Trade dueño de las rutas foco. */
-  userId: number;
+  /** Trade dueño de las rutas foco (modo trade/ruta). */
+  userId?: number;
   /** Acotar a UNA ruta foco (nombre); sin esto, todas las rutas del trade. */
   ruta?: string;
+  /** Zona completa: todos sus PDVs activos (modo zona; ignora userId/ruta). */
+  zoneId?: number;
 }
 
 /**
- * Proveedores cargados en los PDVs de las rutas foco del trade (o de una ruta):
- * el censo de proveedores que levantan los reps en campo, agregado por
- * proveedor con la cantidad de PDVs donde aparece.
+ * Proveedores cargados en los PDVs del recorte del drill: las rutas foco del
+ * trade (o una ruta), o la zona entera — el censo de proveedores que levantan
+ * los reps en campo, agregado por proveedor con la cantidad de PDVs.
  */
-export function ProveedoresCard({ userId, ruta }: Props) {
+export function ProveedoresCard({ userId, ruta, zoneId }: Props) {
   const [items, setItems] = useState<IntelSupplierRow[] | null>(null);
   const [error, setError] = useState(false);
 
@@ -70,10 +72,10 @@ export function ProveedoresCard({ userId, ruta }: Props) {
     setError(false);
     setItems(null);
     intelligenceApi
-      .suppliers({ user_id: userId, ...(ruta ? { ruta } : {}) })
+      .suppliers(zoneId != null ? { zone_id: zoneId } : { user_id: userId, ...(ruta ? { ruta } : {}) })
       .then((r) => setItems(r.items))
       .catch(() => setError(true));
-  }, [userId, ruta]);
+  }, [userId, ruta, zoneId]);
 
   useEffect(() => {
     load();
@@ -87,7 +89,7 @@ export function ProveedoresCard({ userId, ruta }: Props) {
     <Card>
       <CardContent className="p-4">
         <h3 className="font-bold text-foreground text-sm mb-1">
-          Proveedores {ruta ? "en la ruta" : "en las rutas del trade"}
+          Proveedores {zoneId != null ? "en la zona" : ruta ? "en la ruta" : "en las rutas del trade"}
           {items !== null && <span className="text-muted-foreground font-normal"> · {items.length}</span>}
         </h3>
         <p className="text-xs text-muted-foreground mb-2">
@@ -106,9 +108,13 @@ export function ProveedoresCard({ userId, ruta }: Props) {
             <div className="w-5 h-5 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
-        {items !== null && items.map((p) => (
-          <ProveedorRow key={`${p.telefono ?? ""}|${p.nombre}`} p={p} showPdvCount />
-        ))}
+        {items !== null && (
+          <div className="max-h-[380px] overflow-y-auto">
+            {items.map((p) => (
+              <ProveedorRow key={`${p.telefono ?? ""}|${p.nombre}`} p={p} showPdvCount />
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

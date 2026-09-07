@@ -5,6 +5,7 @@ import type { IntelOverview, IntelTrade, IntelZona } from "@/lib/api";
 import { MapaSection } from "./MapaSection";
 import { OportunidadesSection } from "./OportunidadesSection";
 import { EquipoSection } from "./EquipoSection";
+import { ProveedoresCard } from "./ProveedoresCard";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -144,6 +145,8 @@ export function ZonaPage({ zona: z, overview, onBack, onTradeClick, onRutaClick 
           </CardContent>
         </Card>
       </div>
+
+      <ProveedoresCard zoneId={z.zonaId} />
 
       <EquipoSection
         trades={overview.trades.filter((t) => t.zona === z.zona)}

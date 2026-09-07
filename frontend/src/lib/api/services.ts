@@ -1512,7 +1512,7 @@ export interface IntelSupplierRow {
 
 export const intelligenceApi = {
   pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
-  suppliers: (params: { user_id: number; ruta?: string }) =>
+  suppliers: (params: { user_id?: number; ruta?: string; zone_id?: number }) =>
     api.get<{ items: IntelSupplierRow[]; total: number }>(
       "/intelligence/suppliers",
       params as Record<string, string | number | undefined>

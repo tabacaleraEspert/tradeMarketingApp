@@ -928,15 +928,22 @@ def _supplier_products(raw: Optional[str]) -> list[str]:
         return []
 
 
-def build_suppliers(db: Session, trade_user_id: int, ruta_nombre: Optional[str] = None) -> dict[str, Any]:
-    """Proveedores cargados en los PDVs de las rutas foco de un trade (o de UNA
-    ruta si se pasa `ruta_nombre`), agregados por proveedor.
+def build_suppliers(
+    db: Session,
+    trade_user_id: Optional[int] = None,
+    ruta_nombre: Optional[str] = None,
+    zone_id: Optional[int] = None,
+) -> dict[str, Any]:
+    """Proveedores cargados en los PDVs de un recorte del drill, agregados por
+    proveedor: las rutas foco de un trade (`trade_user_id`, opcionalmente UNA
+    ruta con `ruta_nombre`) o TODOS los PDVs activos de una zona (`zone_id` —
+    el tablero de zona abarca la zona completa, no solo lo ruteado).
 
     El mismo proveedor aparece en varios PDVs (el teléfono es la clave lógica;
     sin teléfono, el nombre): se devuelve una fila por proveedor con la cantidad
     de PDVs donde está cargado. Set-logic en SQL (joins), agregado liviano acá.
     """
-    q = (
+    base = (
         db.query(
             PdvSupplier.Name,
             PdvSupplier.Phone,
@@ -945,18 +952,24 @@ def build_suppliers(db: Session, trade_user_id: int, ruta_nombre: Optional[str] 
             PDV.PdvId,
             PDV.Name.label("pdv_nombre"),
         )
-        .join(RoutePdv, RoutePdv.PdvId == PdvSupplier.PdvId)
-        .join(Route, Route.RouteId == RoutePdv.RouteId)
         .join(PDV, PDV.PdvId == PdvSupplier.PdvId)
         .outerjoin(SupplierType, SupplierType.SupplierTypeId == PdvSupplier.SupplierTypeId)
-        .filter(
-            Route.IsActive == True,  # noqa: E712
-            Route.AssignedUserId == trade_user_id,
-            PdvSupplier.IsActive == True,  # noqa: E712
-        )
+        .filter(PdvSupplier.IsActive == True)  # noqa: E712
     )
-    if ruta_nombre:
-        q = q.filter(Route.Name == ruta_nombre)
+    if zone_id is not None:
+        q = base.filter(PDV.ZoneId == zone_id, PDV.IsActive == True)  # noqa: E712
+    else:
+        q = (
+            base
+            .join(RoutePdv, RoutePdv.PdvId == PdvSupplier.PdvId)
+            .join(Route, Route.RouteId == RoutePdv.RouteId)
+            .filter(
+                Route.IsActive == True,  # noqa: E712
+                Route.AssignedUserId == trade_user_id,
+            )
+        )
+        if ruta_nombre:
+            q = q.filter(Route.Name == ruta_nombre)
 
     agg: dict[str, dict[str, Any]] = {}
     for nombre, phone, products_raw, tipo, pdv_id, pdv_nombre in q.all():

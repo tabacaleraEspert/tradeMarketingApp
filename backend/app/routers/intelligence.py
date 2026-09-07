@@ -120,15 +120,20 @@ def get_pdv_detail(
 
 @router.get("/suppliers")
 def get_suppliers(
-    user_id: int = Query(..., description="Trade dueño de las rutas foco"),
-    ruta: Optional[str] = Query(default=None, description="Nombre de UNA ruta foco (opcional)"),
+    user_id: Optional[int] = Query(default=None, description="Trade dueño de las rutas foco"),
+    ruta: Optional[str] = Query(default=None, description="Nombre de UNA ruta foco (opcional, con user_id)"),
+    zone_id: Optional[int] = Query(default=None, description="Zona completa (todos sus PDVs activos)"),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
-    """Proveedores cargados en los PDVs de las rutas foco de un trade (o de una
-    ruta). Sin cache: es un join chico e indexado, y el censo de proveedores se
-    edita en campo — mejor verlo fresco."""
-    return I.build_suppliers(db, user_id, ruta)
+    """Proveedores cargados en los PDVs de un recorte del drill: rutas foco de
+    un trade (user_id [+ruta]) o una zona entera (zone_id). Sin cache: es un
+    join chico e indexado, y el censo de proveedores se edita en campo —
+    mejor verlo fresco."""
+    if user_id is None and zone_id is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Pasá user_id o zone_id")
+    return I.build_suppliers(db, trade_user_id=user_id, ruta_nombre=ruta, zone_id=zone_id)
 
 
 @router.get("/map")
