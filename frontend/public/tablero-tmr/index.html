@@ -132,6 +132,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 /* SCROLLBAR */
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
 @media(max-width:1100px){.kpi-row{grid-template-columns:repeat(3,1fr)}.g2,.g3,.g21,.g12{grid-template-columns:1fr}}
+@media(max-width:640px){.kpi-row{grid-template-columns:repeat(2,1fr)}.content{padding:12px 12px}.topbar{padding:10px 12px;flex-wrap:wrap}#tmr-selector-bar{padding:7px 12px}#tmr-cards>div{min-width:calc(50% - 5px)}}
 
 .tmr-chip{display:inline-block;background:var(--bg3);border:1px solid var(--brd);color:var(--tx2);
   padding:4px 11px;border-radius:20px;cursor:pointer;font-size:11px;white-space:nowrap;
@@ -163,8 +164,9 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
       <span id="export-date">Seguimiento TMR · Datos al {}</span>
     </div>
   </div>
-  <div style="display:flex;gap:8px;align-items:center">
+  <div style="display:flex;gap:12px;align-items:center">
     <span style="font-size:11px;color:var(--tx2)" id="filter-summary"></span>
+    <a href="/" style="font-size:11px;font-weight:700;color:var(--acc2);text-decoration:none;white-space:nowrap;padding:6px 10px;border:1px solid var(--brd);border-radius:8px">← Volver a la app</a>
   </div>
 </div>
 
@@ -184,7 +186,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 
   <!-- TMR Cards selector -->
   <div class="card" style="padding:14px 18px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+    <div id="tmr-select-header" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <div>
         <h3>Seleccioná un TMR para ver su gestión</h3>
         <div class="csub" style="margin:0">Click en la tarjeta · click de nuevo para deseleccionar</div>
@@ -776,7 +778,7 @@ async function renderTmrTab(){
 
 
 // ===== clearTmr (lines 1665-1665) =====
-function clearTmr(){state.tmr=null;renderTmrTab();}
+function clearTmr(){if(_solo)return;state.tmr=null;renderTmrTab();}
 
 
 // ===== renderTmrCards (lines 1666-1672) =====
@@ -790,7 +792,7 @@ function renderTmrCards(){
 
 
 // ===== selectTmr (lines 1673-1673) =====
-function selectTmr(name){state.tmr=state.tmr===name?null:name;renderTmrTab();}
+function selectTmr(name){if(_solo&&state.tmr===name)return;state.tmr=state.tmr===name?null:name;renderTmrTab();}
 
 
 // ===== renderTmrGeneral (lines 1674-1687) =====
@@ -1263,6 +1265,20 @@ const API_BASE = (function(){
 
 function qs(name, def){ var v = new URLSearchParams(location.search).get(name); return v ? Number(v) : def; }
 
+// Modo "Mi gestión": el backend devolvio un solo trade (un vendedor viendo su
+// propia gestion). Se entra directo a la vista individual y se esconden el
+// selector de TMRs y el header "Selecciona un TMR" — no hay nada que elegir.
+var _solo = false;
+function _statusPrefix(){ return _solo ? 'Mi gestión' : 'Seguimiento TMR'; }
+function applySoloMode(){
+  _solo = !!(DD.trades && DD.trades.length === 1);
+  var bar = document.getElementById('tmr-selector-bar');
+  var hdr = document.getElementById('tmr-select-header');
+  if (bar) bar.style.display = _solo ? 'none' : '';
+  if (hdr) hdr.style.display = _solo ? 'none' : '';
+  return _solo;
+}
+
 function setStatus(msg, isError){
   var el = document.getElementById('export-date');
   if (el) el.innerHTML = isError
@@ -1370,7 +1386,7 @@ async function ensureTmrDetail(name){
     }
     _tmrLoaded[name] = true;
     _tmrLoading[name] = null;
-    setStatus('Seguimiento TMR · ' + (DD.periodo_label || ''));
+    setStatus(_statusPrefix() + ' · ' + (DD.periodo_label || ''));
     return true;
   })();
   return _tmrLoading[name];
@@ -1435,6 +1451,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   var cached = readCache();
   if (cached && cached.team && cached.team.trades) {
     DD = _hydrateCachedTeam(cached.team);
+    applySoloMode();
     _renderAll();
     setStatus('Actualizando… (visto por ultima vez ' +
       new Date(cached.at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }) + ')');
@@ -1478,14 +1495,17 @@ document.addEventListener('DOMContentLoaded', async function () {
   // viejo se refetchea al proximo click (el backend ahora lo cachea, es barato).
   _tmrLoaded = {}; _tmrLoading = {};
 
-  setStatus('Seguimiento TMR · ' + (DD.periodo_label || DD.fecha_datos || ''));
+  applySoloMode();
+  setStatus(_statusPrefix() + ' · ' + (DD.periodo_label || DD.fecha_datos || ''));
 
   // Si el usuario ya esta navegando sobre los datos cacheados no se lo pisa;
   // los datos frescos quedan en DD para la proxima interaccion.
   if (!_userNavigated) _renderAll();
 
   // Deep-link: ?tmr=<nombre> abre directo la vista individual de ese TMR.
+  // En modo solo el unico trade es el propio: se abre siempre.
   var wanted = new URLSearchParams(location.search).get('tmr');
+  if (_solo) wanted = DD.trades[0].n;
   if (wanted && !_userNavigated) {
     var chip = document.getElementById('tmr-chip-' + wanted.replace(/\s+/g, '_'));
     if (chip) chip.click();

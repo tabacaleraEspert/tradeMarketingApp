@@ -5,6 +5,7 @@ import { SsoLogin } from "./pages/SsoLogin";
 import { Home } from "./pages/Home";
 import { Layout } from "./components/Layout";
 import { getCurrentUser } from "./lib/auth";
+import { getAccessToken } from "@/lib/api/auth-storage";
 import { VisitFlowProvider } from "@/lib/VisitFlowContext";
 
 // ── Critical trade rep pages — eager loaded for offline support ──
@@ -116,13 +117,15 @@ function SuspenseWrap({ children }: { children: React.ReactNode }) {
 }
 
 function TableroTmrRedirect() {
-  // El Tablero TMR es solo-admin (los endpoints /kpi/tmr/* devuelven 403 al
-  // resto); acá se corta antes de llegar a la página estática.
-  const isAdmin = getCurrentUser().role === "admin";
+  // El Tablero TMR lo puede abrir cualquier usuario logueado: los endpoints
+  // /kpi/tmr/* acotan por jerarquía (un vendedor recibe solo su propia fila y
+  // la página entra directo en modo "Mi gestión"; un TM ve su equipo; el
+  // admin todo).
+  const loggedIn = Boolean(getAccessToken());
   useEffect(() => {
-    if (isAdmin) window.location.replace("/tablero-tmr/index.html" + window.location.search);
-  }, [isAdmin]);
-  if (!isAdmin) return <Navigate to="/" replace />;
+    if (loggedIn) window.location.replace("/tablero-tmr/index.html" + window.location.search);
+  }, [loggedIn]);
+  if (!loggedIn) return <Navigate to="/login" replace />;
   return null;
 }
 

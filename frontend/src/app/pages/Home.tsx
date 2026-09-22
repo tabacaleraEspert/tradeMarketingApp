@@ -644,6 +644,17 @@ export function Home() {
           </button>
         )}
 
+        {!isAdmin && (
+          <button
+            onClick={() => navigate("/tablero-tmr")}
+            className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#A48242]/5 border border-[#A48242]/20"
+          >
+            <TrendingUp size={18} className="text-[#A48242]" />
+            <span className="text-sm font-medium text-foreground flex-1 text-left">Mi gestión TMR</span>
+            <ChevronRight size={16} className="text-[#A48242]" />
+          </button>
+        )}
+
         {/* Remaining visits preview */}
         {pointsOfSale.filter((p) => p.status !== "completed").length > 1 && (
           <div>

@@ -309,6 +309,16 @@ def get_kpi_variable(
 # `team` (barato), y el escaneo de cobertura —el grueso del costo— queda
 # acotado al vendedor que se está mirando vía `user_id`. Detalle del reparto
 # en `app/services/tmr_dashboard.py`.
+#
+# Acceso: cualquier usuario logueado. El scope lo da la jerarquía
+# (`_tmr_scope`): un vendedor recibe solo su propia fila (y 403 si pide otro
+# `user_id`), un TM su sub-árbol, el admin todo. Así cada trade puede abrir
+# el tablero y ver su propia gestión sin endpoint aparte.
+#
+# Cache: `routes`/`pdvs`/`team` se cachean por scope RESUELTO (tuple de
+# UserIds), no por quién pregunta — el resultado depende solo del scope, y así
+# el admin mirando a X y X mirándose comparten la entrada (una sola pasada de
+# cobertura en S0).
 
 
 def _tmr_scope(db: Session, current_user: UserModel, user_id: int | None) -> list[int]:
@@ -317,7 +327,7 @@ def _tmr_scope(db: Session, current_user: UserModel, user_id: int | None) -> lis
     return _resolve_target_user_ids(db, current_user, user_id)
 
 
-@router.get("/tmr/team", dependencies=[Depends(require_role("admin"))])
+@router.get("/tmr/team")
 def get_tmr_team(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -331,15 +341,14 @@ def get_tmr_team(
     `date_from`/`date_to` (opcionales) cambian la ventana del mes por un rango
     arbitrario — el filtro de período de Inteligencia. Aplica a los cuatro
     recursos `/tmr/*`."""
+    scope = _tmr_scope(db, current_user, None)
     return _tmr_cached(
-        ("team", current_user.UserId, year, month, date_from, date_to),
-        lambda: tmr.build_team(
-            db, _tmr_scope(db, current_user, None), year, month, date_from, date_to
-        ),
+        ("team", tuple(scope), year, month, date_from, date_to),
+        lambda: tmr.build_team(db, scope, year, month, date_from, date_to),
     )
 
 
-@router.get("/tmr/routes", dependencies=[Depends(require_role("admin"))])
+@router.get("/tmr/routes")
 def get_tmr_routes(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -354,16 +363,17 @@ def get_tmr_routes(
 
     Sin `user_id` computa todo el scope visible — caro; la página siempre pasa
     el vendedor seleccionado."""
+    scope = _tmr_scope(db, current_user, user_id)
     return _tmr_cached(
-        ("routes", current_user.UserId, user_id, year, month, with_products, date_from, date_to),
+        ("routes", tuple(scope), year, month, with_products, date_from, date_to),
         lambda: tmr.build_routes(
-            db, _tmr_scope(db, current_user, user_id), year, month,
+            db, scope, year, month,
             with_products=with_products, date_from=date_from, date_to=date_to,
         ),
     )
 
 
-@router.get("/tmr/pdvs", dependencies=[Depends(require_role("admin"))])
+@router.get("/tmr/pdvs")
 def get_tmr_pdvs(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),
@@ -374,15 +384,14 @@ def get_tmr_pdvs(
     current_user: UserModel = Depends(get_current_user),
 ):
     """PDVs del vendedor con la matriz producto x PDV y sus quick wins."""
+    scope = _tmr_scope(db, current_user, user_id)
     return _tmr_cached(
-        ("pdvs", current_user.UserId, user_id, year, month, date_from, date_to),
-        lambda: tmr.build_pdvs(
-            db, _tmr_scope(db, current_user, user_id), year, month, date_from, date_to
-        ),
+        ("pdvs", tuple(scope), year, month, date_from, date_to),
+        lambda: tmr.build_pdvs(db, scope, year, month, date_from, date_to),
     )
 
 
-@router.get("/tmr/catalog", dependencies=[Depends(require_role("admin"))])
+@router.get("/tmr/catalog")
 def get_tmr_catalog(
     year: int = Query(...),
     month: int = Query(..., ge=1, le=12),

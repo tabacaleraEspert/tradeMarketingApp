@@ -634,3 +634,83 @@ def test_vendedor_no_puede_leer_definitions_config_scoring_rules(client, db):
     assert client.get("/kpi/definitions", headers=hdr).status_code == 403
     assert client.get("/kpi/config", headers=hdr).status_code == 403
     assert client.get("/kpi/scoring-rules", params={"type": "coverage"}, headers=hdr).status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Permisos — /kpi/tmr/* (Tablero TMR)
+#
+# Ya no son solo-admin: cada trade entra al tablero y ve su propia gestión. El
+# scope lo da la jerarquía (`_tmr_scope`), igual que en /kpi/variable.
+# ---------------------------------------------------------------------------
+
+def test_tmr_team_vendedor_ve_solo_su_fila(client, db):
+    user, token = _user_with_role(db, "vendedor")
+    other, _ = _user_with_role(db, "vendedor")
+    _focus_route(db, user.UserId, _pdv(db).PdvId)
+    _focus_route(db, other.UserId, _pdv(db).PdvId)
+    db.commit()
+    hdr = {"Authorization": f"Bearer {token}"}
+    resp = client.get("/kpi/tmr/team", params={"year": YEAR, "month": MONTH}, headers=hdr)
+    assert resp.status_code == 200, resp.text
+    ids = [t["id"] for t in resp.json()["trades"]]
+    assert ids == [user.UserId]
+
+
+def test_tmr_routes_pdvs_vendedor_propio_200_ajeno_403(client, db):
+    user, token = _user_with_role(db, "vendedor")
+    other, _ = _user_with_role(db, "vendedor")
+    _focus_route(db, user.UserId, _pdv(db).PdvId)
+    db.commit()
+    hdr = {"Authorization": f"Bearer {token}"}
+    for path in ("/kpi/tmr/routes", "/kpi/tmr/pdvs"):
+        ok = client.get(path, params={"year": YEAR, "month": MONTH, "user_id": user.UserId}, headers=hdr)
+        assert ok.status_code == 200, ok.text
+        denied = client.get(path, params={"year": YEAR, "month": MONTH, "user_id": other.UserId}, headers=hdr)
+        assert denied.status_code == 403
+
+
+def test_tmr_catalog_vendedor_200(client, db):
+    _, token = _user_with_role(db, "vendedor")
+    resp = client.get("/kpi/tmr/catalog", params={"year": YEAR, "month": MONTH},
+                      headers={"Authorization": f"Bearer {token}"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_tmr_team_tm_ve_subarbol(client, db):
+    manager, mgr_token = _user_with_role(db, "territory_manager")
+    sub, _ = _user_with_role(db, "vendedor", manager_id=manager.UserId)
+    other, _ = _user_with_role(db, "vendedor")
+    _focus_route(db, sub.UserId, _pdv(db).PdvId)
+    _focus_route(db, other.UserId, _pdv(db).PdvId)
+    db.commit()
+    hdr = {"Authorization": f"Bearer {mgr_token}"}
+    resp = client.get("/kpi/tmr/team", params={"year": YEAR, "month": MONTH}, headers=hdr)
+    assert resp.status_code == 200, resp.text
+    ids = {t["id"] for t in resp.json()["trades"]}
+    assert sub.UserId in ids
+    assert other.UserId not in ids
+
+
+def test_tmr_routes_cache_compartido_entre_admin_y_vendedor(client, db, monkeypatch):
+    """La key del cache es el scope resuelto: el admin mirando a X y X
+    mirándose comparten la entrada (una sola pasada de cobertura en S0)."""
+    from app.services import tmr_dashboard
+
+    user, token = _user_with_role(db, "vendedor")
+    _focus_route(db, user.UserId, _pdv(db).PdvId)
+    db.commit()
+
+    calls = []
+    original = tmr_dashboard.build_routes
+
+    def _wrapped(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr("app.routers.kpi.tmr.build_routes", _wrapped)
+
+    params = {"year": YEAR, "month": MONTH, "user_id": user.UserId}
+    assert client.get("/kpi/tmr/routes", params=params).status_code == 200  # admin
+    assert client.get("/kpi/tmr/routes", params=params,
+                      headers={"Authorization": f"Bearer {token}"}).status_code == 200  # el propio vendedor
+    assert len(calls) == 1
