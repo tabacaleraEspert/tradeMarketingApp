@@ -28,7 +28,7 @@ Lo bueno: el scope ya está resuelto por jerarquía. `_resolve_target_user_ids` 
 
 ## Verificación
 - [x] pytest backend.
-- [x] Local contra prod DB: login como vendedor (impersonation admin existe) → `/tablero-tmr` muestra sólo su vista, sin chips; admin sigue viendo todo.
+- [ ] Local contra prod DB: NO se hizo (lectura de prod bloqueada por permisos). Se verificó E2E con SQLite local (Playwright, vendedor + admin). Falta ver con datos reales tras deploy.
 - [x] Probar en ancho de celu (la página fue pensada para desktop).
 
 ## Preguntas abiertas
