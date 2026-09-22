@@ -55,6 +55,17 @@ export function SupplierCensusPage() {
 
   const pdvId = Number(id);
 
+  // Mantener el cache offline alineado con la lista: si al volver a esta pantalla
+  // el fetch falla (señal mala), fetchWithCache sirve el cache y sin esto
+  // el proveedor recién cargado "desaparecía" y lo volvían a cargar.
+  const updateSuppliers = (fn: (prev: PdvSupplier[]) => PdvSupplier[]) => {
+    setSuppliers((prev) => {
+      const next = fn(prev);
+      writeCache(`pdv_suppliers_${pdvId}`, next);
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (!pdvId) return;
     setLoading(true);
@@ -141,7 +152,7 @@ export function SupplierCensusPage() {
           _tempPdvId: pdvId < 0 ? pdvId : undefined,
         });
         if (!result.queued && result.data) {
-          setSuppliers((prev) => prev.map((s) => (s.PdvSupplierId === editingId ? result.data as PdvSupplier : s)));
+          updateSuppliers((prev) => prev.map((s) => (s.PdvSupplierId === editingId ? result.data as PdvSupplier : s)));
         }
         toast.success(result.queued ? "Proveedor guardado. Se sincronizará con conexión." : "Proveedor actualizado");
       } else {
@@ -154,10 +165,10 @@ export function SupplierCensusPage() {
           _tempPdvId: pdvId < 0 ? pdvId : undefined,
         });
         if (!result.queued && result.data) {
-          setSuppliers((prev) => [...prev, result.data as PdvSupplier]);
+          updateSuppliers((prev) => [...prev, result.data as PdvSupplier]);
         } else if (result.queued) {
           // Show locally even though not synced yet
-          setSuppliers((prev) => [...prev, { PdvSupplierId: -(Date.now() % 1000000), PdvId: pdvId, ...payload, Products: payload.Products ?? [], CreatedAt: new Date().toISOString() } as any]);
+          updateSuppliers((prev) => [...prev, { PdvSupplierId: -(Date.now() % 1000000), PdvId: pdvId, ...payload, Products: payload.Products ?? [], CreatedAt: new Date().toISOString() } as any]);
         }
         toast.success(result.queued ? "Proveedor guardado. Se sincronizará con conexión." : "Proveedor agregado");
       }
@@ -183,7 +194,7 @@ export function SupplierCensusPage() {
   const handleDelete = async (supplierId: number) => {
     try {
       await pdvSuppliersApi.delete(pdvId, supplierId);
-      setSuppliers((prev) => prev.filter((s) => s.PdvSupplierId !== supplierId));
+      updateSuppliers((prev) => prev.filter((s) => s.PdvSupplierId !== supplierId));
       toast.success("Proveedor eliminado");
     } catch {
       toast.error("Error al eliminar");
@@ -367,7 +378,7 @@ export function SupplierCensusPage() {
 
                   <Button
                     onClick={handleSave}
-                    disabled={saving || !form.Name.trim() || !form.Phone.trim()}
+                    disabled={saving || !form.Name.trim()}
                     className="w-full bg-[#A48242] hover:bg-[#8B6E38] text-white"
                   >
                     {saving ? "Guardando..." : editingId ? "Actualizar" : "Agregar proveedor"}

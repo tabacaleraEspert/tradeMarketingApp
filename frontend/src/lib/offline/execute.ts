@@ -21,6 +21,10 @@
  *   - Si estamos offline o el fetch falla por red → encola la operación. Devuelve `{ ok: true, queued: true }`.
  *   - Si el fetch falla por error HTTP (4xx/5xx) → propaga el error. NO encola, porque no es un problema
  *     de conectividad sino de la operación en sí.
+ *   - Si la operación depende de un recurso creado offline (`_tempPdvId` / `_tempVisitId` /
+ *     `_tempRouteId` negativo) que todavía no se sincronizó → encola directo aunque haya
+ *     conexión (pegarle a la API con un ID negativo daba 404). Si ya se sincronizó, reescribe
+ *     el ID real y ejecuta online.
  *
  * Para operaciones multipart (fotos), pasar `formParts` en vez de `body`.
  */
@@ -29,6 +33,9 @@ import { API_BASE_URL } from "@/lib/api/config";
 import { ApiError } from "@/lib/api/client";
 import { getAccessToken } from "@/lib/api/auth-storage";
 import { queue, type QueuedKind } from "./queue";
+import { getAllPdvIdMappings } from "./pdv-id-map";
+import { getAllVisitIdMappings } from "./visit-id-map";
+import { getAllRouteIdMappings } from "./route-id-map";
 
 
 export interface ExecuteRequest {
@@ -61,22 +68,68 @@ export type ExecuteResult<T = unknown> =
 export async function executeOrEnqueue<T = unknown>(req: ExecuteRequest): Promise<ExecuteResult<T>> {
   // Si estamos offline, encolar directo sin intentar
   if (!navigator.onLine) {
-    const queueId = await queue.add({
-      kind: req.kind,
-      method: req.method,
-      url: req.url,
-      body: req.body,
-      formParts: req.formParts,
-      headers: req.headers,
-      label: req.label,
-      _tempVisitId: req._tempVisitId,
-      _tempPdvId: req._tempPdvId,
-      _tempRouteId: req._tempRouteId,
-    });
-    return { ok: true, queued: true, queueId };
+    return enqueue(req);
   }
 
-  // Online → intentar la request
+  // Dependencias de recursos creados offline: resolver el ID real o encolar.
+  if (!(await resolveTempIds(req))) {
+    console.info("[executeOrEnqueue] depende de un recurso offline sin sincronizar, encolando:", req.url);
+    return enqueue(req);
+  }
+
+  return executeOnline<T>(req);
+}
+
+
+async function enqueue(req: ExecuteRequest): Promise<ExecuteResult<never>> {
+  const queueId = await queue.add({
+    kind: req.kind,
+    method: req.method,
+    url: req.url,
+    body: req.body,
+    formParts: req.formParts,
+    headers: req.headers,
+    label: req.label,
+    _tempVisitId: req._tempVisitId,
+    _tempPdvId: req._tempPdvId,
+    _tempRouteId: req._tempRouteId,
+  });
+  return { ok: true, queued: true, queueId };
+}
+
+
+/**
+ * Reemplaza tempIds negativos ya sincronizados por el ID real (URL y body).
+ * Devuelve false si alguna dependencia todavía no tiene ID real.
+ */
+async function resolveTempIds(req: ExecuteRequest): Promise<boolean> {
+  const deps: Array<{
+    tempId: number | undefined;
+    createKind: QueuedKind;
+    bodyField: string;
+    load: () => Promise<Map<number, number>>;
+  }> = [
+    { tempId: req._tempPdvId, createKind: "pdv_create", bodyField: "PdvId", load: getAllPdvIdMappings },
+    { tempId: req._tempVisitId, createKind: "visit_create", bodyField: "VisitId", load: getAllVisitIdMappings },
+    { tempId: req._tempRouteId, createKind: "route_create", bodyField: "RouteId", load: getAllRouteIdMappings },
+  ];
+  for (const dep of deps) {
+    // Sólo cuenta como dependencia si es un ID negativo y no es la op que crea ese recurso
+    if (!dep.tempId || dep.tempId >= 0 || req.kind === dep.createKind) continue;
+    const map = await dep.load().catch(() => new Map<number, number>());
+    const realId = map.get(dep.tempId);
+    if (realId === undefined) return false;
+    req.url = req.url.replace(new RegExp(`/${dep.tempId}(?=/|$)`, "g"), `/${realId}`);
+    if (req.body && typeof req.body === "object") {
+      const body = req.body as Record<string, unknown>;
+      if (body[dep.bodyField] === dep.tempId) body[dep.bodyField] = realId;
+    }
+  }
+  return true;
+}
+
+
+async function executeOnline<T>(req: ExecuteRequest): Promise<ExecuteResult<T>> {
   const token = getAccessToken();
   const headers: Record<string, string> = {
     ...(req.headers ?? {}),
@@ -109,19 +162,7 @@ export async function executeOrEnqueue<T = unknown>(req: ExecuteRequest): Promis
   } catch (e) {
     // Error de red durante la request → encolar para reintento
     console.warn("[executeOrEnqueue] network error, queueing:", e);
-    const queueId = await queue.add({
-      kind: req.kind,
-      method: req.method,
-      url: req.url,
-      body: req.body,
-      formParts: req.formParts,
-      headers: req.headers,
-      label: req.label,
-      _tempVisitId: req._tempVisitId,
-      _tempPdvId: req._tempPdvId,
-      _tempRouteId: req._tempRouteId,
-    });
-    return { ok: true, queued: true, queueId };
+    return enqueue(req);
   }
 
   if (res.ok) {
