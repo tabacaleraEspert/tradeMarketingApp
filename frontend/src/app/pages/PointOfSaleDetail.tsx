@@ -47,6 +47,7 @@ import { getCurrentUser } from "../lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { GpsCaptureButton } from "../components/GpsCaptureButton";
 import { LocationMap } from "../components/LocationMap";
+import { PhotoLightbox } from "../components/PhotoLightbox";
 import { toast } from "sonner";
 
 export function PointOfSaleDetail() {
@@ -70,6 +71,7 @@ export function PointOfSaleDetail() {
   useEffect(() => { if (shouldOpenClosedModal) setShowClosedModal(true); }, [shouldOpenClosedModal]);
   const [loading, setLoading] = useState(true);
   const [pdvPhotos, setPdvPhotos] = useState<PdvPhotoRead[]>([]);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const onPhotoUploaded = useCallback((_photo: unknown, serverData: unknown) => {
     const data = serverData as PdvPhotoRead;
     if (data?.FileId) setPdvPhotos((prev) => [...prev, data]);
@@ -1233,13 +1235,20 @@ export function PointOfSaleDetail() {
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-2">
-                {pdvPhotos.map((photo) => (
+                {pdvPhotos.map((photo, i) => (
                   <div key={photo.FileId} className="relative">
-                    <img
-                      src={photo.url}
-                      alt={photo.PhotoType}
-                      className="w-full h-24 object-cover rounded-lg border border-border"
-                    />
+                    <button
+                      type="button"
+                      onClick={() => setLightboxIdx(i)}
+                      aria-label={`Ver foto ${photo.PhotoType}`}
+                      className="block w-full"
+                    >
+                      <img
+                        src={photo.url}
+                        alt={photo.PhotoType}
+                        className="w-full h-24 object-cover rounded-lg border border-border"
+                      />
+                    </button>
                     <div className="absolute bottom-1 left-1">
                       <Badge variant="secondary" className="text-[8px] px-1 py-0">{photo.PhotoType}</Badge>
                     </div>
@@ -1262,6 +1271,11 @@ export function PointOfSaleDetail() {
                 ))}
               </div>
             )}
+            <PhotoLightbox
+              photos={pdvPhotos.map((p) => ({ url: p.url, label: p.PhotoType }))}
+              index={lightboxIdx}
+              onClose={() => setLightboxIdx(null)}
+            />
           </CardContent>
         </Card>
 

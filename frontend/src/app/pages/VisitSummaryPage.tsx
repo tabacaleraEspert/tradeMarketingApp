@@ -15,6 +15,7 @@ import { Truck } from "lucide-react";
 import { fetchWithCache, readCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
 import { VisitIndicatorsBar } from "../components/VisitIndicatorsBar";
+import { PhotoLightbox } from "../components/PhotoLightbox";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue, markVisitClosedLocally } from "@/lib/offline";
 import { useVisitStep, clearVisitContext } from "@/lib/useVisitAutoSave";
@@ -83,6 +84,7 @@ export function VisitSummaryPage() {
 
   const [pdv, setPdv] = useState<Pdv | null>(null);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? null);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [steps, setSteps] = useState<StepData[]>([]);
   const [reminderForNext, setReminderForNext] = useState("");
   const [closing, setClosing] = useState(false);
@@ -644,13 +646,15 @@ export function VisitSummaryPage() {
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3">
-            {visitPhotos.map((p) => (
+            {visitPhotos.map((p, i) => (
               <div key={p.FileId} className="relative">
-                <img
-                  src={p.url}
-                  alt={p.PhotoType}
-                  className="w-full h-32 object-cover rounded-lg border border-border"
-                />
+                <button type="button" onClick={() => setLightboxIdx(i)} aria-label={`Ver foto ${p.PhotoType}`} className="block w-full">
+                  <img
+                    src={p.url}
+                    alt={p.PhotoType}
+                    className="w-full h-32 object-cover rounded-lg border border-border"
+                  />
+                </button>
                 <div className="absolute bottom-1 left-1">
                   <Badge variant="secondary" className="text-[9px]">{p.PhotoType}</Badge>
                 </div>
@@ -676,6 +680,11 @@ export function VisitSummaryPage() {
             ))}
           </div>
         )}
+        <PhotoLightbox
+          photos={visitPhotos.map((p) => ({ url: p.url, label: p.PhotoType }))}
+          index={lightboxIdx}
+          onClose={() => setLightboxIdx(null)}
+        />
       </Modal>
 
       {/* Cobertura detail */}
