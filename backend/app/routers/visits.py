@@ -251,6 +251,7 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
     from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
     from ..models.supplier_type import SupplierType as SupplierTypeModel
     from ..storage import storage
+    from ..services.coverage_semantics import product_brand
 
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
     if not v:
@@ -294,6 +295,7 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
             "ProductName": p.Name if p else f"Producto #{c.ProductId}",
             "Category": p.Category if p else "",
             "Manufacturer": p.Manufacturer if p else None,
+            "Brand": product_brand(p) if p else None,
             "IsOwn": p.IsOwn if p else False,
             "Works": c.Works,
             "Price": float(c.Price) if c.Price is not None else None,

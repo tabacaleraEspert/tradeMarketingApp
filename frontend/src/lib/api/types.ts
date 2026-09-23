@@ -114,6 +114,7 @@ export interface Product {
   ProductId: number;
   Name: string;
   Category: string;
+  Brand: string | null;  // marca (nivel intermedio Categoría → Marca → Variante); fallback UI: primera palabra del Name
   Manufacturer: string | null;
   IsOwn: boolean;
   IsActive: boolean;
@@ -138,6 +139,7 @@ export interface VisitCoverageItem {
   Works: boolean;
   Price: number | null;
   Availability: string | null; // disponible / quiebre
+  Puffs: number | null;
   CreatedAt: string;
 }
 
@@ -145,14 +147,17 @@ export interface CoverageDiff {
   ProductId: number;
   ProductName: string;
   Category: string;
+  Brand: string | null;
   Manufacturer: string | null;
   Works: boolean;
   Price: number | null;
   Availability: string | null;
+  Puffs: number | null;
   HasCurrentData: boolean;
   PrevWorks: boolean | null;
   PrevPrice: number | null;
   PrevAvailability: string | null;
+  PrevPuffs: number | null;
 }
 
 // --- Visit POP (step 11) ---

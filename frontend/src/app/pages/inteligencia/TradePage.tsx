@@ -68,6 +68,16 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
       d: `${t.pctCensado}% de su cartera`,
     },
     { v: String(t.skusProm), l: "SKUs por PDV", d: `${nf(t.conEspert)} PDVs con Espert` },
+    // Completitud del censo: del período (tablero TMR) si llegó; si no, la
+    // histórica del overview.
+    ...((m?.completitud ?? t.completitud) != null
+      ? [{
+          v: `${Math.round((m?.completitud ?? t.completitud) as number)}%`,
+          l: "Censo completo",
+          d: `Espert ${Math.round((m?.completitud_esp ?? t.completitudEspert) ?? 0)}%`,
+          cls: pctColor((m?.completitud ?? t.completitud) as number),
+        }]
+      : []),
     ...(m
       ? [
           { v: `${m.ef_pct}%`, l: "Efectividad plan", cls: pctColor(m.ef_pct) },
@@ -109,7 +119,7 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
         </div>
       </div>
 
-      <div className={`grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
+      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 transition-opacity ${tiles.length > 7 ? "lg:grid-cols-8" : "lg:grid-cols-7"} ${loading ? "opacity-50" : ""}`}>
         {tiles.map((tile) => (
           <Card key={tile.l}>
             <CardContent className="p-4">

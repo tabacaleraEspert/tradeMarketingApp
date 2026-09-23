@@ -1,10 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, memo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
-import { Switch } from "../components/ui/switch";
 import {
   ArrowLeft,
   ArrowRight,
@@ -14,9 +13,10 @@ import {
   AlertCircle,
   CheckCircle2,
   Search,
-  Check,
   X as XIcon,
   Info,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
@@ -25,130 +25,295 @@ import { executeOrEnqueue, fetchWithCache } from "@/lib/offline";
 import { productsApi, visitCoverageApi, pdvProductCategoriesApi, ApiError } from "@/lib/api";
 import type { Product, CoverageDiff } from "@/lib/api/types";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
+import {
+  type CoverageRow,
+  type CoverageState,
+  type BrandGroup,
+  EMPTY_ROW,
+  brandOf,
+  groupByBrand,
+  summarizeBrand,
+  deriveCategoryState,
+  categoryStateFromPdvStatus,
+  initialRowFromDiff,
+  isInheritedRow,
+  normalizeDraftRow,
+  normalizeDraftCategoryStatus,
+  buildPersistItems,
+  buildCategoryItems,
+  brandsWithoutData,
+  countStates,
+} from "./coverage-utils";
 
-interface CoverageRow {
-  ProductId: number;
-  Works: boolean;
-  Price: string;
-  Availability: string;
-  Puffs: string;
+// ---------------------------------------------------------------------------
+// Control segmentado [Sí] [No] [—]  (— = sin dato). Mínimo 36px de alto.
+// ---------------------------------------------------------------------------
+
+interface SegmentedProps {
+  value: CoverageState;
+  onChange: (v: CoverageState) => void;
+  /** Sin dato pero la marca/categoría está "abierta" (tocó Sí): resalta el Sí en tono suave. */
+  softSi?: boolean;
+  size?: "sm" | "md";
+  label?: string;
 }
+
+const SEG_OPTIONS: Array<{ v: CoverageState; label: string; on: string }> = [
+  { v: "si", label: "Sí", on: "bg-green-600 text-white" },
+  { v: "no", label: "No", on: "bg-red-500 text-white" },
+  { v: "sin_dato", label: "—", on: "bg-slate-500 text-white" },
+];
+
+function Segmented({ value, onChange, softSi, size = "md", label }: SegmentedProps) {
+  const h = size === "sm" ? "h-9 min-w-[40px] text-xs" : "h-10 min-w-[44px] text-sm";
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex rounded-lg bg-muted p-0.5 shrink-0 select-none"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {SEG_OPTIONS.map((o) => {
+        const active = value === o.v;
+        const soft = !active && softSi && o.v === "si" && value === "sin_dato";
+        return (
+          <button
+            key={o.v}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(o.v)}
+            className={`${h} px-2.5 rounded-md font-semibold transition-colors ${
+              active ? o.on : soft ? "bg-green-100 text-green-800" : "text-muted-foreground"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Fila de variante / producto
+// ---------------------------------------------------------------------------
 
 interface ProductRowProps {
   product: Product;
   row: CoverageRow;
   diff: CoverageDiff | undefined;
   category: string;
-  onUpdate: (pid: number, field: keyof CoverageRow, value: string | boolean) => void;
+  /** Variante anidada dentro de una marca (sin card propia, con indent). */
+  nested?: boolean;
+  onUpdate: (pid: number, field: keyof CoverageRow, value: string) => void;
 }
 
-const ProductRowMemo = memo(function ProductRow({ product, row, diff, category, onUpdate }: ProductRowProps) {
-  const priceChanged = diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
-  const newProduct = diff && diff.PrevWorks === null;
-  const lostProduct = diff && diff.PrevWorks === true && !row.Works;
-  const isInherited = diff && diff.PrevWorks != null && !diff.Works && row.Works;
+const ProductRowMemo = memo(function ProductRow({ product, row, diff, category, nested, onUpdate }: ProductRowProps) {
+  const works = row.State === "si";
+  const priceChanged = works && diff && diff.PrevPrice != null && row.Price && Number(row.Price) !== Number(diff.PrevPrice);
+  const newProduct = diff && diff.PrevWorks === null && !diff.HasCurrentData;
+  const lostProduct = diff && diff.PrevWorks === true && row.State === "no";
+  const isInherited = isInheritedRow(row, diff);
 
-  return (
-    <Card
-      className={`overflow-hidden transition-all ${
-        product.IsOwn ? "border-l-4 border-l-[#A48242]" : ""
-      } ${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""} ${isInherited ? "bg-amber-50/40 border-amber-200/60" : ""}`}
-    >
-      <CardContent className="p-3">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-sm font-medium text-foreground truncate">{product.Name}</span>
-              {product.IsOwn && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold flex-shrink-0">
-                  ESPERT
-                </span>
-              )}
-              {isInherited && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium flex-shrink-0">
-                  Visita ant.
-                </span>
-              )}
-            </div>
-            {product.Manufacturer && (
-              <p className="text-[11px] text-muted-foreground">{product.Manufacturer}</p>
+  const body = (
+    <>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-sm font-medium text-foreground truncate ${row.State === "no" ? "text-muted-foreground line-through decoration-muted-foreground/50" : ""}`}>
+              {product.Name}
+            </span>
+            {product.IsOwn && !nested && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold flex-shrink-0">
+                ESPERT
+              </span>
+            )}
+            {isInherited && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-medium flex-shrink-0">
+                Visita ant.
+              </span>
+            )}
+            {newProduct && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium flex-shrink-0">
+                Nuevo
+              </span>
+            )}
+            {lostProduct && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium flex-shrink-0">
+                Dejó de trabajar
+              </span>
             )}
           </div>
-          <Switch
-            checked={row.Works}
-            onCheckedChange={(v) => onUpdate(product.ProductId, "Works", v)}
-          />
+          {product.Manufacturer && !nested && (
+            <p className="text-[11px] text-muted-foreground">{product.Manufacturer}</p>
+          )}
         </div>
+        <Segmented
+          size="sm"
+          label={product.Name}
+          value={row.State}
+          onChange={(v) => onUpdate(product.ProductId, "State", v)}
+        />
+      </div>
 
-        {row.Works && (
-          <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border flex-wrap">
-            <div className="flex-1 min-w-[80px]">
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-                <Input
-                  type="number"
-                  placeholder="Precio"
-                  value={row.Price}
-                  onChange={(e) => onUpdate(product.ProductId, "Price", e.target.value)}
-                  className="h-8 text-sm pl-6"
-                />
-              </div>
-              {priceChanged && diff?.PrevPrice != null && (
-                <div className="flex items-center gap-1 mt-1">
-                  {Number(row.Price) > Number(diff.PrevPrice) ? (
-                    <TrendingUp size={12} className="text-red-500" />
-                  ) : (
-                    <TrendingDown size={12} className="text-green-500" />
-                  )}
-                  <span className="text-[10px] text-muted-foreground">
-                    Antes: ${Number(diff.PrevPrice).toLocaleString()}
-                  </span>
-                </div>
-              )}
+      {works && (
+        <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-border flex-wrap">
+          <div className="flex-1 min-w-[80px]">
+            <div className="relative">
+              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+              <Input
+                type="number"
+                inputMode="decimal"
+                placeholder="Precio"
+                value={row.Price}
+                onChange={(e) => onUpdate(product.ProductId, "Price", e.target.value)}
+                className="h-9 text-sm pl-6"
+              />
             </div>
-            {category.toLowerCase().includes("vape") && (
-              <div className="w-20">
-                <Input
-                  type="number"
-                  placeholder="Puffs"
-                  value={row.Puffs}
-                  onChange={(e) => onUpdate(product.ProductId, "Puffs", e.target.value)}
-                  className="h-8 text-sm text-center"
-                />
+            {priceChanged && diff?.PrevPrice != null && (
+              <div className="flex items-center gap-1 mt-1">
+                {Number(row.Price) > Number(diff.PrevPrice) ? (
+                  <TrendingUp size={12} className="text-red-500" />
+                ) : (
+                  <TrendingDown size={12} className="text-green-500" />
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  Antes: ${Number(diff.PrevPrice).toLocaleString()}
+                </span>
               </div>
             )}
-            <div className="flex gap-1">
-              <button
-                onClick={() => onUpdate(product.ProductId, "Availability", "disponible")}
-                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                  row.Availability === "disponible"
-                    ? "bg-green-100 text-green-800 ring-1 ring-green-300"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                Disp.
-              </button>
-              <button
-                onClick={() => onUpdate(product.ProductId, "Availability", "quiebre")}
-                className={`px-2 py-1 rounded text-[11px] font-medium transition-colors ${
-                  row.Availability === "quiebre"
-                    ? "bg-red-100 text-red-700 ring-1 ring-red-300"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                Quiebre
-              </button>
-            </div>
           </div>
-        )}
-      </CardContent>
+          {category.toLowerCase().includes("vape") && (
+            <div className="w-20">
+              <Input
+                type="number"
+                inputMode="numeric"
+                placeholder="Puffs"
+                value={row.Puffs}
+                onChange={(e) => onUpdate(product.ProductId, "Puffs", e.target.value)}
+                className="h-9 text-sm text-center"
+              />
+            </div>
+          )}
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => onUpdate(product.ProductId, "Availability", "disponible")}
+              className={`h-9 px-2.5 rounded text-[11px] font-medium transition-colors ${
+                row.Availability === "disponible"
+                  ? "bg-green-100 text-green-800 ring-1 ring-green-300"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              Disp.
+            </button>
+            <button
+              type="button"
+              onClick={() => onUpdate(product.ProductId, "Availability", "quiebre")}
+              className={`h-9 px-2.5 rounded text-[11px] font-medium transition-colors ${
+                row.Availability === "quiebre"
+                  ? "bg-red-100 text-red-700 ring-1 ring-red-300"
+                  : "bg-muted text-muted-foreground"
+              }`}
+            >
+              Quiebre
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const ring = `${newProduct ? "ring-1 ring-blue-300" : ""} ${lostProduct ? "ring-1 ring-red-300" : ""} ${isInherited ? "bg-amber-50/40" : ""}`;
+
+  if (nested) {
+    return <div className={`py-2.5 px-3 border-t border-border/70 ${ring}`}>{body}</div>;
+  }
+  return (
+    <Card className={`overflow-hidden transition-all ${product.IsOwn ? "border-l-4 border-l-[#A48242]" : ""} ${ring} ${isInherited ? "border-amber-200/60" : ""}`}>
+      <CardContent className="p-3">{body}</CardContent>
     </Card>
   );
 }, (prev, next) =>
   prev.product.ProductId === next.product.ProductId &&
   prev.row === next.row &&
-  prev.diff === next.diff
+  prev.diff === next.diff &&
+  prev.nested === next.nested
 );
+
+// ---------------------------------------------------------------------------
+// Grupo de marca (varias variantes)
+// ---------------------------------------------------------------------------
+
+interface BrandGroupProps {
+  group: BrandGroup;
+  rows: Record<number, CoverageRow>;
+  diffs: CoverageDiff[];
+  expanded: boolean;
+  open: boolean;
+  onToggle: () => void;
+  onBrandState: (v: CoverageState) => void;
+  onUpdate: (pid: number, field: keyof CoverageRow, value: string) => void;
+}
+
+function BrandGroupCard({ group, rows, diffs, expanded, open, onToggle, onBrandState, onUpdate }: BrandGroupProps) {
+  const summary = summarizeBrand(group.products, rows);
+  return (
+    <Card className={`overflow-hidden ${group.isOwn ? "border-l-4 border-l-[#A48242]" : ""}`}>
+      <div className="flex items-center justify-between gap-2 pr-3">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex-1 min-w-0 text-left p-3 active:bg-muted/60"
+          aria-expanded={expanded}
+        >
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {expanded ? <ChevronDown size={16} className="text-muted-foreground shrink-0" /> : <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
+            <span className={`text-sm font-semibold text-foreground truncate ${summary.state === "no" ? "text-muted-foreground line-through" : ""}`}>
+              {group.brand}
+            </span>
+            {group.isOwn && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#A48242]/10 text-[#A48242] font-semibold shrink-0">
+                ESPERT
+              </span>
+            )}
+          </div>
+          <p className={`text-[11px] pl-[22px] ${summary.withData === summary.total ? "text-green-700" : "text-muted-foreground"}`}>
+            {summary.withData}/{summary.total} con dato
+            {group.products[0]?.Manufacturer ? ` · ${group.products[0].Manufacturer}` : ""}
+          </p>
+        </button>
+        <Segmented size="sm" label={group.brand} value={summary.state} softSi={open} onChange={onBrandState} />
+      </div>
+      {expanded && (
+        <div className="bg-muted/20">
+          {group.products.map((product) => {
+            const row = rows[product.ProductId];
+            if (!row) return null;
+            return (
+              <ProductRowMemo
+                key={product.ProductId}
+                product={product}
+                row={row}
+                diff={diffs.find((d) => d.ProductId === product.ProductId)}
+                category={group.category}
+                nested
+                onUpdate={onUpdate}
+              />
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Página
+// ---------------------------------------------------------------------------
+
+type OtherProducts = Record<string, { name: string; price: string }[]>;
 
 export function CoverageFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -167,12 +332,23 @@ export function CoverageFormPage() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [categoryStatus, setCategoryStatus] = useState<Record<string, boolean>>({});
+  /** Estado explícito por categoría (lo que tocó el usuario). El efectivo se deriva de los productos. */
+  const [categoryStatus, setCategoryStatus] = useState<Record<string, CoverageState>>({});
+  /** Marcas donde el usuario tocó "Sí" (quedan expandidas aunque ninguna variante tenga dato). */
+  const [openBrands, setOpenBrands] = useState<Set<string>>(() => new Set());
+  /** Expand/collapse manual de marcas (independiente del estado). */
+  const [brandExpanded, setBrandExpanded] = useState<Record<string, boolean>>({});
+  /**
+   * Snapshot de las rows al terminar la carga inicial (con draft). Fija el orden
+   * de marcas (Espert → con sin_dato → resto) para que no salten mientras se
+   * completan. No cambia hasta remount.
+   */
+  const orderRowsRef = useRef<Record<number, CoverageRow>>({});
   // "Otros" custom products per category (name + price)
-  const [otherProducts, setOtherProducts] = useState<Record<string, { name: string; price: string }[]>>({});
+  const [otherProducts, setOtherProducts] = useState<OtherProducts>({});
   const [newOtherName, setNewOtherName] = useState<Record<string, string>>({});
   const [coverageReqs, setCoverageReqs] = useState<{
-    ownRequired: boolean; competitorRequired: boolean; competitorEveryN: number; visitNumber: number;
+    ownRequired: boolean; competitorRequired: boolean; competitorEveryN: number; visitNumber: number; nextCompetitorAt: number;
   } | null>(null);
 
   // Load products + previous coverage + PDV categories
@@ -180,117 +356,53 @@ export function CoverageFormPage() {
     if (!visitId) return;
     Promise.all([
       flow.products.length > 0 ? Promise.resolve(flow.products) : fetchWithCache("products_all", () => productsApi.list()),
-      fetchWithCache(`visit_coverage_diff_${visitId}`, () => visitCoverageApi.diff(visitId)).catch(() => []),
+      fetchWithCache(`visit_coverage_diff_${visitId}`, () => visitCoverageApi.diff(visitId)).catch(() => [] as CoverageDiff[]),
       id ? fetchWithCache(`pdv_categories_${id}`, () => pdvProductCategoriesApi.list(Number(id))).catch(() => []) : Promise.resolve([]),
       fetchWithCache(`visit_coverage_reqs_${visitId}`, () => visitCoverageApi.requirements(visitId)).catch(() => null),
     ]).then(([prods, diffData, pdvCats, reqs]) => {
       if (reqs) setCoverageReqs(reqs);
-      // Check if THIS visit already has saved coverage data (user filled and came back)
+      const diffById = new Map(diffData.map((d) => [d.ProductId, d]));
       const hasCurrentData = diffData.some((d) => d.HasCurrentData);
       const hasPrevData = diffData.some((d) => d.PrevWorks != null);
       const isFirstVisit = (!reqs || reqs.visitNumber === 1) && !hasCurrentData;
+      const inheritPrev = !isFirstVisit && hasPrevData;
 
-      // Set category statuses
-      // Priority: 1) infer from current saved data, 2) saved category status, 3) previous coverage, 4) default
-      const catStatus: Record<string, boolean> = {};
-      for (const cat of [...new Set(prods.map((p) => p.Category))]) {
-        const catProducts = prods.filter((p) => p.Category === cat);
-
-        // If ANY product in this category has current saved data with Works=true, category is active
-        const anyCurrentWorks = catProducts.some((p) => {
-          const d = diffData.find((x) => x.ProductId === p.ProductId);
-          return d?.HasCurrentData && d.Works;
-        });
-        if (anyCurrentWorks) {
-          catStatus[cat] = true;
-          continue;
-        }
-
-        // If current data exists for this category (even all Works=false), keep it as-is
-        const hasAnyCurrent = catProducts.some((p) => {
-          const d = diffData.find((x) => x.ProductId === p.ProductId);
-          return d?.HasCurrentData;
-        });
-        if (hasAnyCurrent) {
-          // Category was explicitly set to active (products saved) but all Works=false
-          catStatus[cat] = true;
-          continue;
-        }
-
-        // Try saved category status from pdvProductCategories
-        const pdvCat = pdvCats.find((c: { Category: string }) => c.Category === cat);
-        if (pdvCat) {
-          catStatus[cat] = pdvCat.Status === "trabaja";
-          continue;
-        }
-
-        // Infer from previous visit coverage
-        if (!isFirstVisit && hasPrevData) {
-          const anyPrevWorked = catProducts.some((p) => {
-            const d = diffData.find((x) => x.ProductId === p.ProductId);
-            return d?.PrevWorks === true;
-          });
-          catStatus[cat] = anyPrevWorked;
-          continue;
-        }
-
-        // Default: No Trabaja
-        catStatus[cat] = false;
-      }
-      setProducts(prods);
-      setDiffs(diffData);
-
-      // Build rows from diff data
-      // Always use current saved data if available, then fall back to previous or empty
+      // Filas: dato actual → herencia visita anterior → sin_dato
       const initial: Record<number, CoverageRow> = {};
       for (const p of prods) {
-        const d = diffData.find((x) => x.ProductId === p.ProductId);
-        if (d?.HasCurrentData) {
-          // Current visit has saved data for this product — use it
-          initial[p.ProductId] = {
-            ProductId: p.ProductId,
-            Works: d.Works,
-            Price: d.Price != null ? String(d.Price) : "",
-            Availability: d.Availability || "disponible",
-            Puffs: d.Puffs != null ? String(d.Puffs) : "",
-          };
-        } else if (!isFirstVisit && hasPrevData && d) {
-          // Subsequent visit: pre-load from previous
-          initial[p.ProductId] = {
-            ProductId: p.ProductId,
-            Works: d.PrevWorks ?? false,
-            Price: d.PrevPrice != null ? String(d.PrevPrice) : "",
-            Availability: d.PrevAvailability || "disponible",
-            Puffs: d.PrevPuffs != null ? String(d.PrevPuffs) : "",
-          };
-        } else {
-          // First visit or no data at all: start empty
-          initial[p.ProductId] = {
-            ProductId: p.ProductId,
-            Works: false,
-            Price: "",
-            Availability: "disponible",
-            Puffs: "",
-          };
-        }
+        initial[p.ProductId] = initialRowFromDiff(p.ProductId, diffById.get(p.ProductId), inheritPrev);
       }
-      // Overlay any unsaved local draft so marks/prices/categories aren't lost
-      // when the user leaves this step without pressing "Continuar" (back arrow,
-      // step indicator, hardware back, refresh). Draft is the freshest source.
+
+      // Estado explícito de categoría: lo guardado en PdvProductCategory (si existe).
+      // El estado efectivo se deriva de las filas; esto solo pesa cuando nada tiene dato.
+      const catStatus: Record<string, CoverageState> = {};
+      for (const c of pdvCats as Array<{ Category: string; Status: string }>) {
+        catStatus[c.Category] = categoryStateFromPdvStatus(c.Status);
+      }
+
+      // Overlay del draft local (lo más fresco): marcas/precios/categorías/otros que
+      // quedaron sin "Continuar" (back, step indicator, hardware back, refresh).
       const draft = getDraft<{
-        rows?: Record<number, CoverageRow>;
-        categoryStatus?: Record<string, boolean>;
-        otherProducts?: Record<string, { name: string; price: string }[]>;
+        rows?: Record<number, unknown>;
+        categoryStatus?: unknown;
+        otherProducts?: OtherProducts;
+        openBrands?: string[];
       }>(visitId, "coverage");
       if (draft?.rows) {
         for (const k of Object.keys(draft.rows)) {
           const pid = Number(k);
-          if (initial[pid]) initial[pid] = draft.rows[pid];
+          if (!initial[pid]) continue;
+          const norm = normalizeDraftRow(draft.rows[pid], pid);
+          if (norm) initial[pid] = norm;
         }
       }
-      if (draft?.categoryStatus) Object.assign(catStatus, draft.categoryStatus);
+      if (draft?.categoryStatus) Object.assign(catStatus, normalizeDraftCategoryStatus(draft.categoryStatus));
       if (draft?.otherProducts) setOtherProducts(draft.otherProducts);
+      if (Array.isArray(draft?.openBrands)) setOpenBrands(new Set(draft.openBrands));
 
+      orderRowsRef.current = initial;
+      setProducts(prods);
+      setDiffs(diffData);
       setCategoryStatus(catStatus);
       setRows(initial);
       setLoading(false);
@@ -305,6 +417,15 @@ export function CoverageFormPage() {
     return cats.sort();
   }, [products]);
 
+  const productsByCategory = useMemo(() => {
+    const groups: Record<string, Product[]> = {};
+    for (const p of products) {
+      if (!groups[p.Category]) groups[p.Category] = [];
+      groups[p.Category].push(p);
+    }
+    return groups;
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     let filtered = products;
     if (filterCategory !== "all") {
@@ -313,11 +434,14 @@ export function CoverageFormPage() {
     if (search.trim()) {
       const q = search.toLowerCase();
       filtered = filtered.filter(
-        (p) => p.Name.toLowerCase().includes(q) || (p.Manufacturer || "").toLowerCase().includes(q)
+        (p) =>
+          p.Name.toLowerCase().includes(q) ||
+          brandOf(p).toLowerCase().includes(q) ||
+          (p.Manufacturer || "").toLowerCase().includes(q)
       );
     }
     return filtered;
-  }, [products, filterCategory, search, categoryStatus]);
+  }, [products, filterCategory, search]);
 
   const groupedProducts = useMemo(() => {
     const groups: Record<string, Product[]> = {};
@@ -328,53 +452,113 @@ export function CoverageFormPage() {
     return groups;
   }, [filteredProducts]);
 
-  const updateRow = useCallback((pid: number, field: keyof CoverageRow, value: string | boolean) => {
+  /** Estado efectivo por categoría (derivado de TODOS sus productos, no solo los filtrados). */
+  const effectiveCategoryState = useMemo(() => {
+    const out: Record<string, CoverageState> = {};
+    for (const cat of categories) {
+      out[cat] = deriveCategoryState(
+        productsByCategory[cat] || [],
+        rows,
+        categoryStatus[cat],
+        (otherProducts[cat] || []).some((o) => o.name.trim()),
+      );
+    }
+    return out;
+  }, [categories, productsByCategory, rows, categoryStatus, otherProducts]);
+
+  /** Grupos de marca por categoría (sobre los productos filtrados). Orden congelado al cargar. */
+  const brandGroupsByCategory = useMemo(() => {
+    const out: Record<string, BrandGroup[]> = {};
+    for (const [cat, prods] of Object.entries(groupedProducts)) {
+      out[cat] = groupByBrand(cat, prods, orderRowsRef.current, orderRowsRef.current);
+    }
+    return out;
+    // `loading` en deps: el ref se llena justo antes de loading=false.
+  }, [groupedProducts, loading]);
+
+  const updateRow = useCallback((pid: number, field: keyof CoverageRow, value: string) => {
     setRows((prev) => ({
       ...prev,
       [pid]: { ...prev[pid], [field]: value },
     }));
   }, []);
 
+  const setProductsState = useCallback((pids: number[], state: CoverageState) => {
+    setRows((prev) => {
+      const next = { ...prev };
+      for (const pid of pids) next[pid] = { ...(prev[pid] ?? EMPTY_ROW(pid)), State: state };
+      return next;
+    });
+  }, []);
+
+  const handleBrandState = useCallback((group: BrandGroup, v: CoverageState) => {
+    const pids = group.products.map((p) => p.ProductId);
+    if (v === "si") {
+      // Abre la marca; cada variante queda sin dato hasta que la toquen.
+      setOpenBrands((prev) => new Set(prev).add(group.key));
+      setBrandExpanded((prev) => ({ ...prev, [group.key]: true }));
+      // La categoría queda "abierta" aunque ninguna variante tenga dato todavía.
+      setCategoryStatus((prev) => (prev[group.category] === "si" ? prev : { ...prev, [group.category]: "si" }));
+      return;
+    }
+    setOpenBrands((prev) => {
+      if (!prev.has(group.key)) return prev;
+      const next = new Set(prev);
+      next.delete(group.key);
+      return next;
+    });
+    setProductsState(pids, v);
+    setBrandExpanded((prev) => ({ ...prev, [group.key]: false }));
+  }, [setProductsState]);
+
+  const handleCategoryState = useCallback((category: string, v: CoverageState) => {
+    const pids = (productsByCategory[category] || []).map((p) => p.ProductId);
+    setCategoryStatus((prev) => ({ ...prev, [category]: v }));
+    if (v === "si") return; // productos intactos, solo expande
+    setProductsState(pids, v);
+    // "Otros" son Works=true: no tienen sentido en una categoría No / sin dato.
+    setOtherProducts((prev) => {
+      if (!(prev[category] || []).length) return prev;
+      const next = { ...prev };
+      delete next[category];
+      return next;
+    });
+    // Todas las marcas de la categoría dejan de estar "abiertas".
+    setOpenBrands((prev) => {
+      const next = new Set([...prev].filter((k) => !k.startsWith(`${category}::`)));
+      return next.size === prev.size ? prev : next;
+    });
+    setBrandExpanded((prev) => {
+      const next = { ...prev };
+      for (const k of Object.keys(next)) if (k.startsWith(`${category}::`)) delete next[k];
+      return next;
+    });
+  }, [productsByCategory, setProductsState]);
+
   const getDiff = (pid: number) => diffs.find((d) => d.ProductId === pid);
 
   // Persist every change to a local draft so nothing is lost when the user
   // leaves this step by ANY route (back arrow, step indicator, hardware back,
   // refresh). Gated on `!loading` so the empty initial state can't clobber it.
-  useAutoSaveDraft(visitId, "coverage", { rows, categoryStatus, otherProducts }, !loading);
+  const openBrandsList = useMemo(() => [...openBrands], [openBrands]);
+  useAutoSaveDraft(visitId, "coverage", { rows, categoryStatus, otherProducts, openBrands: openBrandsList }, !loading);
 
   const persist = async (silent = false): Promise<boolean> => {
     if (!visitId) return false;
     setSaving(true);
     try {
-      // Save ALL products that have any data (Works=true, or previously worked, or category is active)
-      const items = Object.values(rows)
-        .filter((r) => {
-          if (r.Works) return true;
-          const d = getDiff(r.ProductId);
-          if (d?.PrevWorks) return true;
-          // Include if category is active (so we persist Works=false explicitly)
-          const prod = products.find((p) => p.ProductId === r.ProductId);
-          if (prod && categoryStatus[prod.Category]) return true;
-          return false;
-        })
-        .map((r) => ({
-          ProductId: r.ProductId,
-          Works: r.Works,
-          Price: r.Works && r.Price ? Number(r.Price) : undefined,
-          Availability: r.Works ? r.Availability : undefined,
-          Puffs: r.Works && r.Puffs ? Number(r.Puffs) : undefined,
-        }));
-      // Auto-correct: if category is "trabaja" but no products are marked as working (and no "otros"), set to "no_trabaja"
-      const correctedCategoryStatus = { ...categoryStatus };
-      for (const cat of Object.keys(correctedCategoryStatus)) {
-        if (correctedCategoryStatus[cat]) {
-          const catProducts = products.filter((p) => p.Category === cat);
-          const anyWorking = catProducts.some((p) => rows[p.ProductId]?.Works);
-          const hasOthers = (otherProducts[cat] || []).length > 0;
-          if (!anyWorking && !hasOthers) correctedCategoryStatus[cat] = false;
+      // Aviso (no bloqueante): marcas abiertas con "Sí" pero sin ninguna variante relevada.
+      if (!silent) {
+        const allGroups = categories.flatMap((cat) => groupByBrand(cat, productsByCategory[cat] || [], rows));
+        const missing = brandsWithoutData(openBrands, allGroups, rows);
+        if (missing.length > 0) {
+          toast.warning(`Marcá al menos una variante de ${missing.join(", ")}`);
         }
       }
-      // Add "otros" custom products as extra items
+
+      // Solo filas con dato (si/no); sin_dato se omite.
+      const items: unknown[] = buildPersistItems(rows);
+      // "Otros": productos custom no listados, siempre Works=true.
       const otherItems = Object.entries(otherProducts).flatMap(([cat, others]) =>
         others.filter((o) => o.name.trim()).map((o) => ({
           ProductId: null,
@@ -385,13 +569,10 @@ export function CoverageFormPage() {
           Availability: "disponible",
         }))
       );
-      if (otherItems.length > 0) items.push(...otherItems as any);
+      if (otherItems.length > 0) items.push(...otherItems);
 
-      // Save coverage items + category statuses in parallel (offline-tolerant)
-      const categoryItems = Object.entries(correctedCategoryStatus).map(([cat, works]) => ({
-        Category: cat,
-        Status: works ? "trabaja" : "no_trabaja",
-      }));
+      // Categorías: solo las que quedaron en si/no (trabaja/no_trabaja).
+      const categoryItems = buildCategoryItems(effectiveCategoryState);
       const isTempVisit = visitId < 0;
       await Promise.all([
         executeOrEnqueue({
@@ -402,7 +583,7 @@ export function CoverageFormPage() {
           label: "Cobertura de productos",
           _tempVisitId: isTempVisit ? visitId : undefined,
         }),
-        id ? executeOrEnqueue({
+        id && categoryItems.length > 0 ? executeOrEnqueue({
           kind: "pdv_categories",
           method: "PUT",
           url: `/pdvs/${id}/product-categories`,
@@ -433,11 +614,7 @@ export function CoverageFormPage() {
     navigate(`/pos/${id}/survey`, { state: { routeDayId, visitId } });
   };
 
-  const workedCount = Object.values(rows).filter((r) => r.Works).length;
-  const ownWorked = Object.values(rows).filter((r) => {
-    const p = products.find((x) => x.ProductId === r.ProductId);
-    return r.Works && p?.IsOwn;
-  }).length;
+  const counts = useMemo(() => countStates(products, rows), [products, rows]);
 
   if (loading) {
     return (
@@ -448,7 +625,7 @@ export function CoverageFormPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background pb-28">
       {/* Header */}
       <div className="bg-card border-b border-border p-4 sticky top-0 z-10">
         <div className="flex items-center gap-3">
@@ -461,7 +638,7 @@ export function CoverageFormPage() {
           <div className="flex-1">
             <h1 className="text-lg font-bold text-foreground">Cobertura y Precios</h1>
             <p className="text-xs text-muted-foreground">
-              {workedCount} productos marcados &middot; {ownWorked} propios
+              {counts.withData} de {counts.total} con dato &middot; {counts.ownSi} Espert
             </p>
           </div>
           <VisitStepIndicator currentStep={2} />
@@ -502,7 +679,7 @@ export function CoverageFormPage() {
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Buscar producto o tabacalera..."
+              placeholder="Buscar producto, marca o tabacalera..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -514,7 +691,7 @@ export function CoverageFormPage() {
         <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-4 px-4">
           <button
             onClick={() => setFilterCategory("all")}
-            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+            className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
               filterCategory === "all"
                 ? "bg-[#A48242] text-white"
                 : "bg-muted text-muted-foreground hover:bg-muted/80"
@@ -523,17 +700,19 @@ export function CoverageFormPage() {
             Todos
           </button>
           {categories.map((cat) => {
-            const works = categoryStatus[cat] !== false;
+            const st = effectiveCategoryState[cat];
             return (
               <button
                 key={cat}
                 onClick={() => setFilterCategory(cat)}
-                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
                   filterCategory === cat
                     ? "bg-[#A48242] text-white"
-                    : works
-                      ? "bg-muted text-muted-foreground hover:bg-muted/80"
-                      : "bg-muted text-muted-foreground opacity-50 line-through"
+                    : st === "no"
+                      ? "bg-muted text-muted-foreground opacity-50 line-through"
+                      : st === "sin_dato"
+                        ? "bg-muted text-muted-foreground opacity-70"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
                 }`}
               >
                 {cat}
@@ -542,52 +721,74 @@ export function CoverageFormPage() {
           })}
         </div>
 
-        {/* Product groups — each with category on/off toggle */}
+        {/* Product groups — Categoría → Marca → Variante */}
         {Object.entries(groupedProducts).map(([category, prods]) => {
-          const works = categoryStatus[category] !== false;
+          const st = effectiveCategoryState[category] ?? "sin_dato";
+          const expanded = st === "si" || categoryStatus[category] === "si";
+          const catCounts = countStates(productsByCategory[category] || [], rows);
+          const groups = brandGroupsByCategory[category] || [];
           return (
           <div key={category} id={`cat-${category}`}>
-            <div className="flex items-center justify-between mb-2 mt-4">
-              <div className="flex items-center gap-2">
-                <Package size={16} className="text-[#A48242]" />
-                <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{category}</h2>
-                <Badge variant="secondary" className="text-[10px]">{prods.length}</Badge>
+            <div className="flex items-center justify-between gap-2 mb-2 mt-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <Package size={16} className="text-[#A48242] shrink-0" />
+                <h2 className="text-sm font-bold text-foreground uppercase tracking-wide truncate">{category}</h2>
+                <Badge variant="secondary" className="text-[10px] shrink-0">{catCounts.withData}/{prods.length}</Badge>
               </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-medium ${works ? "text-green-700" : "text-muted-foreground"}`}>
-                  {works ? "Trabaja" : "No trabaja"}
-                </span>
-                <Switch
-                  checked={works}
-                  onCheckedChange={(v) => {
-                    setCategoryStatus((prev) => ({ ...prev, [category]: v }));
-                    if (id) {
-                      pdvProductCategoriesApi.bulkUpsert(Number(id), [
-                        { Category: category, Status: v ? "trabaja" : "no_trabaja" },
-                      ]).catch(() => {});
-                    }
-                  }}
-                />
-              </div>
+              <Segmented
+                label={category}
+                value={st}
+                softSi={categoryStatus[category] === "si"}
+                onChange={(v) => handleCategoryState(category, v)}
+              />
             </div>
 
-            {!works && (
+            {!expanded && st === "no" && (
               <div className="border-2 border-dashed border-border rounded-lg p-4 text-center">
                 <p className="text-xs text-muted-foreground">Esta categoría está marcada como "No trabaja"</p>
               </div>
             )}
+            {!expanded && st === "sin_dato" && (
+              <button
+                type="button"
+                onClick={() => handleCategoryState(category, "si")}
+                className="w-full border-2 border-dashed border-border rounded-lg p-4 text-center active:bg-muted/60"
+              >
+                <p className="text-xs text-muted-foreground">Sin dato · tocá <span className="font-semibold text-green-700">Sí</span> para relevar</p>
+              </button>
+            )}
 
-            {works && <div className="space-y-2">
-              {prods.map((product) => {
-                const row = rows[product.ProductId];
-                if (!row) return null;
+            {expanded && <div className="space-y-2">
+              {groups.map((group) => {
+                if (group.products.length === 1) {
+                  const product = group.products[0];
+                  const row = rows[product.ProductId];
+                  if (!row) return null;
+                  return (
+                    <ProductRowMemo
+                      key={product.ProductId}
+                      product={product}
+                      row={row}
+                      diff={getDiff(product.ProductId)}
+                      category={category}
+                      onUpdate={updateRow}
+                    />
+                  );
+                }
+                const isOpen = openBrands.has(group.key);
+                const manual = brandExpanded[group.key];
+                const brandState = summarizeBrand(group.products, rows).state;
+                const isExpanded = manual ?? (isOpen || brandState === "si");
                 return (
-                  <ProductRowMemo
-                    key={product.ProductId}
-                    product={product}
-                    row={row}
-                    diff={getDiff(product.ProductId)}
-                    category={category}
+                  <BrandGroupCard
+                    key={group.key}
+                    group={group}
+                    rows={rows}
+                    diffs={diffs}
+                    expanded={isExpanded}
+                    open={isOpen}
+                    onToggle={() => setBrandExpanded((prev) => ({ ...prev, [group.key]: !isExpanded }))}
+                    onBrandState={(v) => handleBrandState(group, v)}
                     onUpdate={updateRow}
                   />
                 );
@@ -602,7 +803,7 @@ export function CoverageFormPage() {
                         <span className="text-sm font-medium text-foreground truncate">{op.name}</span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 font-medium shrink-0">OTRO</span>
                       </div>
-                      <button onClick={() => setOtherProducts((prev) => ({ ...prev, [category]: (prev[category] || []).filter((_, i) => i !== idx) }))} className="p-1 hover:bg-muted rounded">
+                      <button onClick={() => setOtherProducts((prev) => ({ ...prev, [category]: (prev[category] || []).filter((_, i) => i !== idx) }))} className="p-2 hover:bg-muted rounded">
                         <XIcon size={14} className="text-muted-foreground" />
                       </button>
                     </div>
@@ -611,10 +812,11 @@ export function CoverageFormPage() {
                         <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
                         <Input
                           type="number"
+                          inputMode="decimal"
                           placeholder="Precio"
                           value={op.price}
                           onChange={(e) => setOtherProducts((prev) => ({ ...prev, [category]: (prev[category] || []).map((o, i) => i === idx ? { ...o, price: e.target.value } : o) }))}
-                          className="h-8 text-sm pl-6"
+                          className="h-9 text-sm pl-6"
                         />
                       </div>
                     </div>
@@ -628,7 +830,7 @@ export function CoverageFormPage() {
                   placeholder="Agregar otro producto..."
                   value={newOtherName[category] || ""}
                   onChange={(e) => setNewOtherName((prev) => ({ ...prev, [category]: e.target.value }))}
-                  className="h-8 text-sm flex-1"
+                  className="h-9 text-sm flex-1"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (newOtherName[category] || "").trim()) {
                       setOtherProducts((prev) => ({ ...prev, [category]: [...(prev[category] || []), { name: newOtherName[category].trim(), price: "" }] }));
@@ -642,7 +844,7 @@ export function CoverageFormPage() {
                     setOtherProducts((prev) => ({ ...prev, [category]: [...(prev[category] || []), { name: newOtherName[category].trim(), price: "" }] }));
                     setNewOtherName((prev) => ({ ...prev, [category]: "" }));
                   }}
-                  className="h-8 px-3 rounded-lg bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 shrink-0"
+                  className="h-9 px-3 rounded-lg bg-muted text-xs font-medium text-muted-foreground hover:bg-muted/80 shrink-0"
                 >
                   + Otro
                 </button>
@@ -664,15 +866,15 @@ export function CoverageFormPage() {
 
       {/* Bottom CTA */}
       <div className="fixed bottom-0 left-0 right-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] z-20">
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
           <CheckCircle2 size={14} className="text-green-600" />
           <span className="text-xs text-muted-foreground">
-            {workedCount} trabaja &middot; {ownWorked} Espert
+            {counts.si} trabaja &middot; {counts.ownSi} Espert &middot; {counts.sinDato} sin dato
           </span>
-          {Object.values(rows).some((r) => r.Works && r.Availability === "quiebre") && (
+          {counts.quiebres > 0 && (
             <span className="flex items-center gap-1 text-xs text-red-600">
               <AlertCircle size={12} />
-              {Object.values(rows).filter((r) => r.Works && r.Availability === "quiebre").length} quiebres
+              {counts.quiebres} quiebres
             </span>
           )}
         </div>

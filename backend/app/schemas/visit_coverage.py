@@ -34,10 +34,12 @@ class CoverageDiff(BaseModel):
     ProductName: str
     Category: str
     Manufacturer: str | None = None
+    Brand: str | None = None
     Works: bool = False
     Price: Decimal | None = None
     Availability: str | None = None
     Puffs: int | None = None
+    # False también cuando la fila existe pero es "sin dato" (No anterior al corte)
     HasCurrentData: bool = False
     PrevWorks: bool | None = None
     PrevPrice: Decimal | None = None

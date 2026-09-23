@@ -7,7 +7,18 @@ const SEVERITY_STYLES: Record<string, string> = {
   media: "bg-amber-400 text-amber-950",
 };
 
+// Etiqueta por tipo de alerta (solo las que necesitan aclaración).
+const TIPO_LABELS: Record<string, string> = {
+  a_completar: "Censo incompleto",
+};
+
 const nf = (n: number) => n.toLocaleString("es-AR");
+
+function censoColor(pct: number): string {
+  if (pct >= 80) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
 
 /** Bloque "Contexto general": las cards que, leídas en orden, arman la foto
  * global de la operación antes de entrar al análisis en detalle. */
@@ -31,10 +42,27 @@ export function ResumenSection({ data }: { data: IntelOverview }) {
 
   // Ordenadas para leerse como contexto: la cartera → cuánto la conocemos →
   // cómo nos va donde la conocemos → quiénes la trabajan y a qué ritmo.
-  const tiles = [
+  const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
     { v: nf(r.pdvsActivos), l: "PDVs activos", d: `en ${zonas.length} zonas` },
     { v: nf(r.censados), l: "Censados", d: `${r.pctCensado}% de la cartera` },
     { v: nf(sinCensar), l: "Sin censar", d: "la frontera de expansión" },
+    // Completitud: cuánto del catálogo tiene respuesta (Sí/No) en cada PDV.
+    ...(r.completitud != null
+      ? [
+          {
+            v: `${Math.round(r.completitud)}%`,
+            l: "Completitud del censo",
+            d: r.completitudEspert != null ? `Espert ${Math.round(r.completitudEspert)}%` : undefined,
+            cls: censoColor(r.completitud),
+          },
+          {
+            v: nf(r.aCompletar ?? 0),
+            l: "A completar",
+            d: "con competencia, sin dato Espert",
+            cls: (r.aCompletar ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : undefined,
+          },
+        ]
+      : []),
     { v: `${r.cobertura}%`, l: "Cobertura Espert", d: "donde censamos" },
     { v: nf(r.conEspert), l: "PDVs con Espert", d: `${skusProm} SKUs promedio` },
     { v: nf(equipo), l: "Equipo en campo", d: `${activos.length} activos este mes` },
@@ -56,11 +84,11 @@ export function ResumenSection({ data }: { data: IntelOverview }) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 ${tiles.length > 8 ? "lg:grid-cols-5" : "lg:grid-cols-8"}`}>
         {tiles.map((t) => (
           <Card key={t.l}>
             <CardContent className="p-4">
-              <p className="text-2xl font-bold text-foreground tabular-nums">{t.v}</p>
+              <p className={`text-2xl font-bold tabular-nums ${t.cls ?? "text-foreground"}`}>{t.v}</p>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
                 {t.l}
               </p>
@@ -111,7 +139,14 @@ export function ResumenSection({ data }: { data: IntelOverview }) {
                   {a.severidad}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground leading-tight">{a.titulo}</p>
+                  <p className="text-sm font-semibold text-foreground leading-tight">
+                    {a.titulo}
+                    {TIPO_LABELS[a.tipo] && (
+                      <span className="ml-2 align-middle text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                        {TIPO_LABELS[a.tipo]}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-muted-foreground">{a.detalle}</p>
                 </div>
               </div>

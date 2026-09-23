@@ -27,6 +27,13 @@ Motor de oportunidades — 5 reglas sobre el censo consolidado de cada PDV:
 
 Los precios usan `kpi_engine.filter_price_outliers` sobre el último precio
 relevado por (PDV, producto) — el export tenía precios de $4 y de $26M.
+
+Censo en 3 estados (2026-09-23, ver `services/coverage_semantics.py`): una fila
+de `VisitCoverage` solo cuenta si `row_is_known()` — los "No" anteriores al
+corte histórico se descartan ANTES de consolidar, así un "Sí" viejo sobrevive a
+un "No" ambiguo más nuevo. Ausencia de fila = **sin dato**, nunca "no trabaja":
+un PDV es oportunidad solo cuando el lado Espert está explícitamente relevado;
+si trabaja competencia y no sabemos nada de Espert va a `aCompletar`.
 """
 from __future__ import annotations
 
@@ -45,6 +52,7 @@ from ..models.pdv_contact import PdvContact
 from ..models.pdv_supplier import PdvSupplier
 from ..models.supplier_type import SupplierType
 from ..models.user import Role as RoleModel, UserRole as UserRoleModel
+from .coverage_semantics import get_coverage_cutoff, product_brand, row_is_known
 from .kpi_engine import filter_price_outliers
 
 # ---------------------------------------------------------------------------
@@ -112,6 +120,8 @@ class ProductInfo:
     manufacturer: str
     is_own: bool
     is_capsule: bool
+    brand: str = ""
+    is_active: bool = True
 
 
 @dataclass
@@ -130,12 +140,34 @@ class Census:
     valid_prices: dict[int, list[float]] = field(default_factory=dict)  # ProductId -> precios validados
     median_by_product: dict[int, float] = field(default_factory=dict)
     total_relevamientos: int = 0
+    # Catálogo activo (denominador de completitud) y su subconjunto Espert.
+    catalog_active: set[int] = field(default_factory=set)
+    catalog_own: set[int] = field(default_factory=set)
+    cutoff: Optional[datetime] = None  # corte histórico de "No" explícito (una lectura por carga)
 
     def own_works(self, pdv_id: int) -> set[int]:
         return {p for p in self.works.get(pdv_id, ()) if self.products[p].is_own}
 
     def comp_works(self, pdv_id: int) -> set[int]:
         return {p for p in self.works.get(pdv_id, ()) if not self.products[p].is_own}
+
+    def own_known(self, pdv_id: int) -> set[int]:
+        """Productos Espert con respuesta explícita (Sí o No) en el PDV."""
+        return {p for p in self.surveyed.get(pdv_id, ()) if self.products[p].is_own}
+
+    def completitud(self, pdv_id: int) -> float:
+        """% del catálogo activo relevado en el PDV (0 si no hay catálogo)."""
+        known = self.surveyed.get(pdv_id, set()) & self.catalog_active
+        return _pct(len(known), len(self.catalog_active))
+
+    def completitud_espert(self, pdv_id: int) -> float:
+        """% del catálogo Espert activo relevado en el PDV."""
+        known = self.surveyed.get(pdv_id, set()) & self.catalog_own
+        return _pct(len(known), len(self.catalog_own))
+
+    def a_completar(self, pdv_id: int) -> bool:
+        """Trabaja competencia pero no sabemos nada del lado Espert: falta censo, no es oportunidad."""
+        return bool(self.comp_works(pdv_id)) and not self.own_known(pdv_id)
 
     def pdv_zone(self, p) -> str:
         return self.zone_names.get(p.ZoneId, "Sin zona")
@@ -161,7 +193,12 @@ def load_census(db: Session, pdv_scope: Optional[set[int]]) -> Census:
             manufacturer=p.Manufacturer or "Sin fabricante",
             is_own=bool(p.IsOwn),
             is_capsule=bool(getattr(p, "IsCapsule", False)),
+            brand=product_brand(p),
+            is_active=bool(p.IsActive),
         )
+    c.catalog_active = {pid for pid, info in c.products.items() if info.is_active}
+    c.catalog_own = {pid for pid in c.catalog_active if c.products[pid].is_own}
+    c.cutoff = get_coverage_cutoff(db)
 
     for p in db.query(PDV).filter(PDV.IsActive == True).all():  # noqa: E712
         if pdv_scope is None or p.PdvId in pdv_scope:
@@ -178,16 +215,21 @@ def load_census(db: Session, pdv_scope: Optional[set[int]]) -> Census:
             Visit.PdvId, Visit.OpenedAt,
             VisitCoverage.ProductId, VisitCoverage.Works,
             VisitCoverage.Price, VisitCoverage.Availability,
+            VisitCoverage.CreatedAt,
         )
         .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
         .filter(VisitCoverage.ProductId.isnot(None))
         .all()
     )
 
+    # Filas sin dato real (No pre-corte) se descartan ANTES de consolidar: un
+    # "Sí" viejo debe sobrevivir a un "No" ambiguo más nuevo.
     latest: dict[tuple[int, int], tuple[datetime, bool, Optional[float], Optional[str]]] = {}
     total = 0
-    for pdv_id, opened_at, prod_id, works, price, avail in rows:
+    for pdv_id, opened_at, prod_id, works, price, avail, created_at in rows:
         if pdv_id not in c.pdvs or prod_id not in c.products:
+            continue
+        if not row_is_known(bool(works), created_at, c.cutoff):
             continue
         total += 1
         key = (pdv_id, prod_id)
@@ -242,6 +284,18 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
     since_30d = now - timedelta(days=30)
 
     con_espert = {p for p in c.censados if c.own_works(p)}
+    a_completar = {p for p in c.censados if c.a_completar(p)}
+
+    def _completitud(pdv_ids) -> tuple[float, float]:
+        """Promedios de completitud (total y Espert) sobre TODOS los PDVs del
+        grupo: los no censados pesan 0."""
+        ids = list(pdv_ids)
+        if not ids:
+            return 0.0, 0.0
+        return (
+            round(mean(c.completitud(p) for p in ids), 1),
+            round(mean(c.completitud_espert(p) for p in ids), 1),
+        )
 
     # ── Visitas (histórico liviano: 4 columnas) ────────────────────────────
     visits = db.query(Visit.VisitId, Visit.PdvId, Visit.UserId, Visit.OpenedAt).all()
@@ -286,6 +340,7 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
         # Venta de sueltos: el flag es nullable — solo cuentan los PDVs con dato.
         sueltos_con_dato = [p for p in pdv_list if c.pdvs[p].SellsLooseCigarettes is not None]
         sueltos_si = sum(1 for p in sueltos_con_dato if c.pdvs[p].SellsLooseCigarettes)
+        compl, compl_own = _completitud(pdv_list)
         zonas.append({
             "zonaId": zid,
             "zona": c.zone_names.get(zid, "Sin zona"),
@@ -293,6 +348,9 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             "censados": len(censados),
             "conEspert": len(con),
             "cobertura": _pct(len(con), len(censados)),
+            "completitud": compl,
+            "completitudEspert": compl_own,
+            "aCompletar": sum(1 for p in pdv_list if p in a_completar),
             "skusPromEspert": round(mean(depths), 1) if depths else 0,
             "visitas30d": visits_30d_by_zone.get(zid, 0),
             "trades30d": len(users_30d_by_zone.get(zid, ())),
@@ -479,6 +537,7 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
         depths = [len(c.own_works(p)) for p in con]
         vids = visits_30d_by_user.get(uid, [])
         last = last_visit_by_user.get(uid)
+        compl, compl_own = _completitud(cartera)
         trades.append({
             "userId": uid,
             "nombre": u.DisplayName,
@@ -487,6 +546,9 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             "cartera": len(cartera),
             "censados": len(censados),
             "pctCensado": _pct(len(censados), len(cartera), 0),
+            "completitud": compl,
+            "completitudEspert": compl_own,
+            "aCompletar": sum(1 for p in cartera if p in a_completar),
             "conEspert": len(con),
             "skusProm": round(mean(depths), 1) if depths else 0,
             "visitas30d": len(vids),
@@ -533,7 +595,14 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             "titulo": f"{sin_censo} PDVs activos sin censar",
             "detalle": "La frontera de expansión del censo (gris en el mapa).",
         })
+    if a_completar:
+        alertas.append({
+            "tipo": "a_completar", "severidad": "media",
+            "titulo": f"{len(a_completar)} PDVs con competencia y Espert sin relevar",
+            "detalle": "Completar el censo Espert para saber si son primera colocación.",
+        })
 
+    compl_total, compl_own_total = _completitud(c.pdvs.keys())
     return {
         "generadoEl": now.strftime("%Y-%m-%d %H:%M UTC"),
         "datosDesde": datos_desde,
@@ -546,6 +615,9 @@ def build_overview(db: Session, census: Census, user_scope: Optional[set[int]]) 
             "pctCensado": _pct(len(c.censados), len(c.pdvs)),
             "relevamientos": c.total_relevamientos,
             "visitas": len(visits),
+            "completitud": compl_total,
+            "completitudEspert": compl_own_total,
+            "aCompletar": len(a_completar),
         },
         "visitasPorMes": visitas_por_mes,
         "zonas": zonas,
@@ -573,16 +645,22 @@ def build_opportunities(census: Census) -> dict[str, Any]:
     band_labels = {key: label for key, label, _lo, _hi in PRICE_BANDS}
 
     items = []
+    a_completar = []
 
-    def add(pdv_id, tipo, prioridad, detalle, sugerencia):
+    def _enrich(pdv_id) -> dict[str, Any]:
         p = c.pdvs[pdv_id]
-        items.append({
+        return {
             "pdvId": pdv_id,
             "pdv": p.Name,
             "zona": c.pdv_zone(p),
             "canal": c.pdv_channel(p),
             "tradeId": p.AssignedUserId,
             "trade": c.user_names.get(p.AssignedUserId, "Sin asignar"),
+        }
+
+    def add(pdv_id, tipo, prioridad, detalle, sugerencia):
+        items.append({
+            **_enrich(pdv_id),
             "tipo": tipo,
             "tipoLabel": TYPE_LABELS[tipo],
             "prioridad": prioridad,
@@ -590,15 +668,28 @@ def build_opportunities(census: Census) -> dict[str, Any]:
             "sugerencia": sugerencia,
         })
 
+    # Sin dato ≠ no trabaja: cada regla exige que el lado Espert que compara
+    # esté explícitamente relevado (al menos un "No" nuestro en ese corte).
     for pdv_id in c.censados:
         if pdv_id not in c.pdvs:
             continue
         works = c.works.get(pdv_id, set())
+        surveyed = c.surveyed.get(pdv_id, set())
         own = {p for p in works if c.products[p].is_own}
         comp = works - own
+        own_known = {p for p in surveyed if c.products[p].is_own}
 
-        # R5 — primera colocación: subsume al resto.
         if comp and not own:
+            if not own_known:
+                # Trabaja competencia y del lado Espert no sabemos nada: falta
+                # completar el censo, todavía no es oportunidad.
+                a_completar.append({
+                    **_enrich(pdv_id),
+                    "nombre": c.pdvs[pdv_id].Name,
+                    "faltan": len(c.catalog_own - surveyed),
+                })
+                continue
+            # R5 — primera colocación: subsume al resto.
             ejemplos = sorted(c.products[p].name for p in comp)[:3]
             add(
                 pdv_id, "primera_colocacion", "Crítica",
@@ -611,26 +702,28 @@ def build_opportunities(census: Census) -> dict[str, Any]:
             continue  # censado sin nada trabajado: caso aparte, no es oportunidad
 
         # R1 — extensión Milenio. Por nombre (no por id): "Milenio Red" es una
-        # identidad de negocio, no una fila puntual del catálogo.
+        # identidad de negocio, no una fila puntual del catálogo. Solo cuenta la
+        # variante relevada con "No" explícito; sin relevar no es oportunidad.
         own_names = {c.products[p].name for p in own}
         if any(n.startswith(MILENIO_BASE) for n in own_names):
             works_names = {c.products[p].name for p in works}
-            surveyed_names = {c.products[p].name for p in c.surveyed.get(pdv_id, ())}
+            surveyed_names = {c.products[p].name for p in surveyed}
             for ext_name in MILENIO_EXTENSIONS:
-                if not any(n.startswith(ext_name) for n in works_names):
-                    relevado = any(n.startswith(ext_name) for n in surveyed_names)
+                trabaja = any(n.startswith(ext_name) for n in works_names)
+                relevado = any(n.startswith(ext_name) for n in surveyed_names)
+                if relevado and not trabaja:
                     add(
                         pdv_id, "extension_milenio", "Media",
-                        f"Tiene Milenio Red pero no {ext_name}"
-                        + ("" if relevado else " (variante sin relevar)"),
+                        f"Tiene Milenio Red pero no {ext_name}",
                         f"Ofrecer {ext_name}",
                     )
 
-        # R2 — categoría solo con competencia.
+        # R2 — categoría solo con competencia (con algún Espert de la categoría relevado).
         for cat in OPPORTUNITY_CATEGORIES:
             comp_cat = [p for p in comp if c.products[p].category == cat]
             own_cat = [p for p in own if c.products[p].category == cat]
-            if comp_cat and not own_cat:
+            own_cat_known = [p for p in own_known if c.products[p].category == cat]
+            if comp_cat and not own_cat and own_cat_known:
                 ejemplos = sorted(c.products[p].name for p in comp_cat)[:2]
                 add(
                     pdv_id, "categoria", "Alta",
@@ -638,10 +731,11 @@ def build_opportunities(census: Census) -> dict[str, Any]:
                     f"Introducir {CATEGORY_SUGGESTION[cat]}",
                 )
 
-        # R3 — capsulados de la competencia sin capsulado Espert.
+        # R3 — capsulados de la competencia sin capsulado Espert (relevado).
         comp_caps = [p for p in comp if c.products[p].is_capsule]
         own_caps = [p for p in own if c.products[p].is_capsule]
-        if comp_caps and not own_caps:
+        own_caps_known = [p for p in own_known if c.products[p].is_capsule]
+        if comp_caps and not own_caps and own_caps_known:
             ejemplos = sorted(c.products[p].name for p in comp_caps)[:2]
             add(
                 pdv_id, "capsulados", "Alta",
@@ -650,6 +744,8 @@ def build_opportunities(census: Census) -> dict[str, Any]:
             )
 
         # R4 — franja de precio cubierta por competencia donde Espert no está.
+        if not own_known:
+            continue
         comp_bands = {band_of_prod.get(p) for p in comp} - {None}
         own_bands = {band_of_prod.get(p) for p in own} - {None}
         for band in comp_bands - own_bands:
@@ -664,6 +760,7 @@ def build_opportunities(census: Census) -> dict[str, Any]:
             )
 
     items.sort(key=lambda r: (PRIORITY_ORDER[r["prioridad"]], r["zona"], r["pdv"]))
+    a_completar.sort(key=lambda r: (-r["faltan"], r["zona"], r["pdv"]))
 
     por_tipo: dict[str, int] = defaultdict(int)
     por_zona: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
@@ -674,6 +771,9 @@ def build_opportunities(census: Census) -> dict[str, Any]:
         por_zona[r["zona"]][r["prioridad"]] += 1
         por_trade[r["trade"]] += 1
         por_prioridad[r["prioridad"]] += 1
+    a_completar_zona: dict[str, int] = defaultdict(int)
+    for r in a_completar:
+        a_completar_zona[r["zona"]] += 1
 
     return {
         "items": items,
@@ -682,6 +782,12 @@ def build_opportunities(census: Census) -> dict[str, Any]:
         "porZona": {z: dict(d) for z, d in por_zona.items()},
         "porTrade": dict(sorted(por_trade.items(), key=lambda kv: -kv[1])),
         "porPrioridad": dict(por_prioridad),
+        # PDVs con competencia y lado Espert sin relevar: pendientes de censo.
+        "aCompletar": {
+            "count": len(a_completar),
+            "items": a_completar[:500],
+            "porZona": dict(a_completar_zona),
+        },
     }
 
 
@@ -810,17 +916,19 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
         })
 
     # Censo consolidado del PDV: última observación por producto, con precio.
+    # Mismo corte histórico que `load_census` (c.cutoff): un "No" pre-corte no
+    # es dato y no pisa un "Sí" anterior.
     cov_rows = (
         db.query(Visit.OpenedAt, VisitCoverage.ProductId, VisitCoverage.Works,
-                 VisitCoverage.Price, VisitCoverage.Availability)
+                 VisitCoverage.Price, VisitCoverage.Availability, VisitCoverage.CreatedAt)
         .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
         .filter(Visit.PdvId == pdv_id, VisitCoverage.ProductId.isnot(None))
         .all()
     )
     latest: dict[int, tuple] = {}
     by_month_skus: dict[str, set[int]] = defaultdict(set)
-    for opened_at, prod_id, works, price, avail in cov_rows:
-        if prod_id not in c.products:
+    for opened_at, prod_id, works, price, avail, created_at in cov_rows:
+        if prod_id not in c.products or not row_is_known(bool(works), created_at, c.cutoff):
             continue
         mes = opened_at.strftime("%Y-%m")
         if works and c.products[prod_id].is_own:
@@ -832,6 +940,7 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
     censo = [
         {
             "producto": c.products[pid].name,
+            "marca": c.products[pid].brand,
             "fabricante": c.products[pid].manufacturer,
             "esEspert": c.products[pid].is_own,
             "categoria": c.products[pid].category,
@@ -843,6 +952,15 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
         for pid, (opened_at, works, price, avail) in latest.items()
     ]
     censo.sort(key=lambda r: (not r["esEspert"], not r["trabaja"], r["producto"]))
+
+    # Sin dato: catálogo activo sin respuesta explícita (Espert primero).
+    surveyed_here = set(latest)
+    sin_dato = sorted(
+        (c.products[pid] for pid in c.catalog_active - surveyed_here),
+        key=lambda info: (not info.is_own, info.name),
+    )
+    completitud = _pct(len(surveyed_here & c.catalog_active), len(c.catalog_active))
+    completitud_espert = _pct(len(surveyed_here & c.catalog_own), len(c.catalog_own))
 
     visitas_por_mes: dict[str, int] = defaultdict(int)
     for v in visits:
@@ -909,6 +1027,9 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
         "contactos": contacts,
         "proveedores": proveedores,
         "skusEspertHoy": own_hoy,
+        "completitud": completitud,
+        "completitudEspert": completitud_espert,
+        "sinDato": [info.name for info in sin_dato],
         "censo": censo,
         "evolucion": evolucion,
         "visitas": visitas,

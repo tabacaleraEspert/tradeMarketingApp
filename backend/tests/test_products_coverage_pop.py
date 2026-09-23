@@ -121,6 +121,22 @@ class TestProducts:
         resp = client.get("/products/999999")
         assert resp.status_code == 404
 
+    def test_brand_in_list_and_detail(self, client):
+        """`Product.Brand` (censo 3 estados) viaja en alta, lista y detalle."""
+        uid = _uid()
+        p = client.post("/products", json={
+            "Name": f"Marlboro Box {uid}", "Category": "Cigarrillos", "Brand": "Marlboro",
+        }).json()
+        assert p["Brand"] == "Marlboro"
+        listed = [x for x in client.get("/products").json() if x["ProductId"] == p["ProductId"]]
+        assert listed and listed[0]["Brand"] == "Marlboro"
+        assert "Brand" in client.get(f"/products/{p['ProductId']}").json()
+        # Sin marca cargada el alta la infiere del nombre (brand_of)
+        q = client.post("/products", json={"Name": f"Van Kiff Verde {uid}", "Category": "Tabacos"}).json()
+        assert q["Brand"] == "Van Kiff"
+        resp = client.patch(f"/products/{q['ProductId']}", json={"Brand": "Milenio"})
+        assert resp.json()["Brand"] == "Milenio"
+
 
 # ---------------------------------------------------------------------------
 # PDV Product Categories (Step 9)

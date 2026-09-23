@@ -7,6 +7,7 @@ from ..models.product import Product as ProductModel
 from ..models.visit import Visit as VisitModel
 from ..models.user import User as UserModel
 from ..schemas.visit_coverage import VisitCoverageRead, VisitCoverageBulk, CoverageDiff
+from ..services.coverage_semantics import get_coverage_cutoff, product_brand, row_is_known
 from ._visit_auth import check_visit_ownership
 
 router = APIRouter(prefix="/visits/{visit_id}/coverage", tags=["Cobertura y Precios"])
@@ -58,7 +59,11 @@ def list_coverage(visit_id: int, current_user: UserModel = Depends(get_current_u
 
 @router.put("", response_model=list[VisitCoverageRead])
 def bulk_save_coverage(visit_id: int, data: VisitCoverageBulk, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Bulk save: replace all coverage items for a visit."""
+    """Bulk save: replace all coverage items for a visit.
+
+    Censo de 3 estados: el form manda solo lo que el vendedor tocó. `Works=False`
+    es un "No" explícito y se persiste tal cual; "sin dato" = no viene la fila.
+    """
     visit = _get_visit_checked(visit_id, current_user, db)
     if visit.Status in ("CLOSED", "COMPLETED"):
         raise HTTPException(400, "No se puede modificar una visita cerrada")
@@ -84,8 +89,16 @@ def bulk_save_coverage(visit_id: int, data: VisitCoverageBulk, current_user: Use
 
 @router.get("/diff", response_model=list[CoverageDiff])
 def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Return current coverage with diff vs previous visit for the same PDV."""
+    """Return current coverage with diff vs previous visit for the same PDV.
+
+    Filas "sin dato" (`row_is_known` False: No anterior al corte histórico) se
+    tratan como ausentes, tanto en la visita actual como en la anterior.
+    """
     visit = _get_visit_checked(visit_id, current_user, db)
+    cutoff = get_coverage_cutoff(db)
+
+    def _known(r):
+        return row_is_known(r.Works, r.CreatedAt, cutoff)
 
     # Find previous visit for same PDV
     prev_visit = (
@@ -103,11 +116,11 @@ def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_curr
     prev_map = {}
     if prev_visit:
         prev_rows = db.query(CoverageModel).filter(CoverageModel.VisitId == prev_visit.VisitId).all()
-        prev_map = {r.ProductId: r for r in prev_rows}
+        prev_map = {r.ProductId: r for r in prev_rows if _known(r)}
 
     # Current coverage
     current_rows = db.query(CoverageModel).filter(CoverageModel.VisitId == visit_id).all()
-    current_map = {r.ProductId: r for r in current_rows}
+    current_map = {r.ProductId: r for r in current_rows if _known(r)}
 
     # Get all products involved
     product_ids = set(current_map.keys()) | set(prev_map.keys())
@@ -128,6 +141,7 @@ def coverage_with_diff(visit_id: int, current_user: UserModel = Depends(get_curr
             ProductName=prod.Name,
             Category=prod.Category,
             Manufacturer=prod.Manufacturer,
+            Brand=product_brand(prod),
             Works=cur.Works if cur else False,
             Price=cur.Price if cur else None,
             Availability=cur.Availability if cur else None,

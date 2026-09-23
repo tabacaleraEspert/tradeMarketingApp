@@ -28,12 +28,35 @@ interface EnrichedVisit {
   UserName: string | null;
 }
 
+type CoverageRow = VisitFull["coverage"][number];
+
+/** Marca del producto: `Brand` del catálogo o primera palabra del nombre. */
+function coverageBrand(c: { Brand?: string | null; ProductName: string }): string {
+  const b = c.Brand ?? null;
+  if (b && b.trim()) return b.trim();
+  return c.ProductName.trim().split(/\s+/)[0] || "—";
+}
+
+function groupCoverageByCategoryBrand(items: CoverageRow[]) {
+  const cats: Array<{ category: string; brands: Array<{ brand: string; items: CoverageRow[] }> }> = [];
+  for (const c of items) {
+    const category = c.Category || "Otros";
+    const brand = coverageBrand(c);
+    let cat = cats.find((x) => x.category === category);
+    if (!cat) { cat = { category, brands: [] }; cats.push(cat); }
+    let br = cat.brands.find((x) => x.brand === brand);
+    if (!br) { br = { brand, items: [] }; cat.brands.push(br); }
+    br.items.push(c);
+  }
+  return cats;
+}
+
 interface VisitFull {
   visit: { VisitId: number; PdvId: number; UserId: number; Status: string; OpenedAt: string | null; ClosedAt: string | null; CloseReason: string | null };
   pdv: { PdvId: number; Name: string; Address: string | null; Channel: string | null } | null;
   user: { UserId: number; DisplayName: string; Email: string } | null;
   answers: Array<{ QuestionId: number; Label: string; QType: string; ValueText: string | null; ValueNumber: number | null; ValueBool: boolean | null; ValueJson: string | null }>;
-  coverage: Array<{ ProductId: number; ProductName: string; Category: string; Manufacturer: string | null; IsOwn: boolean; Works: boolean; Price: number | null; Availability: string | null }>;
+  coverage: Array<{ ProductId: number; ProductName: string; Category: string; Manufacturer: string | null; Brand?: string | null; IsOwn: boolean; Works: boolean; Price: number | null; Availability: string | null }>;
   pop: Array<{ MaterialType: string; MaterialName: string; Company: string | null; Present: boolean; HasPrice: boolean | null }>;
   marketNews: Array<{ MarketNewsId: number; Tags: string | null; Notes: string; CreatedAt: string | null }>;
   photos: Array<{ FileId: number; PhotoType: string; url: string; Notes: string | null }>;
@@ -172,8 +195,8 @@ export function VisitDataExplorer() {
       sheets.push({
         name: "Cobertura",
         data: sv.coverage.map((c) => ({
-          Producto: c.ProductName, Categoria: c.Category, Fabricante: c.Manufacturer || "",
-          Propio: c.IsOwn ? "Si" : "No", Trabaja: c.Works ? "Si" : "No",
+          Producto: c.ProductName, Categoria: c.Category, Marca: coverageBrand(c), Fabricante: c.Manufacturer || "",
+          Propio: c.IsOwn ? "Si" : "No", Trabaja: c.Works ? "Sí" : "No",
           Precio: c.Price ?? "", Disponibilidad: c.Availability || "",
         })),
       });
@@ -385,7 +408,7 @@ export function VisitDataExplorer() {
             <div className="flex gap-1 overflow-x-auto border-b border-border pb-1">
               {[
                 { key: "forms", label: "Formularios", icon: FileText, count: selectedVisit.answers.length },
-                { key: "coverage", label: "Cobertura", icon: Package, count: selectedVisit.coverage.filter((c) => c.Works).length },
+                { key: "coverage", label: "Cobertura", icon: Package, count: selectedVisit.coverage.filter((c) => c.Works).length, noCount: selectedVisit.coverage.filter((c) => !c.Works).length },
                 { key: "pop", label: "POP", icon: Megaphone, count: selectedVisit.pop.filter((p) => p.Present).length },
                 { key: "suppliers", label: "Proveedores", icon: Truck, count: (selectedVisit.suppliers || []).length },
                 { key: "news", label: "Novedades", icon: Newspaper, count: selectedVisit.marketNews.length },
@@ -405,6 +428,7 @@ export function VisitDataExplorer() {
                     <Icon size={14} />
                     {tab.label}
                     {tab.count > 0 && <Badge variant="secondary" className="text-[9px] px-1 py-0">{tab.count}</Badge>}
+                    {"noCount" in tab && (tab.noCount ?? 0) > 0 && <span className="text-[9px] text-red-600">· {tab.noCount} no</span>}
                   </button>
                 );
               })}
@@ -437,26 +461,33 @@ export function VisitDataExplorer() {
                   <p className="text-sm text-muted-foreground py-8 text-center">Sin datos de cobertura</p>
                 ) : (
                   <div className="space-y-1">
-                    {/* Group by category */}
-                    {Object.entries(
-                      selectedVisit.coverage.reduce((acc, c) => {
-                        if (!acc[c.Category]) acc[c.Category] = [];
-                        acc[c.Category].push(c);
-                        return acc;
-                      }, {} as Record<string, typeof selectedVisit.coverage>)
-                    ).map(([cat, products]) => (
-                      <div key={cat}>
-                        <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mt-3 mb-1">{cat}</p>
-                        {products.map((c) => (
-                          <div key={c.ProductId} className={`flex items-center justify-between p-2 rounded ${c.Works ? "bg-green-50" : "bg-muted/30"}`}>
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${c.Works ? "bg-green-500" : "bg-gray-300"}`} />
-                              <span className="text-xs text-foreground">{c.ProductName}</span>
-                              {c.IsOwn && <Badge className="text-[8px] px-1 py-0 bg-[#A48242]/10 text-[#A48242]">ESPERT</Badge>}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs">
-                              {c.Price != null && <span className="font-medium">${c.Price}</span>}
-                              {c.Availability === "quiebre" && <Badge variant="destructive" className="text-[8px] px-1 py-0">Quiebre</Badge>}
+                    {/* Agrupado Categoría → Marca */}
+                    {groupCoverageByCategoryBrand(selectedVisit.coverage).map((g) => (
+                      <div key={g.category}>
+                        <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mt-3 mb-1">{g.category}</p>
+                        {g.brands.map((b) => (
+                          <div key={`${g.category}-${b.brand}`} className="mb-1.5">
+                            <p className="text-[10px] font-semibold text-muted-foreground px-1 mb-0.5">{b.brand}</p>
+                            <div className="space-y-0.5">
+                              {b.items.map((c) => (
+                                <div key={c.ProductId} className={`flex items-center justify-between gap-2 p-2 rounded ${c.Works ? "bg-green-50" : "bg-red-50/60"}`}>
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className={`w-2 h-2 rounded-full shrink-0 ${c.Works ? "bg-green-500" : "bg-red-500"}`} title={c.Works ? "Sí trabaja" : "No trabaja"} />
+                                    <span className="text-xs text-foreground truncate">{c.ProductName}</span>
+                                    {c.IsOwn && <Badge className="text-[8px] px-1 py-0 bg-[#A48242]/10 text-[#A48242] shrink-0">ESPERT</Badge>}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs shrink-0">
+                                    {c.Works ? (
+                                      <>
+                                        {c.Price != null && <span className="font-medium">${c.Price}</span>}
+                                        {c.Availability === "quiebre" && <Badge variant="destructive" className="text-[8px] px-1 py-0">Quiebre</Badge>}
+                                      </>
+                                    ) : (
+                                      <span className="text-[9px] px-1.5 py-0 rounded-full bg-red-50 text-red-600 border border-red-200 font-semibold">No</span>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </div>
                         ))}

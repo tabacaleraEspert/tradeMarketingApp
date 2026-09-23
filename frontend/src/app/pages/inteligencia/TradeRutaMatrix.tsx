@@ -144,7 +144,7 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
           <span className="w-3.5 h-3.5 border-2 border-espert-gold border-t-transparent rounded-full animate-spin ml-1" role="status" aria-label="Cargando" />
         )}
         <span className="text-[11px] text-muted-foreground ml-auto">
-          {modo === "precio" ? "precio promedio relevado en la ruta" : "% de PDVs de la ruta que lo trabajan"}
+          {modo === "precio" ? "precio promedio relevado en la ruta" : "% de PDVs de la ruta con dato que lo trabajan"}
         </span>
         {!full && (
           <button
@@ -192,7 +192,12 @@ export function TradeRutaMatrix({ userId, title, period = DEFAULT_PERIOD }: { us
                 >
                   {r.nombre}
                   {sort?.ruta === r.nombre ? (sort.asc ? " ▲" : " ▼") : ""}
-                  <span className="block normal-case font-normal">{r.pdvs} PDVs</span>
+                  <span className="block normal-case font-normal">
+                    {r.pdvs} PDVs
+                    {r.completitud != null && (
+                      <span title={`Completitud del censo · Espert ${r.completitud_esp ?? 0}%`}> · censo {r.completitud}%</span>
+                    )}
+                  </span>
                 </th>
               ))}
             </tr>

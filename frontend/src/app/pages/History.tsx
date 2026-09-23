@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
@@ -32,6 +32,30 @@ interface FormQuestion {
   QType: string;
   IsRequired: boolean;
   SortOrder: number;
+}
+
+
+// ─── Cobertura: agrupado Categoría → Marca (Brand o primera palabra del nombre) ───
+function productBrand(prod: Product | undefined, fallbackName: string): string {
+  const b = prod ? ((prod as unknown as { Brand?: string | null }).Brand ?? null) : null;
+  if (b && b.trim()) return b.trim();
+  const name = prod?.Name || fallbackName;
+  return name.trim().split(/\s+/)[0] || "—";
+}
+
+function groupCoverageByCategoryBrand(items: VisitCoverageItem[], productMap: Record<number, Product>) {
+  const cats: Array<{ category: string; brands: Array<{ brand: string; items: VisitCoverageItem[] }> }> = [];
+  for (const c of items) {
+    const prod = productMap[c.ProductId];
+    const category = prod?.Category || "Otros";
+    const brand = productBrand(prod, `#${c.ProductId}`);
+    let cat = cats.find((x) => x.category === category);
+    if (!cat) { cat = { category, brands: [] }; cats.push(cat); }
+    let br = cat.brands.find((x) => x.brand === brand);
+    if (!br) { br = { brand, items: [] }; cat.brands.push(br); }
+    br.items.push(c);
+  }
+  return cats;
 }
 
 export function History() {
@@ -472,7 +496,14 @@ export function History() {
                   )}
 
                   {/* Cobertura y Precios */}
-                  {modalDetail.coverage.length > 0 && (
+                  {modalDetail.coverage.length > 0 && (() => {
+                    const cov = modalDetail.coverage;
+                    const siCount = cov.filter((c) => c.Works).length;
+                    const noCount = cov.filter((c) => !c.Works).length;
+                    const activeCatalog = Object.values(modalDetail.productMap).filter((p) => p.IsActive).length;
+                    const sinDato = activeCatalog > 0 ? Math.max(activeCatalog - cov.length, 0) : null;
+                    const groups = groupCoverageByCategoryBrand(cov, modalDetail.productMap);
+                    return (
                     <div>
                       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
                         <ClipboardList size={13} />
@@ -484,26 +515,44 @@ export function History() {
                           <th className="text-right py-1.5 px-3 font-medium w-16">Precio</th>
                           <th className="text-right py-1.5 px-3 font-medium w-20">Estado</th>
                         </tr></thead>
-                        <tbody className="divide-y divide-border">
-                          {modalDetail.coverage.filter((c) => c.Works).map((c) => {
-                            const prod = modalDetail.productMap[c.ProductId];
-                            return (
-                              <tr key={c.VisitCoverageId}>
-                                <td className="py-1.5 px-3 text-foreground">
-                                  {prod?.Name || `#${c.ProductId}`}
-                                  {prod?.IsOwn && <span className="ml-1 text-[8px] px-1 py-0 rounded bg-[#A48242]/10 text-[#A48242] font-semibold">ESPERT</span>}
-                                </td>
-                                <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{c.Price != null ? `$${Number(c.Price).toLocaleString()}` : "—"}</td>
-                                <td className="py-1.5 px-3 text-right">
-                                  <Badge variant={c.Availability === "quiebre" ? "destructive" : "secondary"} className="text-[9px] px-1 py-0">{c.Availability === "quiebre" ? "Quiebre" : "Disp."}</Badge>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                        <tbody>
+                          {groups.map((g) => (
+                            <Fragment key={g.category}>
+                              <tr><td colSpan={3} className="pt-2 pb-0.5 px-3 text-[10px] font-bold text-[#A48242] uppercase tracking-wider">{g.category}</td></tr>
+                              {g.brands.map((b) => (
+                                <Fragment key={`${g.category}-${b.brand}`}>
+                                  <tr><td colSpan={3} className="pt-1 pb-0.5 px-3 text-[10px] font-semibold text-muted-foreground">{b.brand}</td></tr>
+                                  {b.items.map((c) => {
+                                    const prod = modalDetail.productMap[c.ProductId];
+                                    return (
+                                      <tr key={c.VisitCoverageId} className={`border-t border-border/60 ${!c.Works ? "opacity-70" : ""}`}>
+                                        <td className="py-1.5 pl-5 pr-3 text-foreground">
+                                          {prod?.Name || `#${c.ProductId}`}
+                                          {prod?.IsOwn && <span className="ml-1 text-[8px] px-1 py-0 rounded bg-[#A48242]/10 text-[#A48242] font-semibold">ESPERT</span>}
+                                        </td>
+                                        <td className="py-1.5 px-3 text-right font-semibold tabular-nums">{c.Works && c.Price != null ? `$${Number(c.Price).toLocaleString()}` : "—"}</td>
+                                        <td className="py-1.5 px-3 text-right">
+                                          {c.Works ? (
+                                            <Badge variant={c.Availability === "quiebre" ? "destructive" : "secondary"} className="text-[9px] px-1 py-0">{c.Availability === "quiebre" ? "Quiebre" : "Disp."}</Badge>
+                                          ) : (
+                                            <span className="inline-block text-[9px] px-1.5 py-0 rounded-full bg-red-50 text-red-600 border border-red-200 font-semibold">No</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </Fragment>
+                              ))}
+                            </Fragment>
+                          ))}
                         </tbody>
                       </table>
+                      <p className="text-[10px] text-muted-foreground mt-1.5">
+                        {siCount} trabajan · {noCount} no{sinDato != null && ` · ${sinDato} sin dato`}
+                      </p>
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Censo POP */}
                   {modalDetail.popItems.length > 0 && (

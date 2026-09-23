@@ -21,10 +21,10 @@ function pctColor(pct: number): string {
 }
 
 /** Métrica de porcentaje: solo el número con color de semáforo. */
-function PctStat({ label, pct }: { label: string; pct: number }) {
+function PctStat({ label, pct, title }: { label: string; pct: number; title?: string }) {
   return (
-    <div>
-      <p className={`text-sm font-bold tabular-nums ${pctColor(pct)}`}>{pct}%</p>
+    <div title={title}>
+      <p className={`text-sm font-bold tabular-nums ${pctColor(pct)}`}>{Math.round(pct)}%</p>
       <p className="text-[10px] text-muted-foreground">{label}</p>
     </div>
   );
@@ -223,7 +223,7 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
                               </div>
                             </div>
 
-                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-x-4 gap-y-2">
                               <div>
                                 <p className="text-sm font-bold text-foreground tabular-nums">
                                   {m ? nf(m.tot) : nf(t.visitas30d)}
@@ -242,6 +242,13 @@ export function EquipoSection({ trades, zonas, onTradeClick, onRutaClick }: Prop
                                 </p>
                               </div>
                               {m && <PctStat label="efectividad plan" pct={m.ef_pct} />}
+                              {(m?.completitud ?? t.completitud) != null && (
+                                <PctStat
+                                  label={`censo · Espert ${Math.round((m?.completitud_esp ?? t.completitudEspert) ?? 0)}%`}
+                                  pct={(m?.completitud ?? t.completitud) as number}
+                                  title="Completitud del censo: % del catálogo con respuesta (Sí/No), promedio de sus PDVs"
+                                />
+                              )}
                               <PctStat label="GPS" pct={m ? m.gps : t.gps} />
                               <PctStat label="foto" pct={m ? m.foto : t.foto} />
                               {m ? (

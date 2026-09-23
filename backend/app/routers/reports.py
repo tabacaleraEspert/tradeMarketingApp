@@ -1216,11 +1216,18 @@ def product_analytics(
 
     Para cada producto, calcula métricas del último relevamiento por PDV
     (evita duplicar si un PDV fue visitado múltiples veces).
+
+    Censo de 3 estados: las filas "sin dato" (No anterior al corte histórico,
+    ver coverage_semantics) se excluyen ANTES de elegir el último relevamiento,
+    así un "Sí" viejo no queda tapado por un "No" ambiguo más nuevo.
     """
     import statistics
+    from sqlalchemy import or_
+    from ..services.coverage_semantics import get_coverage_cutoff
 
     visible = visible_user_ids(db, current_user)
     vpdv = visible_pdv_ids(db, current_user)
+    cutoff = get_coverage_cutoff(db)
 
     # Subquery: último VisitCoverageId por (ProductId, PdvId)
     # = la entrada de cobertura más reciente para cada producto en cada PDV
@@ -1234,6 +1241,11 @@ def product_analytics(
     )
     if visible is not None:
         latest_sq = latest_sq.filter(VisitModel.UserId.in_(visible))
+    if cutoff is not None:
+        # Misma regla que row_is_known(), en SQL
+        latest_sq = latest_sq.filter(
+            or_(VisitCoverageModel.Works == True, VisitCoverageModel.CreatedAt >= cutoff)
+        )
     latest_sq = latest_sq.group_by(VisitCoverageModel.ProductId, VisitModel.PdvId).subquery()
 
     # Fetch all latest coverage rows with product info
@@ -1303,28 +1315,39 @@ def product_analytics(
     for bp in by_product:
         cat_map.setdefault(bp["Category"] or "Sin categoría", []).append(bp)
 
+    # Denominador consistente con `pdvCount` por producto: PDVs con dato
+    # conocido (Sí o No explícito) en >=1 producto de la categoría, no todos
+    # los PDVs activos — "sin dato" no cuenta como "no trabaja".
     by_category = []
-    total_pdvs_q = db.query(PDVModel).filter(PDVModel.IsActive == True)
-    if vpdv is not None:
-        total_pdvs_q = total_pdvs_q.filter(PDVModel.PdvId.in_(vpdv))
-    total_pdvs = total_pdvs_q.count()
     for cat, items in sorted(cat_map.items()):
+        pdvs_known = set()
         pdvs_with_cat = set()
         for item in items:
-            pdvs_with_cat.update(e.PdvId for e in product_data.get(item["ProductId"], []) if e.Works)
-        avg_coverage = round(len(pdvs_with_cat) / total_pdvs * 100, 1) if total_pdvs else 0
+            for e in product_data.get(item["ProductId"], []):
+                pdvs_known.add(e.PdvId)
+                if e.Works:
+                    pdvs_with_cat.add(e.PdvId)
+        avg_coverage = round(len(pdvs_with_cat) / len(pdvs_known) * 100, 1) if pdvs_known else 0
         by_category.append({
             "Category": cat,
             "productCount": len(items),
+            "pdvCount": len(pdvs_known),
             "avgCoverage": avg_coverage,
         })
 
     # Totals
     all_pdv_ids = set()
-    all_visit_ids = set()
     for entries in product_data.values():
         for e in entries:
             all_pdv_ids.add(e.PdvId)
+
+    # PDVs activos visibles sin ninguna fila conocida: hace visible la pérdida
+    # de información del corte histórico.
+    active_q = db.query(PDVModel.PdvId).filter(PDVModel.IsActive == True)
+    if vpdv is not None:
+        active_q = active_q.filter(PDVModel.PdvId.in_(vpdv))
+    active_ids = {r[0] for r in active_q.all()}
+    pdvs_sin_dato = len(active_ids - all_pdv_ids)
 
     tv_q = db.query(sqlfunc.count(sqlfunc.distinct(VisitCoverageModel.VisitId))).join(
         VisitModel, VisitModel.VisitId == VisitCoverageModel.VisitId
@@ -1338,6 +1361,8 @@ def product_analytics(
         "byCategory": by_category,
         "totalPdvsWithCoverage": len(all_pdv_ids),
         "totalVisitsWithCoverage": total_visits_with_coverage,
+        "pdvsSinDato": pdvs_sin_dato,
+        "coverageCutoff": cutoff.isoformat() if cutoff else None,
     }
 
 

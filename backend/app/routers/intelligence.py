@@ -99,6 +99,7 @@ def get_opportunities(
         "porZona": full["porZona"],
         "porTrade": full["porTrade"],
         "porPrioridad": full["porPrioridad"],
+        "aCompletar": full["aCompletar"],
     }
 
 

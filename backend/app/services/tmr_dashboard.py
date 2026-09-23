@@ -32,7 +32,7 @@ from datetime import date, datetime, timedelta, timezone
 from statistics import mean
 from typing import Any, Optional
 
-from sqlalchemy import func, text
+from sqlalchemy import case, func, or_, text, true
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -54,6 +54,7 @@ from ..models import (
     Zone,
 )
 from . import kpi_engine as E
+from .coverage_semantics import get_coverage_cutoff, row_is_known
 
 # Etiquetas de nivel que espera la página (el motor usa snake_case internamente).
 LEVEL_LABEL = {
@@ -191,6 +192,10 @@ class TmrContext:
     relevado: set = field(default_factory=set)
     score_by_pdv: dict = field(default_factory=dict)
     cov_rules_by_user: dict = field(default_factory=dict)
+    # Catálogo activo (nombres) y su subconjunto Espert: denominadores de la
+    # completitud del censo.
+    catalog_active: set = field(default_factory=set)
+    catalog_own: set = field(default_factory=set)
 
     def pdv_channel(self, p) -> str:
         return self.channel_names.get(p.ChannelId) or p.Channel or "—"
@@ -200,6 +205,18 @@ class TmrContext:
 
     def routes_of(self, uid: int) -> list:
         return [r for r in self.routes if r.AssignedUserId == uid]
+
+    def completitud(self, uid: int, pdv_id: int) -> tuple[float, float]:
+        """Completitud del censo del PDV: % del catálogo activo con dato (Sí o
+        No explícito) y lo mismo sobre el catálogo Espert. Sin relevar = 0.
+        Devuelve floats sin redondear para que los promedios (ruta, trade) no
+        acumulen el redondeo por PDV."""
+        seen = self.seen_by_pdv.get((uid, pdv_id), set())
+        n_cat, n_own = len(self.catalog_active), len(self.catalog_own)
+        return (
+            len(seen & self.catalog_active) / n_cat * 100 if n_cat else 0.0,
+            len(seen & self.catalog_own) / n_own * 100 if n_own else 0.0,
+        )
 
 
 def load_context(
@@ -364,11 +381,21 @@ def _load_coverage(db: Session, ctx: TmrContext, visit_ids: list[int], ref_date)
     """El escaneo caro: `VisitCoverage` de todas las visitas del scope.
 
     Consolidación mensual idéntica a `kpi_engine.pdv_coverage_scores`: por cada
-    (PDV, producto) manda la visita MÁS RECIENTE del mes que lo relevó."""
+    (PDV, producto) manda la visita MÁS RECIENTE del mes que lo relevó.
+
+    Censo de 3 estados (`coverage_semantics`): las filas que no aportan dato (un
+    `Works=False` anterior al corte) se descartan ANTES de quedarse con la más
+    reciente, así un "Sí" viejo sobrevive a un "No" ambiguo posterior. Con eso
+    `relevado`, `seen_by_pdv` y `works_by_pdv` significan "con dato"."""
+    products = db.query(Product.Name, Product.IsOwn).filter(Product.IsActive == True).all()  # noqa: E712
+    ctx.catalog_active = {name for name, _own in products}
+    ctx.catalog_own = {name for name, own in products if own}
+
+    cutoff = get_coverage_cutoff(db)
     cov_rows = (
         db.query(
             Visit.UserId, Visit.PdvId, Visit.OpenedAt,
-            VisitCoverage.Works, VisitCoverage.Price, Product.Name,
+            VisitCoverage.Works, VisitCoverage.Price, VisitCoverage.CreatedAt, Product.Name,
         )
         .join(Visit, Visit.VisitId == VisitCoverage.VisitId)
         .join(Product, Product.ProductId == VisitCoverage.ProductId)
@@ -378,7 +405,9 @@ def _load_coverage(db: Session, ctx: TmrContext, visit_ids: list[int], ref_date)
         else []
     )
     latest: dict[tuple[int, int, str], tuple[datetime, bool, Optional[float]]] = {}
-    for user_id, pdv_id, opened_at, works, price, prod_name in cov_rows:
+    for user_id, pdv_id, opened_at, works, price, created_at, prod_name in cov_rows:
+        if not row_is_known(bool(works), created_at, cutoff):
+            continue
         ctx.relevado.add((user_id, pdv_id))
         key = (user_id, pdv_id, prod_name)
         prev = latest.get(key)
@@ -474,6 +503,19 @@ def _focus_route_join(q):
             Route.IsFocus == True,  # noqa: E712
             Route.IsActive == True,  # noqa: E712
         )
+    )
+
+
+def _known_coverage_sql(cutoff: Optional[datetime]):
+    """`coverage_semantics.row_is_known` como filtro SQL, para agregar en la base
+    sin traer las filas: Works=True siempre; Works=False solo desde el corte."""
+    if cutoff is None:
+        return true()
+    # Naive UTC: pyodbc no banca datetimes aware y la columna en Azure compara
+    # contra +00:00; en SQLite el string ISO compara igual.
+    return or_(
+        VisitCoverage.Works == True,  # noqa: E712
+        VisitCoverage.CreatedAt >= cutoff.replace(tzinfo=None),
     )
 
 
@@ -623,6 +665,46 @@ def build_team(
         if uid in ent_by_user and action_type in ent_by_user[uid]:
             ent_by_user[uid][action_type] = n
 
+    # Completitud del censo: pares (PDV, producto) distintos CON DATO (Sí, o No
+    # explícito desde el corte) por vendedor sobre su universo foco. Sale como
+    # una fila por vendedor; la única query de `team` que toca `VisitCoverage`.
+    # Costo: un scan de la cobertura del mes por índice de VisitId agregado en
+    # SQL — en S0 es órdenes de magnitud más barato que traer las ~80k filas a
+    # Python como hace `routes`/`pdvs`, y no escala con la cantidad de PDVs.
+    # Promedio por PDV con no relevados = 0 ≡ pares / (universo × catálogo).
+    # El catálogo se cuenta por NOMBRE (distinct), igual que `routes`/`pdvs`,
+    # que indexan la cobertura por `Product.Name`.
+    n_cat, n_own = db.query(
+        func.count(func.distinct(Product.Name)),
+        func.count(func.distinct(case((Product.IsOwn == True, Product.Name)))),  # noqa: E712
+    ).filter(Product.IsActive == True).first()  # noqa: E712
+    known_pairs = (
+        _focus_route_join(
+            db.query(Visit.UserId, Visit.PdvId, Product.Name, Product.IsOwn)
+            .join(VisitCoverage, VisitCoverage.VisitId == Visit.VisitId)
+            .join(Product, Product.ProductId == VisitCoverage.ProductId)
+            .join(PDV, PDV.PdvId == Visit.PdvId)
+        )
+        .filter(
+            *in_month,
+            Product.IsActive == True,  # noqa: E712
+            PDV.IsActive == True,  # noqa: E712
+            _known_coverage_sql(get_coverage_cutoff(db)),
+        )
+        .distinct()
+        .subquery()
+    )
+    comp_by_user: dict[int, tuple[int, int]] = {
+        uid: (n or 0, int(n_own_pairs or 0))
+        for uid, n, n_own_pairs in db.query(
+            known_pairs.c.UserId,
+            func.count(),
+            func.sum(case((known_pairs.c.IsOwn == True, 1), else_=0)),  # noqa: E712
+        )
+        .group_by(known_pairs.c.UserId)
+        .all()
+    }
+
     trades = []
     for uid in user_ids:
         tot = tot_by_user.get(uid, 0)
@@ -630,13 +712,15 @@ def build_team(
         plan = planned_by_user.get(uid, 0)
         vis_plan = vis_plan_by_user.get(uid, 0)
         ent = ent_by_user.get(uid, {t: 0 for t in DELIVERY_TYPES})
+        pdvs = universe_by_user.get(uid, 0)
+        pairs, own_pairs = comp_by_user.get(uid, (0, 0))
         trades.append({
             "id": uid,
             "n": name_of.get(uid, f"Usuario {uid}"),
             "zona": zone_of.get(uid, ""),
             "tot": tot,
             "vis": vis,
-            "pdvs": universe_by_user.get(uid, 0),
+            "pdvs": pdvs,
             "plan": plan,
             "vis_plan": vis_plan,
             "ef_pct": _pct(vis_plan, plan),
@@ -646,6 +730,8 @@ def build_team(
             "accion_pct": _pct(accion_by_user.get(uid, 0), tot),
             "tot_ent": sum(ent.values()),
             "ent": ent,
+            "completitud": _pct(pairs, pdvs * (n_cat or 0)),
+            "completitud_esp": _pct(own_pairs, pdvs * (n_own or 0)),
         })
 
     trades.sort(key=lambda t: -t["tot"])
@@ -711,6 +797,7 @@ def build_routes(
             p for p in pdv_list
             if ctx.pdv_by_id.get(p) and ctx.pdv_by_id[p].SellsLooseCigarettes
         ]
+        comps = [ctx.completitud(uid, p) for p in pdv_list]
         row = {
             "nombre": r.Name,
             "trade": ctx.name_of.get(uid, ""),
@@ -732,6 +819,9 @@ def build_routes(
             "con_material": sum(1 for p in pdv_list if (uid, p) in ctx.pdvs_with_material),
             "ef_jul": _pct(vis_plan, len(planned)),
             "cob_score_pct": _pct(len(buenos), len(relev)),
+            # Completitud del censo promedio de la ruta (no relevados = 0).
+            "completitud": round(mean(c[0] for c in comps)) if comps else 0,
+            "completitud_esp": round(mean(c[1] for c in comps)) if comps else 0,
             "freq": "biweekly" if (r.FrequencyType or "").lower() == "biweekly" else "monthly",
             "score_dist": dist,
         }
@@ -740,8 +830,12 @@ def build_routes(
             prod_cob, precios_ruta = {}, {}
             for prod_name in all_prod_names:
                 con = sum(1 for p in pdv_list if prod_name in ctx.works_by_pdv.get((uid, p), ()))
+                # Denominador: PDVs con dato para ese producto (Sí o No), no
+                # toda la ruta — "sin dato" no es "no lo trabaja". Sin dato en
+                # ningún PDV la clave no se emite (la página lo lee como "—").
                 if con:
-                    prod_cob[prod_name] = _pct(con, len(pdv_list))
+                    known = sum(1 for p in pdv_list if prod_name in ctx.seen_by_pdv.get((uid, p), ()))
+                    prod_cob[prod_name] = _pct(con, known)
                 vals = [
                     ctx.latest[(uid, p, prod_name)][2]
                     for p in pdv_list
@@ -776,12 +870,7 @@ def build_pdvs(
     """PDVs por vendedor con la matriz producto x PDV, más los quick wins."""
     periodo = resolve_periodo(year, month, date_from, date_to)
     ctx = load_context(db, user_ids, year, month, with_coverage=True, periodo=periodo)
-    espert_prods = sorted(
-        p.Name
-        for p in db.query(Product).filter(
-            Product.IsActive == True, Product.IsOwn == True  # noqa: E712
-        ).all()
-    )
+    espert_prods = sorted(ctx.catalog_own)
 
     tmr_pdvs: dict[str, list] = {}
     quick_wins = []
@@ -799,6 +888,7 @@ def build_pdvs(
             nvis = ctx.visits_count_by_pdv.get((uid, pdv_id), 0)
             acts = sorted(ctx.actions_by_pdv.get((uid, pdv_id), ()))
             ruta = ctx.route_of_pdv.get((uid, pdv_id), "Sin ruta asignada")
+            comp, comp_esp = ctx.completitud(uid, pdv_id)
             rows.append({
                 # `id`: para el drill al PDV desde Inteligencia (la página
                 # estática lo ignora).
@@ -818,6 +908,11 @@ def build_pdvs(
                     1 if name in works else (0 if name in seen else None)
                     for name in espert_prods
                 ],
+                # Completitud del censo (% del catálogo con dato) y cuántos
+                # productos Espert quedaron sin relevar.
+                "comp": round(comp),
+                "comp_esp": round(comp_esp),
+                "sin_dato": len(ctx.catalog_own - seen),
                 "ruta": ruta,
             })
 

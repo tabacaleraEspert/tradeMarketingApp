@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ChevronDown, Download, RefreshCw } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import {
   intelligenceApi,
@@ -39,7 +39,25 @@ export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: Oportun
   const [prioridad, setPrioridad] = useState("");
   const [tipo, setTipo] = useState("");
   const [page, setPage] = useState(1);
+  const [showACompletar, setShowACompletar] = useState(false);
   const { openPdv } = useIntelNav();
+
+  // "A completar" viene sin filtrar (scope completo, items cap 500): en la
+  // vista de zona/trade se acota acá. El count por zona sale de porZona
+  // (exacto); el de trade, de los items (puede quedar corto por el cap).
+  const aCompletar = useMemo(() => {
+    const ac = data?.aCompletar;
+    if (!ac) return null;
+    let items = ac.items;
+    if (fixedZona) items = items.filter((r) => r.zona === fixedZona);
+    if (fixedTradeId != null) items = items.filter((r) => r.tradeId === fixedTradeId);
+    const count = fixedTradeId != null
+      ? items.length
+      : fixedZona
+        ? (ac.porZona[fixedZona] ?? items.length)
+        : ac.count;
+    return { count, items, truncado: ac.items.length < ac.count };
+  }, [data, fixedZona, fixedTradeId]);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -239,6 +257,73 @@ export function OportunidadesSection({ zonas, fixedZona, fixedTradeId }: Oportun
                 </button>
               </div>
             </div>
+
+            {aCompletar && aCompletar.count > 0 && (
+              <div className="mt-4 border border-amber-400/40 rounded-lg bg-amber-400/5">
+                <button
+                  onClick={() => setShowACompletar((v) => !v)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left"
+                >
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 text-muted-foreground transition-transform duration-200 ${showACompletar ? "rotate-180" : ""}`}
+                  />
+                  <span className="text-sm font-bold text-foreground">
+                    A completar ({aCompletar.count.toLocaleString("es-AR")})
+                  </span>
+                  <span className="text-xs text-muted-foreground hidden sm:inline">
+                    tienen competencia relevada pero sin dato del lado Espert
+                  </span>
+                </button>
+                {showACompletar && (
+                  <div className="px-3 pb-3">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Tienen competencia relevada pero sin dato del lado Espert. No son
+                      oportunidades hasta relevarlos.
+                      {aCompletar.truncado && " Se listan los primeros 500."}
+                    </p>
+                    <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead className="sticky top-0 bg-card z-10">
+                          <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                            <th className="py-1.5 pr-3">PDV</th>
+                            <th className="py-1.5 pr-3">Zona</th>
+                            <th className="py-1.5 pr-3">Trade</th>
+                            <th className="py-1.5 text-right" title="Productos Espert sin dato">Faltan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {aCompletar.items.map((r) => (
+                            <tr key={r.pdvId} className="border-b border-border/60 hover:bg-muted/40">
+                              <td className="py-1 pr-3 font-medium text-foreground whitespace-nowrap max-w-[220px] truncate">
+                                <button
+                                  onClick={() => openPdv(r.pdvId)}
+                                  className="hover:text-espert-gold hover:underline transition-colors truncate max-w-full"
+                                  title={`Ver la ficha de ${r.pdv}`}
+                                >
+                                  {r.pdv}
+                                </button>
+                                {r.canal && <span className="ml-1.5 text-muted-foreground font-normal">{r.canal}</span>}
+                              </td>
+                              <td className="py-1 pr-3 whitespace-nowrap">{r.zona}</td>
+                              <td className="py-1 pr-3 whitespace-nowrap">{r.trade}</td>
+                              <td className="py-1 text-right tabular-nums font-semibold text-amber-600 dark:text-amber-400">
+                                {r.faltan} <span className="font-normal text-muted-foreground">Espert s/d</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {aCompletar.items.length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-3">
+                          Sin detalle en este scope (el listado global está acotado a 500).
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>

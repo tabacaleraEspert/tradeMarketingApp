@@ -262,6 +262,7 @@ export const productsApi = {
   create: (data: {
     Name: string;
     Category: string;
+    Brand?: string | null;
     Manufacturer?: string | null;
     IsOwn?: boolean;
     IsActive?: boolean;
@@ -270,6 +271,7 @@ export const productsApi = {
   update: (id: number, data: {
     Name?: string;
     Category?: string;
+    Brand?: string | null;
     Manufacturer?: string | null;
     IsOwn?: boolean;
     IsActive?: boolean;
@@ -292,7 +294,7 @@ export const pdvProductCategoriesApi = {
 export const visitCoverageApi = {
   list: (visitId: number) =>
     api.get<VisitCoverageItem[]>(`/visits/${visitId}/coverage`),
-  bulkSave: (visitId: number, items: Array<{ ProductId: number; Works: boolean; Price?: number; Availability?: string }>) =>
+  bulkSave: (visitId: number, items: Array<{ ProductId: number; Works: boolean; Price?: number; Availability?: string; Puffs?: number }>) =>
     api.put<VisitCoverageItem[]>(`/visits/${visitId}/coverage`, { items }),
   diff: (visitId: number) =>
     api.get<CoverageDiff[]>(`/visits/${visitId}/coverage/diff`),
@@ -1248,6 +1250,11 @@ export interface IntelZona {
   trades30d: number;
   sueltosPct: number; // % que vende sueltos, sobre los PDVs con dato
   sueltosConDato: number;
+  // Completitud del censo (3 estados: Sí / No / sin dato). Opcionales por
+  // compatibilidad con respuestas cacheadas anteriores al cambio.
+  completitud?: number; // % del catálogo activo con respuesta conocida
+  completitudEspert?: number; // ídem, solo catálogo Espert
+  aCompletar?: number; // PDVs con competencia relevada y Espert sin dato
 }
 
 export interface IntelTrade {
@@ -1264,6 +1271,9 @@ export interface IntelTrade {
   gps: number;
   foto: number;
   ultimaVisita: string | null;
+  completitud?: number;
+  completitudEspert?: number;
+  aCompletar?: number;
 }
 
 export interface IntelAlerta {
@@ -1294,6 +1304,9 @@ export interface IntelOverview {
     pctCensado: number;
     relevamientos: number;
     visitas: number;
+    completitud?: number;
+    completitudEspert?: number;
+    aCompletar?: number;
   };
   visitasPorMes: Array<{ mes: string; visitas: number; trades: number; promPorTrade: number }>;
   zonas: IntelZona[];
@@ -1334,6 +1347,19 @@ export interface IntelOpportunity {
   sugerencia: string;
 }
 
+// PDV con competencia relevada pero sin dato del lado Espert: todavía no es
+// una oportunidad — hay que completar el censo primero.
+export interface IntelACompletarItem {
+  pdvId: number;
+  pdv: string;
+  nombre: string;
+  zona: string;
+  canal: string;
+  tradeId: number | null;
+  trade: string;
+  faltan: number; // productos Espert sin dato
+}
+
 export interface IntelOpportunitiesResponse {
   items: IntelOpportunity[];
   filteredTotal: number;
@@ -1344,6 +1370,12 @@ export interface IntelOpportunitiesResponse {
   porZona: Record<string, Record<string, number>>;
   porTrade: Record<string, number>;
   porPrioridad: Record<string, number>;
+  // Sin filtrar por zona/trade (es del scope completo); items cap 500.
+  aCompletar?: {
+    count: number;
+    items: IntelACompletarItem[];
+    porZona: Record<string, number>;
+  };
 }
 
 export interface IntelMapResponse {
@@ -1373,6 +1405,8 @@ export interface TmrTeamRow {
   accion_pct: number;
   tot_ent: number;
   ent: Record<string, number>;
+  completitud?: number; // % censo completo (promedio de sus PDVs foco)
+  completitud_esp?: number; // ídem, solo catálogo Espert
 }
 
 export interface TmrTeamResponse {
@@ -1396,6 +1430,9 @@ export interface TmrPdvRow {
   // 1 trabaja · 0 no trabaja · null no relevado, indexado contra espert_prods
   pr: Array<number | null>;
   ruta: string;
+  comp?: number; // % completitud del censo del PDV
+  comp_esp?: number; // ídem, solo Espert
+  sin_dato?: number; // productos Espert sin dato
 }
 
 export interface TmrPdvsResponse {
@@ -1427,6 +1464,9 @@ export interface TmrRutaRow {
   cob_score_pct: number;
   freq: string;
   score_dist: Record<string, number>;
+  completitud?: number;
+  completitud_esp?: number;
+  // % sobre los PDVs de la ruta CON dato para ese producto.
   prod_cob?: Record<string, number>;
   precios_ruta?: Record<string, { avg: number; min: number; max: number; n: number }>;
 }
@@ -1470,6 +1510,7 @@ export interface IntelPdvDetail {
   skusEspertHoy: string[];
   censo: Array<{
     producto: string;
+    marca?: string;
     fabricante: string;
     esEspert: boolean;
     categoria: string;
@@ -1490,6 +1531,9 @@ export interface IntelPdvDetail {
   }>;
   totalVisitas: number;
   fotos: Array<{ visitId: number; url: string; tipo: string; fecha: string | null }>;
+  completitud?: number;
+  completitudEspert?: number;
+  sinDato?: string[]; // productos sin dato (Espert primero)
 }
 
 // Ventana de los recursos /kpi/tmr/*: year/month (mes calendario) o, con

@@ -4,6 +4,7 @@ from ..database import get_db
 from ..auth import require_role
 from ..models.product import Product as ProductModel
 from ..schemas.product import Product, ProductCreate, ProductUpdate
+from ..services.coverage_semantics import brand_of
 
 router = APIRouter(prefix="/products", tags=["Productos"])
 
@@ -34,7 +35,10 @@ def get_product(product_id: int, db: Session = Depends(get_db)):
 
 @router.post("", response_model=Product, status_code=201, dependencies=[Depends(require_role("territory_manager"))])
 def create_product(data: ProductCreate, db: Session = Depends(get_db)):
-    p = ProductModel(**data.model_dump())
+    payload = data.model_dump()
+    if not (payload.get("Brand") or "").strip():
+        payload["Brand"] = brand_of(payload["Name"])
+    p = ProductModel(**payload)
     db.add(p)
     db.commit()
     db.refresh(p)

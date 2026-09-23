@@ -51,6 +51,7 @@ interface ProductForm {
   Name: string;
   Category: string;
   CustomCategory: string;
+  Brand: string;
   Manufacturer: string;
   IsOwn: boolean;
   SortOrder: number;
@@ -60,12 +61,19 @@ const emptyForm: ProductForm = {
   Name: "",
   Category: "cigarrillos",
   CustomCategory: "",
+  Brand: "",
   Manufacturer: "",
   IsOwn: true,
   SortOrder: 0,
 };
 
 type ProductAnalytics = Awaited<ReturnType<typeof reportsApi.productAnalytics>>;
+
+/** `Brand` del producto (campo nuevo del catálogo; puede venir null). */
+function productBrand(p: Product): string | null {
+  const b = (p as unknown as { Brand?: string | null }).Brand ?? null;
+  return b && b.trim() ? b.trim() : null;
+}
 
 // ─── Analytics Tab ─────────────────────────────────────────────────
 
@@ -135,7 +143,7 @@ function AnalyticsView({ analytics, loading }: { analytics: ProductAnalytics | n
           <CardContent className="p-4 text-center">
             <TrendingUp size={24} className="mx-auto text-green-600 mb-1" />
             <p className="text-2xl font-bold text-green-900">{avgCoverage}%</p>
-            <p className="text-xs text-green-600">Cobertura promedio</p>
+            <p className="text-xs text-green-600">Cobertura promedio (s/ PDVs con dato)</p>
           </CardContent>
         </Card>
         <Card className="bg-blue-50 border-blue-200">
@@ -158,7 +166,7 @@ function AnalyticsView({ analytics, loading }: { analytics: ProductAnalytics | n
       {byCategory.length > 0 && (
         <Card>
           <CardContent className="p-4">
-            <h3 className="text-sm font-bold text-muted-foreground uppercase mb-3">Cobertura por Categoria</h3>
+            <h3 className="text-sm font-bold text-muted-foreground uppercase mb-3">Cobertura por Categoria <span className="normal-case font-normal text-xs">(% sobre PDVs con dato)</span></h3>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               {byCategory.map((c) => (
                 <div key={c.Category} className="text-center p-2 bg-muted rounded-lg">
@@ -197,8 +205,8 @@ function AnalyticsView({ analytics, loading }: { analytics: ProductAnalytics | n
               <thead>
                 <tr className="border-b border-border bg-muted">
                   <th className="text-left py-3 px-3 text-xs font-semibold text-muted-foreground uppercase">Producto</th>
-                  <SortHeader field="pdvCount">PDVs</SortHeader>
-                  <SortHeader field="worksCount">Trabaja</SortHeader>
+                  <SortHeader field="pdvCount">PDVs con dato</SortHeader>
+                  <SortHeader field="worksCount">Trabaja (% s/ PDVs con dato)</SortHeader>
                   <SortHeader field="avgPrice">$ Prom</SortHeader>
                   <SortHeader field="medianPrice">$ Mediana</SortHeader>
                   <SortHeader field="minPrice">$ Min</SortHeader>
@@ -316,7 +324,7 @@ function ConfigView({
 
       <div className="relative">
         <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <Input placeholder="Buscar por nombre o fabricante..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <Input placeholder="Buscar por nombre, marca o fabricante..." className="pl-10" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -345,6 +353,7 @@ function ConfigView({
                     <thead>
                       <tr className="border-b border-border bg-muted">
                         <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Producto</th>
+                        <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Marca</th>
                         <th className="text-left py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Fabricante</th>
                         <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Tipo</th>
                         <th className="text-center py-3 px-4 text-xs font-semibold text-muted-foreground uppercase">Orden</th>
@@ -356,6 +365,7 @@ function ConfigView({
                       {items.map((p) => (
                         <tr key={p.ProductId} className={`border-b border-border hover:bg-muted transition-colors ${!p.IsActive ? "opacity-50" : ""}`}>
                           <td className="py-3 px-4"><p className="font-semibold text-foreground">{p.Name}</p><p className="text-xs text-muted-foreground">ID: {p.ProductId}</p></td>
+                          <td className="py-3 px-4"><span className="text-sm text-foreground">{productBrand(p) || <span className="text-muted-foreground">-</span>}</span></td>
                           <td className="py-3 px-4"><span className="text-sm text-muted-foreground">{p.Manufacturer || "-"}</span></td>
                           <td className="py-3 px-4 text-center">{p.IsOwn ? <Badge className="bg-[#A48242]/15 text-[#A48242] border border-[#A48242]/30">ESPERT</Badge> : <Badge variant="secondary">COMPETENCIA</Badge>}</td>
                           <td className="py-3 px-4 text-center"><span className="text-sm text-muted-foreground">{p.SortOrder}</span></td>
@@ -421,7 +431,7 @@ export function ProductManagement() {
   const filtered = useMemo(() => {
     let list = products;
     if (categoryFilter) list = list.filter((p) => p.Category === categoryFilter);
-    if (searchTerm.trim()) { const t = searchTerm.toLowerCase(); list = list.filter((p) => p.Name.toLowerCase().includes(t) || (p.Manufacturer || "").toLowerCase().includes(t)); }
+    if (searchTerm.trim()) { const t = searchTerm.toLowerCase(); list = list.filter((p) => p.Name.toLowerCase().includes(t) || (p.Manufacturer || "").toLowerCase().includes(t) || (productBrand(p) || "").toLowerCase().includes(t)); }
     return list;
   }, [products, categoryFilter, searchTerm]);
   const grouped = useMemo(() => {
@@ -440,7 +450,7 @@ export function ProductManagement() {
   const openEdit = (p: Product) => {
     setEditingProduct(p);
     const isPredefined = PREDEFINED_CATEGORIES.includes(p.Category);
-    setForm({ Name: p.Name, Category: isPredefined ? p.Category : "__custom__", CustomCategory: isPredefined ? "" : p.Category, Manufacturer: p.Manufacturer || "", IsOwn: p.IsOwn, SortOrder: p.SortOrder });
+    setForm({ Name: p.Name, Category: isPredefined ? p.Category : "__custom__", CustomCategory: isPredefined ? "" : p.Category, Brand: productBrand(p) || "", Manufacturer: p.Manufacturer || "", IsOwn: p.IsOwn, SortOrder: p.SortOrder });
     setIsModalOpen(true);
   };
   const getEffectiveCategory = () => form.Category === "__custom__" ? form.CustomCategory.trim() : form.Category;
@@ -451,9 +461,9 @@ export function ProductManagement() {
     if (!category) { toast.error("La categoria es obligatoria"); return; }
     setSaving(true);
     try {
-      const payload = { Name: form.Name.trim(), Category: category, Manufacturer: form.Manufacturer.trim() || null, IsOwn: form.IsOwn, SortOrder: form.SortOrder };
-      if (editingProduct) { await productsApi.update(editingProduct.ProductId, payload); toast.success("Producto actualizado"); }
-      else { await productsApi.create(payload); toast.success("Producto creado"); }
+      const payload = { Name: form.Name.trim(), Category: category, Brand: form.Brand.trim() || null, Manufacturer: form.Manufacturer.trim() || null, IsOwn: form.IsOwn, SortOrder: form.SortOrder };
+      if (editingProduct) { await productsApi.update(editingProduct.ProductId, payload as Parameters<typeof productsApi.update>[1]); toast.success("Producto actualizado"); }
+      else { await productsApi.create(payload as Parameters<typeof productsApi.create>[0]); toast.success("Producto creado"); }
       setIsModalOpen(false); resetForm(); loadProducts();
     } catch (e) { toast.error(e instanceof Error ? e.message : "Error al guardar"); }
     finally { setSaving(false); }
@@ -525,6 +535,7 @@ export function ProductManagement() {
             </select>
             {form.Category === "__custom__" && <Input className="mt-2" placeholder="Nombre de la categoria" value={form.CustomCategory} onChange={(e) => setForm((f) => ({ ...f, CustomCategory: e.target.value }))} />}
           </div>
+          <div><label className="block text-sm font-medium text-muted-foreground mb-1">Marca</label><Input placeholder="Ej: Marlboro, Philip Morris, Chesterfield" value={form.Brand} onChange={(e) => setForm((f) => ({ ...f, Brand: e.target.value }))} /><p className="text-xs text-muted-foreground mt-1">Agrupa los productos en el censo de cobertura. Si queda vacía, se usa la primera palabra del nombre</p></div>
           <div><label className="block text-sm font-medium text-muted-foreground mb-1">Fabricante</label><Input placeholder="Ej: Espert, Philip Morris, BAT" value={form.Manufacturer} onChange={(e) => setForm((f) => ({ ...f, Manufacturer: e.target.value }))} /></div>
           <div className="flex items-center gap-3 pt-1"><Switch checked={form.IsOwn} onCheckedChange={(v) => setForm((f) => ({ ...f, IsOwn: v }))} /><div><label className="text-sm font-medium text-foreground">Producto Espert (propio)</label><p className="text-xs text-muted-foreground">{form.IsOwn ? "Se muestra como producto propio de Espert" : "Se muestra como producto de la competencia"}</p></div></div>
           <div><label className="block text-sm font-medium text-muted-foreground mb-1">Orden</label><Input type="number" min={0} placeholder="0" value={form.SortOrder} onChange={(e) => setForm((f) => ({ ...f, SortOrder: parseInt(e.target.value) || 0 }))} /><p className="text-xs text-muted-foreground mt-1">Los productos se ordenan de menor a mayor dentro de su categoria</p></div>

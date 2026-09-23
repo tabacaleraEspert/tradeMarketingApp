@@ -9,6 +9,12 @@ import { ProveedoresCard } from "./ProveedoresCard";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
+function censoColor(pct: number): string {
+  if (pct >= 80) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
+
 interface Props {
   zona: IntelZona;
   overview: IntelOverview;
@@ -47,10 +53,18 @@ export function ZonaPage({ zona: z, overview, onBack, onTradeClick, onRutaClick 
     .sort((a, b) => b.pct - a.pct)
     .slice(0, 10);
 
-  const tiles = [
+  const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
     { v: nf(z.pdvs), l: "PDVs activos" },
     { v: nf(z.censados), l: "Censados", d: `${pctCensado}% de la zona` },
     { v: nf(z.pdvs - z.censados), l: "Sin censar" },
+    ...(z.completitud != null
+      ? [{
+          v: `${Math.round(z.completitud)}%`,
+          l: "Censo completo",
+          d: `Espert ${Math.round(z.completitudEspert ?? 0)}%${(z.aCompletar ?? 0) > 0 ? ` · ${nf(z.aCompletar ?? 0)} a completar` : ""}`,
+          cls: censoColor(z.completitud),
+        }]
+      : []),
     { v: `${z.cobertura}%`, l: "Cobertura Espert", d: `${nf(z.conEspert)} con Espert` },
     { v: String(z.skusPromEspert), l: "SKUs por PDV" },
     { v: nf(z.visitas30d), l: "Visitas 30d", d: `${z.trades30d} trade${z.trades30d !== 1 ? "s" : ""}` },
@@ -77,11 +91,11 @@ export function ZonaPage({ zona: z, overview, onBack, onTradeClick, onRutaClick 
         <h2 className="text-2xl font-bold text-foreground">{z.zona}</h2>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 ${tiles.length > 7 ? "lg:grid-cols-8" : "lg:grid-cols-7"}`}>
         {tiles.map((t) => (
           <Card key={t.l}>
             <CardContent className="p-4">
-              <p className="text-xl font-bold text-foreground tabular-nums">{t.v}</p>
+              <p className={`text-xl font-bold tabular-nums ${t.cls ?? "text-foreground"}`}>{t.v}</p>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">{t.l}</p>
               {t.d && <p className="text-xs text-muted-foreground">{t.d}</p>}
             </CardContent>

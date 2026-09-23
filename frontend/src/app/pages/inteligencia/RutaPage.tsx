@@ -142,10 +142,16 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
 
       {ruta && (
         <>
-          <div className={`grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
-            {[
+          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 transition-opacity ${ruta.completitud != null ? "lg:grid-cols-8" : "lg:grid-cols-7"} ${loading ? "opacity-50" : ""}`}>
+            {([
               { v: nf(ruta.pdvs), l: "PDVs en ruta" },
               { v: nf(ruta.relevados), l: "Relevados", d: `${ruta.buenos} con score bueno+` },
+              ...(ruta.completitud != null
+                ? [{
+                    v: `${ruta.completitud}%`, l: "Censo completo", cls: pctColor(ruta.completitud),
+                    d: `Espert ${ruta.completitud_esp ?? 0}%`,
+                  }]
+                : []),
               { v: `${ruta.cob_score_pct}%`, l: "Score cobertura", cls: pctColor(ruta.cob_score_pct) },
               {
                 v: `${ruta.ef_jul}%`, l: "Efectividad", cls: pctColor(ruta.ef_jul),
@@ -160,7 +166,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
                 v: nf(ruta.con_promo), l: "Con promo",
                 d: `${nf(ruta.con_material)} con material`,
               },
-            ].map((t) => (
+            ] as Array<{ v: string; l: string; d?: string; cls?: string }>).map((t) => (
               <Card key={t.l}>
                 <CardContent className="p-4">
                   <p className={`text-xl font-bold tabular-nums ${t.cls ?? "text-foreground"}`}>{t.v}</p>
@@ -188,7 +194,7 @@ export function RutaPage({ userId, tradeNombre, rutaNombre, onBack, onTradeClick
               <CardContent className="p-4">
                 <h3 className="font-bold text-foreground text-sm mb-1">SKUs en la ruta</h3>
                 <p className="text-xs text-muted-foreground mb-3">
-                  Cobertura (% de PDVs de la ruta que lo trabajan) y precio promedio relevado.
+                  Cobertura (% de PDVs de la ruta con dato que lo trabajan — los sin relevar no cuentan) y precio promedio relevado.
                 </p>
                 <div className="space-y-1.5">
                   {skus.map((s) => (

@@ -5,6 +5,7 @@ from ..auth import get_current_user, get_user_role
 from ..models.pdv_product_category import PdvProductCategory as Model
 from ..models.pdv import PDV
 from ..models.user import User as UserModel
+from ..services.coverage_semantics import get_coverage_cutoff, row_is_known
 from ..schemas.pdv_product_category import (
     PdvProductCategory,
     PdvProductCategoryUpdate,
@@ -38,7 +39,13 @@ def _check_pdv_access(pdv: PDV, current_user: UserModel, db: Session):
 
 @router.get("", response_model=list[PdvProductCategory])
 def list_pdv_categories(pdv_id: int, db: Session = Depends(get_db)):
-    return db.query(Model).filter(Model.PdvId == pdv_id).order_by(Model.Category).all()
+    """Estados de categoría del PDV. Misma semántica que el censo de 3 estados:
+    un `no_trabaja` anterior al corte (`coverage_explicit_no_since`) era el
+    default del form viejo (categoría nunca abierta), no una respuesta → se
+    omite y el form lo muestra como "sin dato". `trabaja` siempre cuenta."""
+    cutoff = get_coverage_cutoff(db)
+    rows = db.query(Model).filter(Model.PdvId == pdv_id).order_by(Model.Category).all()
+    return [r for r in rows if row_is_known(r.Status == "trabaja", r.UpdatedAt, cutoff)]
 
 
 @router.put("", response_model=list[PdvProductCategory])

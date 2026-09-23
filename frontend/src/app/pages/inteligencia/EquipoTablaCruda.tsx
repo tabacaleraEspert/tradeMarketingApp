@@ -84,6 +84,7 @@ export function EquipoTablaCruda() {
                   <th className="py-2 pr-3 text-right" title="PDVs planificados visitados / planificados">Efectividad</th>
                   <th className="py-2 pr-3 text-right" title="% de visitas con al menos una acción ejecutada">% Acción</th>
                   <th className="py-2 pr-3 text-right">Entregas</th>
+                  <th className="py-2 pr-3 text-right" title="Completitud del censo: % del catálogo con respuesta (Sí/No), promedio de sus PDVs foco">Censo</th>
                   <th className="py-2">Estado</th>
                 </tr>
               </thead>
@@ -113,6 +114,12 @@ export function EquipoTablaCruda() {
                         {r.tot ? `${r.accion_pct}%` : "—"}
                       </td>
                       <td className="py-1.5 pr-3 text-right font-semibold text-foreground">{nf(r.tot_ent)}</td>
+                      <td
+                        className={`py-1.5 pr-3 text-right font-semibold ${r.completitud != null ? pctClass(r.completitud) : ""}`}
+                        title={r.completitud_esp != null ? `Espert ${r.completitud_esp}%` : undefined}
+                      >
+                        {r.completitud != null ? `${r.completitud}%` : "—"}
+                      </td>
                       <td className="py-1.5">
                         <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${st.cls}`}>
                           {st.label}

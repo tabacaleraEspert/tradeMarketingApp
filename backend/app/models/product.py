@@ -13,6 +13,10 @@ class Product(Base):
     Category = Column(String(40), nullable=False, index=True)
     # Espert, Real Tabacalera, Massalin, BAT, Tabacalera Sarandí, etc. Null = genérico
     Manufacturer = Column(String(80), nullable=True)
+    # Marca comercial ("Marlboro", "Milenio", "Lucky Strike"): nivel intermedio
+    # Categoría → Marca → Variante del censo de 3 estados. Backfill por nombre
+    # (app.services.coverage_semantics.brand_of), editable en Gestión de Productos.
+    Brand = Column(String(60), nullable=True, index=True)
     IsOwn = Column(Boolean, default=False, nullable=False)  # True = producto Espert
     # Cigarrillo capsulado. No se infiere del nombre (Espert usa el sabor,
     # la competencia "Caps" o colores de fantasía); backfill en migración 0022.

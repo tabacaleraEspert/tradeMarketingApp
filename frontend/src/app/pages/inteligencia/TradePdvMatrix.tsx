@@ -28,6 +28,12 @@ function brandOf(name: string): string {
   return BRANDS.find((b) => name.startsWith(b)) ?? "Otros";
 }
 
+function censoColor(pct: number): string {
+  if (pct >= 80) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
+
 /**
  * La matriz producto x PDV del Tablero TMR, por vendedor: una fila por PDV de
  * sus rutas foco, una columna por SKU Espert (verde trabaja / rojo no / gris
@@ -54,9 +60,9 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
   const [full, setFull] = useState(false);
   // Marcas ocultas: sacar/poner las columnas de una marca con un click.
   const [hiddenBrands, setHiddenBrands] = useState<Set<string>>(new Set());
-  // Orden por columna: "vis" o el índice del SKU (✓ > ✗ > sin relevar).
-  const [sort, setSort] = useState<{ col: number | "vis"; asc: boolean } | null>(null);
-  const toggleSort = (col: number | "vis") =>
+  // Orden por columna: "vis", "comp" (censo) o el índice del SKU (✓ > ✗ > sin relevar).
+  const [sort, setSort] = useState<{ col: number | "vis" | "comp"; asc: boolean } | null>(null);
+  const toggleSort = (col: number | "vis" | "comp") =>
     setSort((prev) => (prev?.col === col ? { col, asc: !prev.asc } : { col, asc: false }));
 
   useEffect(() => {
@@ -155,8 +161,8 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
         )}
         <span className="text-[11px] text-muted-foreground ml-auto hidden sm:flex items-center gap-3">
           <span className="text-green-600 dark:text-green-400">✓ trabaja</span>
-          <span className="text-red-500">✗ no trabaja</span>
-          <span>— sin relevar</span>
+          <span className="text-red-500">✗ no</span>
+          <span>— sin dato</span>
         </span>
         {!full && (
           <button
@@ -203,6 +209,13 @@ export function TradePdvMatrix({ userId, title, fixedRuta, period = DEFAULT_PERI
                 title="Ordenar por visitas"
               >
                 Vis.{sort?.col === "vis" ? (sort.asc ? " ▲" : " ▼") : ""}
+              </th>
+              <th
+                className={`py-1.5 px-1 text-center cursor-pointer hover:text-foreground ${sort?.col === "comp" ? "text-espert-gold" : ""}`}
+                onClick={() => toggleSort("comp")}
+                title="Completitud del censo: % del catálogo con respuesta (Sí/No). Click para ordenar"
+              >
+                Censo{sort?.col === "comp" ? (sort.asc ? " ▲" : " ▼") : ""}
               </th>
               {visibleCols.map((c) => (
                 <th
@@ -276,7 +289,7 @@ function RutaGroup({
   ruta: string;
   pdvs: TmrPdvRow[];
   cols: Array<{ name: string; idx: number }>;
-  sort: { col: number | "vis"; asc: boolean } | null;
+  sort: { col: number | "vis" | "comp"; asc: boolean } | null;
   sinCabecera?: boolean;
   onRutaClick?: (ruta: string) => void;
 }) {
@@ -288,7 +301,9 @@ function RutaGroup({
   const sorted = useMemo(() => {
     if (!sort) return pdvs;
     const val = (r: TmrPdvRow) =>
-      sort.col === "vis" ? r.vis : (r.pr[sort.col] ?? -1); // ✓=1 > ✗=0 > sin relevar=-1
+      sort.col === "vis" ? r.vis
+      : sort.col === "comp" ? (r.comp ?? -1)
+      : (r.pr[sort.col] ?? -1); // ✓=1 > ✗=0 > sin relevar=-1
     return [...pdvs].sort((a, b) => (sort.asc ? val(a) - val(b) : val(b) - val(a)));
   }, [pdvs, sort]);
 
@@ -299,7 +314,7 @@ function RutaGroup({
         className="bg-muted/60 cursor-pointer hover:bg-muted"
         onClick={() => setOpen((v) => !v)}
       >
-        <td colSpan={4 + cols.length} className="py-1.5 px-2 font-semibold text-foreground sticky left-0">
+        <td colSpan={5 + cols.length} className="py-1.5 px-2 font-semibold text-foreground sticky left-0">
           <span className={`inline-block mr-1.5 transition-transform duration-200 ${open ? "" : "-rotate-90"}`}>▾</span>
           {onRutaClick ? (
             <button
@@ -337,6 +352,20 @@ function RutaGroup({
               <td className="py-1 px-2 whitespace-nowrap max-w-[140px] truncate text-muted-foreground">{r.loc}</td>
               <td className="py-1 px-2 whitespace-nowrap text-muted-foreground">{r.canal}</td>
               <td className="py-1 px-1 text-center font-semibold text-foreground">{r.vis || "—"}</td>
+              <td className="py-1 px-1 text-center whitespace-nowrap">
+                {r.comp != null ? (
+                  <>
+                    <span className={`font-semibold ${censoColor(r.comp)}`}>{r.comp}%</span>
+                    {(r.sin_dato ?? 0) > 0 && (
+                      <span className="ml-1 text-[9px] text-muted-foreground" title="Productos Espert sin dato">
+                        {r.sin_dato} Espert s/d
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-muted-foreground/50">—</span>
+                )}
+              </td>
               {cols.map(({ name, idx }) => {
                 const v = r.pr[idx];
                 return (

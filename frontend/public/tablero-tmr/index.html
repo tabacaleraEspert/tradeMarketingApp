@@ -38,6 +38,10 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 .content{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px}
 /* KPI ROW */
 .kpi-row{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;flex-shrink:0}
+.kpi-row.censo{grid-template-columns:repeat(7,1fr)}
+#tmr-kpi-censo{display:none}
+.kpi-row.censo #tmr-kpi-censo{display:block}
+.censo-tag{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:8px;background:var(--bg4);color:var(--tx2);font-size:9px;font-weight:600;white-space:nowrap}
 .kpi{background:var(--bg2);border:1px solid var(--brd);border-radius:var(--r);padding:14px 16px;position:relative;overflow:hidden}
 .kpi::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--kc,var(--acc))}
 .kpi .klabel{font-size:10px;color:var(--tx2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px}
@@ -131,8 +135,8 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 .overlay.show{display:block}
 /* SCROLLBAR */
 ::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--brd);border-radius:3px}
-@media(max-width:1100px){.kpi-row{grid-template-columns:repeat(3,1fr)}.g2,.g3,.g21,.g12{grid-template-columns:1fr}}
-@media(max-width:640px){.kpi-row{grid-template-columns:repeat(2,1fr)}.content{padding:12px 12px}.topbar{padding:10px 12px;flex-wrap:wrap}#tmr-selector-bar{padding:7px 12px}#tmr-cards>div{min-width:calc(50% - 5px)}}
+@media(max-width:1100px){.kpi-row,.kpi-row.censo{grid-template-columns:repeat(3,1fr)}.g2,.g3,.g21,.g12{grid-template-columns:1fr}}
+@media(max-width:640px){.kpi-row,.kpi-row.censo{grid-template-columns:repeat(2,1fr)}#tmr-kpi-censo{grid-column:1/-1}.content{padding:12px 12px}.topbar{padding:10px 12px;flex-wrap:wrap}#tmr-selector-bar{padding:7px 12px}#tmr-cards>div{min-width:calc(50% - 5px)}}
 
 .tmr-chip{display:inline-block;background:var(--bg3);border:1px solid var(--brd);color:var(--tx2);
   padding:4px 11px;border-radius:20px;cursor:pointer;font-size:11px;white-space:nowrap;
@@ -203,6 +207,8 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
     <div class="kpi" style="--kc:var(--pur)"><div class="klabel">Efectividad</div><div class="kval" id="tmr-ef">—<small>%</small></div><div class="ksub">cob. Espert + acción</div><div class="kdelta neu" id="tmr-ef-d">Meta 70%</div></div>
     <div class="kpi" style="--kc:var(--ora)"><div class="klabel">% con Acción</div><div class="kval" id="tmr-acc">—<small>%</small></div><div class="ksub">visitas con entrega</div><div class="kdelta" id="tmr-acc-d">—</div></div>
     <div class="kpi" style="--kc:var(--acc)"><div class="klabel">Entregas</div><div class="kval" id="tmr-ent">—</div><div class="ksub" id="tmr-ent-s">canjes · promos · juegos</div></div>
+    <!-- Solo en la vista individual: completitud del censo (Sí/No conocidos sobre el catálogo) -->
+    <div class="kpi" id="tmr-kpi-censo" style="--kc:var(--tx2)" title="% del catálogo activo con respuesta (Sí/No) en cada PDV, promedio de los PDVs foco. Un PDV sin relevar cuenta 0."><div class="klabel">Completitud del censo</div><div class="kval" id="tmr-censo">—<small>%</small></div><div class="ksub" id="tmr-censo-s">Espert —%</div><div class="minibar"><div class="minibar-fill" id="tmr-censo-bar" style="width:0"></div></div><div class="kdelta" id="tmr-censo-d">PDVs sin relevar: —</div></div>
   </div>
 
   <!-- VISTA GENERAL (todos los TMRs) -->
@@ -228,7 +234,9 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
         <th>GPS %</th><th>Foto %</th><th>Dur.</th>
         <th title="Cob. Espert + acción">Efectividad ↗</th>
         <th title="% visitas con entrega">% Acción ↗</th>
-        <th>Entregas</th><th>Estado</th>
+        <th>Entregas</th>
+        <th title="Completitud del censo: % del catálogo con respuesta (Sí/No), promedio de sus PDVs foco">Censo</th>
+        <th>Estado</th>
       </tr></thead><tbody id="tmr-tbody-gral"></tbody></table>
       </div>
     </div>
@@ -301,7 +309,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
     <!-- Cobertura por Marca y Ruta -->
     <div class="card">
       <h3>🎯 Cobertura por Marca y Ruta</h3>
-      <div class="csub">% de PDVs relevados de la ruta que trabajan cada producto</div>
+      <div class="csub">% de PDVs de la ruta CON DATO de cada producto que lo trabajan (los sin relevar no cuentan)</div>
       <div style="overflow-x:auto;margin-top:12px">
         <table class="tbl" style="min-width:600px">
           <thead id="tmr-prod-ruta-thead"></thead>
@@ -417,6 +425,30 @@ function fmtPrecio(v){
 }
 
 function ef_pill(v){return v>=70?'p-g':v>=40?'p-y':'p-r';}
+/** Semáforo de completitud del censo: ≥80 verde · 50–79 amarillo · <50 rojo. */
+function censo_pill(v){return v>=80?'p-g':v>=50?'p-y':'p-r';}
+function censo_col(v){return v>=80?C.grn:v>=50?C.yel:C.acc;}
+function censo_var(v){return v>=80?'var(--grn)':v>=50?'var(--yel)':'var(--acc)';}
+/** Celda "Censo" de un PDV: comp% coloreado + tag "n Espert s/d" si falta dato. */
+function censo_cell(p,pad){
+  if(p.comp==null)return '<td style="padding:'+(pad||'4px 6px')+';color:var(--tx2);font-size:10px">&#8212;</td>';
+  var tag=(p.sin_dato>0)?'<span class="censo-tag" title="Productos Espert sin dato">'+p.sin_dato+' Espert s/d</span>':'';
+  return '<td style="padding:'+(pad||'4px 6px')+';white-space:nowrap;font-size:10px" title="Espert '+(p.comp_esp!=null?p.comp_esp:'—')+'%"><span style="font-weight:700;color:'+censo_col(p.comp)+'">'+p.comp+'%</span>'+tag+'</td>';
+}
+/** Card "Completitud del censo" de la KPI row: solo tiene sentido con un TMR elegido. */
+function renderCensoCard(t,allPdvs){
+  var row=document.querySelector('.kpi-row');if(!row)return;
+  var card=document.getElementById('tmr-kpi-censo');
+  if(!t||t.completitud==null){row.classList.remove('censo');return;}
+  row.classList.add('censo');
+  var v=t.completitud,col=censo_var(v);
+  if(card)card.style.setProperty('--kc',col);
+  var kv=document.getElementById('tmr-censo');if(kv){setKval('tmr-censo',v);kv.style.color=col;}
+  var ks=document.getElementById('tmr-censo-s');if(ks)ks.textContent='Espert '+(t.completitud_esp!=null?t.completitud_esp:'—')+'%';
+  var bar=document.getElementById('tmr-censo-bar');if(bar){bar.style.width=Math.min(100,Math.max(0,v))+'%';bar.style.background=col;}
+  var sinRelevar=(allPdvs||[]).filter(function(p){return p.comp===0;}).length;
+  var kd=document.getElementById('tmr-censo-d');if(kd){kd.textContent='PDVs sin relevar: '+sinRelevar;kd.className='kdelta '+(sinRelevar>0?'down':'up');}
+}
 function cname(n){return n.split(' ').map(w=>w[0]||'').slice(0,2).join('').toUpperCase();}
 function setKval(id,val){var el=document.getElementById(id);if(!el)return;var nodes=[...el.childNodes];var txt=nodes.find(n=>n.nodeType===3);if(txt)txt.textContent=val;else el.insertBefore(document.createTextNode(val),el.firstChild);}
 function mkChart(id,type,data,options){var cv=document.getElementById(id);if(!cv)return;if(charts[id]){charts[id].destroy();delete charts[id];}charts[id]=new Chart(cv.getContext('2d'),{type,data,options});}
@@ -745,6 +777,7 @@ async function renderTmrTab(){
   renderTmrCards();
   if(!state.tmr){
     const kp=document.getElementById('tmr-kpi-panel');if(kp)kp.style.display='none';
+    renderCensoCard(null);
     document.getElementById('tmr-vista-gral').style.display='block';
     document.getElementById('tmr-vista-ind').style.display='none';
     return;
@@ -786,7 +819,7 @@ function renderTmrCards(){
   const el=document.getElementById('tmr-cards');if(!el)return;
   el.innerHTML=[...DD.trades].sort((a,b)=>b.tot-a.tot).map(t=>{
     const sel=state.tmr===t.n;
-    return '<div onclick="selectTmr(\''+t.n+'\')" style="cursor:pointer;background:var(--bg'+(sel?'4':'3')+');border:1px solid '+(sel?'var(--acc2)':'var(--brd)')+';border-radius:10px;padding:12px 14px;min-width:155px;flex:1;transition:.15s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:34px;height:34px;border-radius:8px;background:'+(sel?'var(--acc2)':'var(--bg4)')+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0">'+cname(t.n)+'</div><div><div style="font-size:11px;font-weight:700">'+t.n.split(' ').slice(0,2).join(' ')+'</div><div style="font-size:10px;color:var(--tx2)">'+t.zona+'</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-size:10px"><div style="color:var(--tx2)">Visitas</div><div style="font-weight:700">'+t.tot+'</div><div style="color:var(--tx2)">Efectividad</div><div><span class="pill '+ef_pill(t.ef_pct)+'" style="padding:1px 5px;font-size:9px">'+t.ef_pct+'%</span></div></div></div>';
+    return '<div onclick="selectTmr(\''+t.n+'\')" style="cursor:pointer;background:var(--bg'+(sel?'4':'3')+');border:1px solid '+(sel?'var(--acc2)':'var(--brd)')+';border-radius:10px;padding:12px 14px;min-width:155px;flex:1;transition:.15s"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:34px;height:34px;border-radius:8px;background:'+(sel?'var(--acc2)':'var(--bg4)')+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900;flex-shrink:0">'+cname(t.n)+'</div><div><div style="font-size:11px;font-weight:700">'+t.n.split(' ').slice(0,2).join(' ')+'</div><div style="font-size:10px;color:var(--tx2)">'+t.zona+'</div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;font-size:10px"><div style="color:var(--tx2)">Visitas</div><div style="font-weight:700">'+t.tot+'</div><div style="color:var(--tx2)">Efectividad</div><div><span class="pill '+ef_pill(t.ef_pct)+'" style="padding:1px 5px;font-size:9px">'+t.ef_pct+'%</span></div>'+(t.completitud!=null?'<div style="color:var(--tx2)">Censo</div><div><span class="pill '+censo_pill(t.completitud)+'" style="padding:1px 5px;font-size:9px" title="Espert '+(t.completitud_esp!=null?t.completitud_esp:'—')+'%">'+t.completitud+'%</span></div>':'')+'</div></div>';
   }).join('');
 }
 
@@ -806,7 +839,7 @@ function renderTmrGeneral(){
   mkChart('c-tmr-cal','bar',{labels:trades.map(t=>t.n.split(' ')[0]),datasets:[{label:'GPS %',data:trades.map(t=>t.gps),backgroundColor:C.grn+'88',borderColor:C.grn,borderWidth:1},{label:'Foto %',data:trades.map(t=>t.foto),backgroundColor:C.yel+'88',borderColor:C.yel,borderWidth:1},{label:'% Acción',data:trades.map(t=>t.accion_pct),backgroundColor:C.pur+'88',borderColor:C.pur,borderWidth:1}]},baseOpts({}));
   const tb=document.getElementById('tmr-tbody-gral');if(!tb)return;
   tb.innerHTML=[...trades].sort((a,b)=>b.tot-a.tot).map((t,i)=>{
-    return '<tr class="row-click" onclick="selectTmr(\''+t.n+'\')"><td style="color:var(--tx2)">'+(i+1)+'</td><td><strong>'+t.n+'</strong></td><td>'+t.zona+'</td><td><strong>'+t.tot+'</strong></td><td><strong>'+(t.vis||0)+'</strong><span style="color:var(--tx2)"> / '+(t.pdvs||0)+'</span></td><td>'+t.gps+'%</td><td>'+t.foto+'%</td><td>'+t.dur+' min</td><td><span class="pill '+ef_pill(t.ef_pct)+'">'+t.ef_pct+'%</span></td><td><span class="pill '+ef_pill(t.accion_pct)+'">'+t.accion_pct+'%</span></td><td><span class="pill p-b">'+t.tot_ent+'</span></td><td>'+(t.tot>=50?'<span class="pill p-g">Activo</span>':t.tot>=20?'<span class="pill p-y">Regular</span>':'<span class="pill p-r">Bajo</span>')+'</td></tr>';
+    return '<tr class="row-click" onclick="selectTmr(\''+t.n+'\')"><td style="color:var(--tx2)">'+(i+1)+'</td><td><strong>'+t.n+'</strong></td><td>'+t.zona+'</td><td><strong>'+t.tot+'</strong></td><td><strong>'+(t.vis||0)+'</strong><span style="color:var(--tx2)"> / '+(t.pdvs||0)+'</span></td><td>'+t.gps+'%</td><td>'+t.foto+'%</td><td>'+t.dur+' min</td><td><span class="pill '+ef_pill(t.ef_pct)+'">'+t.ef_pct+'%</span></td><td><span class="pill '+ef_pill(t.accion_pct)+'">'+t.accion_pct+'%</span></td><td><span class="pill p-b">'+t.tot_ent+'</span></td><td>'+(t.completitud!=null?'<span class="pill '+censo_pill(t.completitud)+'" title="Espert '+(t.completitud_esp!=null?t.completitud_esp:'—')+'%">'+t.completitud+'%</span>':'<span style="color:var(--tx2)">&#8212;</span>')+'</td><td>'+(t.tot>=50?'<span class="pill p-g">Activo</span>':t.tot>=20?'<span class="pill p-y">Regular</span>':'<span class="pill p-r">Bajo</span>')+'</td></tr>';
   }).join('');
 }
 
@@ -831,6 +864,7 @@ function renderTmrIndividual(name){
   setKval('tmr-acc',t.accion_pct);
   document.getElementById('tmr-acc-d').textContent=conAccion+' PDVs con acción';
   setKval('tmr-ent',t.tot_ent);
+  renderCensoCard(t,allPdvs);
   renderTmrQuickWins(name);
   renderTmrLocsTable(t,allPdvs);
   const eb=document.getElementById('tmr-ent-bars');
@@ -915,6 +949,7 @@ function renderRutaSummary(tmrName){
     +'<th style="text-align:center;padding:6px 8px;color:var(--pur);font-size:10px;font-weight:600;white-space:nowrap">Promo/Mat.</th>'
     +'<th style="text-align:center;padding:6px 8px;color:var(--tx2);font-size:10px;font-weight:600;white-space:nowrap">Vende Sueltos</th>'
     +'<th style="text-align:center;padding:6px 8px;color:var(--acc);font-size:10px;font-weight:600;white-space:nowrap">Canje Sueltos</th>'
+    +'<th style="text-align:center;padding:6px 8px;color:var(--tx2);font-size:10px;font-weight:600;white-space:nowrap" title="Completitud del censo: % del catálogo con respuesta (Sí/No), promedio de los PDVs de la ruta">Censo</th>'
     +'</tr></thead><tbody>';
   rutas.forEach(function(r){
     var ef=r.planned_mes>0?Math.round((r.vis_plan||0)/r.planned_mes*100):0;
@@ -933,6 +968,7 @@ function renderRutaSummary(tmrName){
       +'<td style="text-align:center;padding:7px 8px;color:var(--pur);font-weight:700">'+(r.con_material||0)+'</td>'
       +'<td style="text-align:center;padding:7px 8px;color:var(--tx2)">'+(r.vende_sueltos||0)+'</td>'
       +'<td style="text-align:center;padding:7px 8px;color:var(--acc);font-weight:700">'+(r.con_canje||0)+'</td>'
+      +'<td style="text-align:center;padding:7px 8px">'+(r.completitud!=null?'<span style="font-weight:800;color:'+censo_col(r.completitud)+'" title="Espert '+(r.completitud_esp!=null?r.completitud_esp:'—')+'%">'+r.completitud+'%</span>':'<span style="color:var(--tx2)">&#8212;</span>')+'</td>'
       +'</tr>';
   });
   html+='</tbody></table></div></div>';
@@ -985,14 +1021,13 @@ function renderTmrPdvTable(t,allPdvs){
   if(tmrView==='cob'){
     if(leyEl){
       leyEl.style.display='flex';
-      leyEl.innerHTML='<span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--tx2)"><span style="width:10px;height:10px;border-radius:2px;background:'+C.grn+';display:inline-block"></span>Trabaja</span>'
-        +' <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--tx2)"><span style="width:10px;height:10px;border-radius:2px;background:'+C.acc+';display:inline-block"></span>No trabaja</span>'
-        +' <span style="display:flex;align-items:center;gap:4px;font-size:10px;color:var(--tx2)"><span style="width:10px;height:10px;border-radius:2px;background:var(--brd);display:inline-block"></span>No relevado</span>'
+      leyEl.innerHTML='<span style="font-size:10px;color:var(--tx2)"><span style="color:'+C.grn+';font-weight:700">&#10003;</span> trabaja · <span style="color:'+C.acc+';font-weight:700">&#10007;</span> no · <span style="opacity:.6">&#8212;</span> sin dato</span>'
+        +' <span style="margin-left:8px;font-size:10px;color:var(--tx2)" title="Completitud del censo del PDV: % del catálogo con respuesta (Sí/No)">Censo: % relevado · <span class="censo-tag">n Espert s/d</span> = productos Espert sin dato</span>'
         +' <span style="margin-left:12px;font-size:10px;color:var(--tx2);font-weight:700">Score:</span>'
         +SCORE_ORDER.map(function(s){var col=SCORE_COLORS[s];return '<span style="font-size:10px;padding:2px 8px;border-radius:10px;background:'+col+'22;color:'+col+'">'+s+'</span>';}).join('');
     }
     var prods=DD.espert_prods;
-    var phdr='<tr><th style="white-space:nowrap">Ruta Foco</th><th>#</th><th>PDV</th><th>Localidad</th><th>Canal</th><th>Vis.</th>';
+    var phdr='<tr><th style="white-space:nowrap">Ruta Foco</th><th>#</th><th>PDV</th><th>Localidad</th><th>Canal</th><th>Vis.</th><th title="Completitud del censo del PDV">Censo</th>';
     prods.forEach(function(p){phdr+='<th style="white-space:nowrap;font-size:9px">'+(PROD_SHORT[p]||p)+'</th>';});
     phdr+='<th style="white-space:nowrap;font-size:9px">Score</th></tr>';
     thead.innerHTML=phdr;
@@ -1004,7 +1039,7 @@ function renderTmrPdvTable(t,allPdvs){
       var isCollapsed=!!_rutasCollapsed[rid];
       // Ruta header row
       tbody+='<tr style="background:var(--bg3);cursor:pointer" data-rid="'+rid+'" onclick="toggleRutaGroup(this.dataset.rid)">'
-        +'<td colspan="'+(6+prods.length+1)+'" style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--acc2);letter-spacing:.3px">'
+        +'<td colspan="'+(7+prods.length+1)+'" style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--acc2);letter-spacing:.3px">'
         +'<span id="ruta-toggle-icon-'+rid+'" style="margin-right:6px">'+( isCollapsed?'▶':'▼')+'</span>'
         +ruta+' <span style="font-weight:400;color:var(--tx2);font-size:10px">('+grp.length+' PDVs)</span></td></tr>';
       grp.forEach(function(p){
@@ -1012,7 +1047,7 @@ function renderTmrPdvTable(t,allPdvs){
         (p.pr||[]).forEach(function(v){
           if(v===1)cells+='<td style="text-align:center;padding:4px 3px;color:'+C.grn+'">&#10003;</td>';
           else if(v===0)cells+='<td style="text-align:center;padding:4px 3px;color:'+C.acc+'">&#10007;</td>';
-          else cells+='<td style="text-align:center;padding:4px 3px;color:var(--brd)">&#8212;</td>';
+          else cells+='<td style="text-align:center;padding:4px 3px;color:var(--tx2);opacity:.45" title="Sin dato">&#8212;</td>';
         });
         var nameCol=p.vis>0?'color:var(--acc2);cursor:pointer':'color:var(--tx2)';
         var visCol=p.vis>0?'font-weight:700':'color:var(--tx2)';
@@ -1025,6 +1060,7 @@ function renderTmrPdvTable(t,allPdvs){
           +'<td style="padding:4px 8px;font-size:10px;color:var(--tx2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+p.loc+'">'+locShort+'</td>'
           +'<td style="padding:4px 6px;font-size:9px;color:var(--tx2)">'+p.canal+'</td>'
           +'<td style="padding:4px 6px;'+visCol+';font-size:11px">'+(p.vis||'&#8212;')+'</td>'
+          +censo_cell(p)
           +cells
           +'<td style="padding:4px 6px">'+scoreLabel(p.score)+'</td>'
           +'</tr>';
@@ -1033,7 +1069,7 @@ function renderTmrPdvTable(t,allPdvs){
     tb.innerHTML=tbody;
   } else {
     if(leyEl)leyEl.style.display='none';
-    thead.innerHTML='<tr><th style="white-space:nowrap">Ruta Foco</th><th>#</th><th>PDV</th><th>Localidad</th><th>Canal</th><th>Vis.</th><th>Score</th><th>Acción</th><th>Tipos</th><th>Vende Sueltos</th><th>Oportunidad</th></tr>';
+    thead.innerHTML='<tr><th style="white-space:nowrap">Ruta Foco</th><th>#</th><th>PDV</th><th>Localidad</th><th>Canal</th><th>Vis.</th><th title="Completitud del censo del PDV">Censo</th><th>Score</th><th>Acción</th><th>Tipos</th><th>Vende Sueltos</th><th>Oportunidad</th></tr>';
     var TIPO_LABEL={canje_sueltos:'Canje',promo:'Promo',juego:'Juego'};
     var tbody='';
     var globalIdx=0;
@@ -1042,7 +1078,7 @@ function renderTmrPdvTable(t,allPdvs){
       var rid=encodeRutaId(ruta);
       var isCollapsed=!!_rutasCollapsed[rid];
       tbody+='<tr style="background:var(--bg3);cursor:pointer" data-rid="'+rid+'" onclick="toggleRutaGroup(this.dataset.rid)">'
-        +'<td colspan="11" style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--acc2);letter-spacing:.3px">'
+        +'<td colspan="12" style="padding:6px 10px;font-size:10px;font-weight:700;color:var(--acc2);letter-spacing:.3px">'
         +'<span id="ruta-toggle-icon-'+rid+'" style="margin-right:6px">'+(isCollapsed?'▶':'▼')+'</span>'
         +ruta+' <span style="font-weight:400;color:var(--tx2);font-size:10px">('+grp.length+' PDVs)</span></td></tr>';
       grp.forEach(function(p){
@@ -1068,6 +1104,7 @@ function renderTmrPdvTable(t,allPdvs){
           +'<td style="padding:4px 8px;font-size:10px;color:var(--tx2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+p.loc+'">'+locShort2+'</td>'
           +'<td style="padding:4px 6px;font-size:9px;color:var(--tx2)">'+p.canal+'</td>'
           +'<td style="padding:4px 6px;'+visCol+';font-size:11px">'+(p.vis||'&#8212;')+'</td>'
+          +censo_cell(p)
           +'<td style="padding:4px 6px">'+scoreLabel(p.score)+'</td>'
           +accionCell
           +'<td style="padding:4px 6px;font-size:10px">'+tipos+'</td>'

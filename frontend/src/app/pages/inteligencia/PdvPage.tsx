@@ -6,6 +6,12 @@ import { ProveedorRow } from "./ProveedoresCard";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
+function censoBadge(pct: number): string {
+  if (pct >= 80) return "bg-green-600/15 text-green-700 dark:text-green-400";
+  if (pct >= 50) return "bg-amber-400/20 text-amber-700 dark:text-amber-400";
+  return "bg-red-500/15 text-red-600 dark:text-red-400";
+}
+
 type CensoFiltro = "espert" | "competencia" | "todos";
 
 interface Props {
@@ -23,6 +29,8 @@ export function PdvPage({ pdvId, onBack }: Props) {
   const [error, setError] = useState(false);
   const [censoFiltro, setCensoFiltro] = useState<CensoFiltro>("espert");
   const [soloTrabaja, setSoloTrabaja] = useState(true);
+  // "Sin dato": lista los productos sin relevar en vez de la tabla del censo.
+  const [verSinDato, setVerSinDato] = useState(false);
 
   useLayoutEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -48,6 +56,9 @@ export function PdvPage({ pdvId, onBack }: Props) {
   });
 
   const maxVisMes = Math.max(1, ...(d?.evolucion ?? []).map((e) => e.visitas));
+  const sinDato = d?.sinDato ?? [];
+  // Cualquier fila con marca habilita la columna (respuestas viejas no la traen).
+  const conMarca = (d?.censo ?? []).some((r) => r.marca);
 
   const chip = (value: CensoFiltro, label: string) => (
     <button
@@ -73,7 +84,17 @@ export function PdvPage({ pdvId, onBack }: Props) {
           <ArrowLeft size={14} /> Volver
         </button>
         <p className="text-xs font-semibold uppercase tracking-widest text-espert-gold">Punto de venta</p>
-        <h2 className="text-2xl font-bold text-foreground">{d?.info.nombre ?? `PDV #${pdvId}`}</h2>
+        <h2 className="text-2xl font-bold text-foreground flex items-center gap-2 flex-wrap">
+          {d?.info.nombre ?? `PDV #${pdvId}`}
+          {d?.completitud != null && (
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full tabular-nums ${censoBadge(d.completitud)}`}
+              title="Completitud del censo: % del catálogo activo con respuesta (Sí/No)"
+            >
+              Censo {d.completitud}% · Espert {d.completitudEspert ?? 0}%
+            </span>
+          )}
+        </h2>
         {d && (
           <p className="text-sm text-muted-foreground flex items-center gap-1.5 flex-wrap">
             <MapPin size={13} className="shrink-0" />
@@ -226,12 +247,44 @@ export function PdvPage({ pdvId, onBack }: Props) {
                   >
                     Solo lo que trabaja
                   </button>
+                  {d.sinDato != null && (
+                    <button
+                      onClick={() => setVerSinDato((v) => !v)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors ${
+                        verSinDato ? "bg-amber-400/20 text-amber-700 dark:text-amber-400" : "bg-muted text-muted-foreground hover:bg-muted/70"
+                      }`}
+                      title="Productos del catálogo sin relevar en este PDV"
+                    >
+                      Sin dato ({sinDato.length})
+                    </button>
+                  )}
                 </div>
+                <p className="text-[10px] text-muted-foreground mb-2">
+                  <span className="text-green-600 dark:text-green-400">✓ trabaja</span> ·{" "}
+                  <span className="text-red-500">✗ no</span> · sin dato = no relevado
+                </p>
+                {verSinDato ? (
+                  <div className="max-h-[380px] overflow-y-auto">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Sin relevar todavía (Espert primero). No cuentan como "no trabaja".
+                    </p>
+                    {sinDato.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-4">Censo completo: todo el catálogo tiene dato.</p>
+                    ) : (
+                      <ul className="flex flex-wrap gap-1.5">
+                        {sinDato.map((n) => (
+                          <li key={n} className="px-2 py-0.5 rounded-full bg-muted text-xs text-foreground">{n}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
                 <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
                   <table className="w-full text-xs tabular-nums">
                     <thead className="sticky top-0 bg-card z-10">
                       <tr className="text-left text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
                         <th className="py-1.5 pr-3">Producto</th>
+                        {conMarca && <th className="py-1.5 pr-3">Marca</th>}
                         <th className="py-1.5 pr-3">Fabricante</th>
                         <th className="py-1.5 pr-3 text-center">Trabaja</th>
                         <th className="py-1.5 pr-3 text-right">Precio</th>
@@ -244,6 +297,9 @@ export function PdvPage({ pdvId, onBack }: Props) {
                           <td className={`py-1 pr-3 font-medium whitespace-nowrap ${r.esEspert ? "text-espert-gold" : "text-foreground"}`}>
                             {r.producto}
                           </td>
+                          {conMarca && (
+                            <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground">{r.marca ?? "—"}</td>
+                          )}
                           <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground">{r.fabricante}</td>
                           <td className="py-1 pr-3 text-center">
                             {r.trabaja ? (
@@ -266,6 +322,7 @@ export function PdvPage({ pdvId, onBack }: Props) {
                     <p className="text-sm text-muted-foreground text-center py-4">Nada con estos filtros.</p>
                   )}
                 </div>
+                )}
               </CardContent>
             </Card>
           </div>

@@ -19,7 +19,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import engine
 from app.models import (
+    AppSetting as AppSettingModel,
     PDV as PDVModel,
+    Product as ProductModel,
     Route as RouteModel,
     RouteDay as RouteDayModel,
     RouteDayPdv as RouteDayPdvModel,
@@ -28,10 +30,12 @@ from app.models import (
     Visit as VisitModel,
     VisitAction as VisitActionModel,
     VisitCheck as VisitCheckModel,
+    VisitCoverage as VisitCoverageModel,
     File as FileModel,
     VisitPhoto as VisitPhotoModel,
 )
-from app.services.tmr_dashboard import build_team
+from app.services.coverage_semantics import COVERAGE_CUTOFF_SETTING
+from app.services.tmr_dashboard import build_pdvs, build_routes, build_team, load_context
 
 # Mes en el pasado respecto de "hoy" (2026-08) para que no dependa del día actual.
 YEAR, MONTH = 2026, 4
@@ -328,3 +332,229 @@ def test_team_con_rango_suma_meses_anteriores(db):
         build_team(db, [u.UserId], YEAR, MONTH, None, date(2026, 4, 30)), u
     )
     assert todo["tot"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Censo de 3 estados (Sí / No / Sin dato) + completitud del censo
+# ---------------------------------------------------------------------------
+
+def _product(db, is_own=True):
+    pr = ProductModel(
+        Name=f"Prod_{_uid()}", Category="Cigarrillos", IsOwn=is_own, IsActive=True,
+    )
+    db.add(pr)
+    db.flush()
+    return pr
+
+
+def _cov(db, visit, product, works, created_at=None):
+    row = VisitCoverageModel(
+        VisitId=visit.VisitId, ProductId=product.ProductId, Works=works,
+        CreatedAt=created_at or visit.OpenedAt,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _set_cutoff(db, when):
+    """Setea el corte `coverage_explicit_no_since` (None lo borra). El fixture
+    hace rollback igual, pero se limpia explícito al final de cada test."""
+    db.query(AppSettingModel).filter(AppSettingModel.Key == COVERAGE_CUTOFF_SETTING).delete()
+    if when is not None:
+        db.add(AppSettingModel(Key=COVERAGE_CUTOFF_SETTING, Value=when.isoformat()))
+    db.flush()
+
+
+def _ctx(db, user):
+    return load_context(db, [user.UserId], YEAR, MONTH, with_coverage=True)
+
+
+def _catalog_sizes(db):
+    """El catálogo activo es global (otros tests pueden haber commiteado
+    productos, incluso con nombres repetidos), así que los esperados se
+    calculan contra la base."""
+    active = db.query(ProductModel.Name, ProductModel.IsOwn).filter(ProductModel.IsActive == True).all()  # noqa: E712
+    # Por nombre distinto: la cobertura se indexa por `Product.Name`.
+    return len({n for n, _o in active}), len({n for n, o in active if o})
+
+
+def test_coverage_no_anterior_al_corte_es_sin_dato(db):
+    """Un `Works=False` cargado antes del corte no aporta dato: el PDV no
+    queda relevado. Uno posterior sí es un "No" explícito."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    pre, post = _pdv(db), _pdv(db)
+    _link(db, r, pre)
+    _link(db, r, post)
+    prod = _product(db)
+    _cov(db, _visit(db, pre, u), prod, False, created_at=DAY - timedelta(days=10))
+    _cov(db, _visit(db, post, u), prod, False, created_at=DAY + timedelta(days=5))
+    _set_cutoff(db, DAY)
+    try:
+        ctx = _ctx(db, u)
+        assert (u.UserId, pre.PdvId) not in ctx.relevado
+        assert ctx.seen_by_pdv.get((u.UserId, pre.PdvId), set()) == set()
+        assert ctx.score_by_pdv[(u.UserId, pre.PdvId)] is None
+        assert (u.UserId, post.PdvId) in ctx.relevado
+        assert ctx.seen_by_pdv[(u.UserId, post.PdvId)] == {prod.Name}
+        assert prod.Name not in ctx.works_by_pdv.get((u.UserId, post.PdvId), set())
+    finally:
+        _set_cutoff(db, None)
+
+
+def test_coverage_sin_corte_todo_cuenta(db):
+    """Sin el AppSetting, comportamiento histórico: un `Works=False` viejo es un No."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    p = _pdv(db)
+    _link(db, r, p)
+    prod = _product(db)
+    _cov(db, _visit(db, p, u), prod, False, created_at=DAY - timedelta(days=10))
+    _set_cutoff(db, None)
+
+    ctx = _ctx(db, u)
+    assert (u.UserId, p.PdvId) in ctx.relevado
+    assert ctx.seen_by_pdv[(u.UserId, p.PdvId)] == {prod.Name}
+
+
+def test_coverage_si_viejo_sobrevive_a_no_ambiguo_mas_nuevo(db):
+    """El descarte de filas sin dato va ANTES del "última visita manda": un Sí
+    de la visita 1 no lo pisa un No pre-corte de la visita 2."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    p = _pdv(db)
+    _link(db, r, p)
+    prod = _product(db)
+    v1 = _visit(db, p, u, opened=DAY - timedelta(days=10))
+    v2 = _visit(db, p, u, opened=DAY - timedelta(days=3))
+    _cov(db, v1, prod, True, created_at=v1.OpenedAt)
+    _cov(db, v2, prod, False, created_at=v2.OpenedAt)
+
+    # Sin corte: la visita más reciente manda -> No.
+    _set_cutoff(db, None)
+    assert prod.Name not in _ctx(db, u).works_by_pdv.get((u.UserId, p.PdvId), set())
+
+    # Con corte posterior a ambas: el No de v2 es ambiguo -> sobrevive el Sí de v1.
+    _set_cutoff(db, DAY)
+    try:
+        ctx = _ctx(db, u)
+        assert prod.Name in ctx.works_by_pdv[(u.UserId, p.PdvId)]
+        assert ctx.latest[(u.UserId, p.PdvId, prod.Name)][0] == v1.OpenedAt
+    finally:
+        _set_cutoff(db, None)
+
+
+def test_routes_prod_cob_divide_por_pdvs_con_dato(db):
+    """3 PDVs en ruta: Sí, No explícito, sin dato -> 1 de 2 con dato = 50%
+    (antes: 1 de 3 = 33%, "sin dato" contaba como "no lo trabaja")."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    si, no, nada = _pdv(db), _pdv(db), _pdv(db)
+    for p in (si, no, nada):
+        _link(db, r, p)
+    prod = _product(db)
+    _cov(db, _visit(db, si, u), prod, True)
+    _cov(db, _visit(db, no, u), prod, False)
+    _visit(db, nada, u)
+    _set_cutoff(db, None)
+
+    ruta = next(x for x in build_routes(db, [u.UserId], YEAR, MONTH)["rutas"] if x["nombre"] == r.Name)
+    assert ruta["prod_cob"][prod.Name] == 50
+    assert ruta["relevados"] == 2
+
+
+def test_routes_prod_cob_omite_producto_sin_pdv_que_lo_trabaje(db):
+    u = _user(db)
+    r = _route(db, u.UserId)
+    p = _pdv(db)
+    _link(db, r, p)
+    prod = _product(db)
+    _cov(db, _visit(db, p, u), prod, False)
+    _set_cutoff(db, None)
+
+    ruta = next(x for x in build_routes(db, [u.UserId], YEAR, MONTH)["rutas"] if x["nombre"] == r.Name)
+    assert prod.Name not in ruta["prod_cob"]
+
+
+def test_completitud_pdv_ruta_y_trade(db):
+    """Completitud = productos con dato / catálogo activo (y la variante Espert).
+
+    PDV relevado: 2 Espert (Sí + No) y 1 competencia con dato. PDV sin relevar:
+    0. La ruta y el trade promedian los dos PDVs. `team` lo calcula con un
+    agregado SQL aparte y tiene que dar lo mismo que el promedio en Python de
+    `routes`."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    relevado, vacio = _pdv(db), _pdv(db)
+    _link(db, r, relevado)
+    _link(db, r, vacio)
+    own1, own2, comp = _product(db), _product(db), _product(db, is_own=False)
+    inactivo = _product(db)
+    inactivo.IsActive = False
+    db.flush()
+    v = _visit(db, relevado, u)
+    _cov(db, v, own1, True)
+    _cov(db, v, own2, False)
+    _cov(db, v, comp, True)
+    _cov(db, v, inactivo, True)  # fuera del catálogo activo: no cuenta
+    _visit(db, vacio, u)
+    _set_cutoff(db, None)
+
+    n_cat, n_own = _catalog_sizes(db)
+    esperado_pdv = round(3 / n_cat * 100)
+    esperado_ruta = round((3 / n_cat * 100 + 0) / 2)
+    esperado_esp_ruta = round((2 / n_own * 100 + 0) / 2)
+
+    pdvs = build_pdvs(db, [u.UserId], YEAR, MONTH)["tmr_pdvs"][u.DisplayName]
+    row_rel = next(x for x in pdvs if x["id"] == relevado.PdvId)
+    row_vac = next(x for x in pdvs if x["id"] == vacio.PdvId)
+    assert row_rel["comp"] == esperado_pdv
+    assert row_rel["comp_esp"] == round(2 / n_own * 100)
+    assert row_rel["sin_dato"] == n_own - 2
+    assert row_vac["comp"] == 0
+    assert row_vac["comp_esp"] == 0
+    assert row_vac["sin_dato"] == n_own
+
+    ruta = next(x for x in build_routes(db, [u.UserId], YEAR, MONTH)["rutas"] if x["nombre"] == r.Name)
+    assert ruta["completitud"] == esperado_ruta
+    assert ruta["completitud_esp"] == esperado_esp_ruta
+
+    t = _row_for(build_team(db, [u.UserId], YEAR, MONTH), u)
+    assert t["completitud"] == esperado_ruta
+    assert t["completitud_esp"] == esperado_esp_ruta
+
+
+def test_completitud_team_respeta_corte_y_universo(db):
+    """El agregado SQL de `team` aplica la misma regla que `row_is_known`: un
+    No pre-corte no suma; y una visita fuera del universo foco tampoco."""
+    u = _user(db)
+    r = _route(db, u.UserId)
+    p, fuera = _pdv(db), _pdv(db)
+    _link(db, r, p)
+    own1, own2 = _product(db), _product(db)
+    v = _visit(db, p, u)
+    _cov(db, v, own1, True, created_at=DAY - timedelta(days=10))    # Sí: siempre dato
+    _cov(db, v, own2, False, created_at=DAY - timedelta(days=10))   # No pre-corte: sin dato
+    _cov(db, _visit(db, fuera, u), own1, True)                      # PDV fuera de ruta foco
+    _set_cutoff(db, DAY)
+    try:
+        n_cat, n_own = _catalog_sizes(db)
+        t = _row_for(build_team(db, [u.UserId], YEAR, MONTH), u)
+        assert t["completitud"] == round(1 / n_cat * 100)
+        assert t["completitud_esp"] == round(1 / n_own * 100)
+        ruta = next(x for x in build_routes(db, [u.UserId], YEAR, MONTH)["rutas"] if x["nombre"] == r.Name)
+        assert ruta["completitud_esp"] == t["completitud_esp"]
+    finally:
+        _set_cutoff(db, None)
+
+
+def test_completitud_sin_visitas_es_cero(db):
+    u = _user(db)
+    r = _route(db, u.UserId)
+    _link(db, r, _pdv(db))
+    _product(db)
+
+    t = _row_for(build_team(db, [u.UserId], YEAR, MONTH), u)
+    assert t["completitud"] == 0
+    assert t["completitud_esp"] == 0

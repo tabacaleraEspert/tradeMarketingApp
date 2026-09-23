@@ -18,21 +18,30 @@ function coberturaTextColor(pct: number): string {
   return "text-red-600 dark:text-red-400";
 }
 
-type SortKey = "zona" | "censado" | "cobertura" | "skus" | "ritmo";
+type SortKey = "zona" | "censado" | "cobertura" | "censo" | "skus" | "ritmo";
 
 const SORT_VALUE: Record<SortKey, (z: IntelZona) => number | string> = {
   zona: (z) => z.zona,
   censado: (z) => (z.pdvs ? z.censados / z.pdvs : 0),
   cobertura: (z) => z.cobertura,
+  censo: (z) => z.completitud ?? -1,
   skus: (z) => z.skusPromEspert,
   ritmo: (z) => z.visitas30d,
 };
+
+function censoTextColor(pct: number): string {
+  if (pct >= 80) return "text-green-600 dark:text-green-400";
+  if (pct >= 50) return "text-amber-600 dark:text-amber-400";
+  return "text-red-600 dark:text-red-400";
+}
 
 const HELP = {
   profundidad:
     "SKUs Espert promedio por PDV, contando solo los PDVs de la zona que ya trabajan al menos un producto nuestro. Los puntos comparan contra la mejor zona.",
   ritmo:
     "Visitas cerradas en los últimos 30 días en PDVs de la zona, cuántos trades las hicieron y el promedio de cada uno.",
+  censo:
+    "Completitud del censo: % del catálogo activo con respuesta (Sí/No) por PDV, promediado sobre la zona. Abajo, solo el catálogo Espert y cuántos PDVs tienen competencia relevada pero Espert sin dato.",
 };
 
 /**
@@ -142,10 +151,11 @@ export function ZonasSection({ zonas, portfolio, onZonaClick }: ZonasSectionProp
         </p>
 
         {/* Encabezado */}
-        <div className="hidden md:grid md:grid-cols-[9.5rem_1fr_1fr_7rem_7rem] gap-x-4 pb-2 border-b border-border text-[10px] text-muted-foreground">
+        <div className="hidden md:grid md:grid-cols-[9.5rem_1fr_1fr_6rem_7rem_7rem] gap-x-4 pb-2 border-b border-border text-[10px] text-muted-foreground">
           <Header label="Zona" k="zona" />
           <Header label="¿Cuánto la conocemos? · censo" k="censado" />
           <Header label="¿Cómo estamos ahí? · cobertura" k="cobertura" />
+          <Header label="Censo" k="censo" className="justify-end" help={HELP.censo} />
           <Header label="SKUs por PDV" k="skus" className="justify-end" help={HELP.profundidad} />
           <Header label="Ritmo 30d" k="ritmo" className="justify-end" help={HELP.ritmo} />
         </div>
@@ -158,7 +168,7 @@ export function ZonasSection({ zonas, portfolio, onZonaClick }: ZonasSectionProp
               <div
                 key={z.zonaId}
                 onClick={() => onZonaClick(z)}
-                className="grid grid-cols-2 md:grid-cols-[9.5rem_1fr_1fr_7rem_7rem] gap-x-4 gap-y-2 py-3 items-center hover:bg-muted/30 cursor-pointer"
+                className="grid grid-cols-2 md:grid-cols-[9.5rem_1fr_1fr_6rem_7rem_7rem] gap-x-4 gap-y-2 py-3 items-center hover:bg-muted/30 cursor-pointer"
               >
                 {/* Zona */}
                 <div className="col-span-2 md:col-span-1 flex items-center gap-2 min-w-0">
@@ -199,6 +209,23 @@ export function ZonasSection({ zonas, portfolio, onZonaClick }: ZonasSectionProp
                       style={{ width: `${z.cobertura}%` }}
                     />
                   </div>
+                </div>
+
+                {/* Completitud del censo (3 estados: Sí / No / sin dato) */}
+                <div className="text-right tabular-nums">
+                  {z.completitud != null ? (
+                    <>
+                      <p className={`text-sm font-bold ${censoTextColor(z.completitud)}`}>
+                        {Math.round(z.completitud)}%
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Espert {Math.round(z.completitudEspert ?? 0)}%
+                        {(z.aCompletar ?? 0) > 0 ? ` · ${nf(z.aCompletar ?? 0)} a compl.` : ""}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">—</p>
+                  )}
                 </div>
 
                 {/* SKUs por PDV — click acá abre el modal con los 5 más
