@@ -558,3 +558,46 @@ def test_completitud_sin_visitas_es_cero(db):
     t = _row_for(build_team(db, [u.UserId], YEAR, MONTH), u)
     assert t["completitud"] == 0
     assert t["completitud_esp"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Banderas por PDV para el drill KPI → Ruta → PDVs ("Mi gestión" mobile)
+# ---------------------------------------------------------------------------
+
+def test_pdvs_banderas_por_pdv_coinciden_con_agregados_de_ruta(db):
+    from app.models import VisitPOPItem as VisitPOPItemModel
+
+    u = _user(db)
+    r = _route(db, u.UserId)
+    planificado, con_canje, con_promo, con_material, sin_nada = (_pdv(db) for _ in range(5))
+    for p in (planificado, con_canje, con_promo, con_material, sin_nada):
+        _link(db, r, p)
+    con_canje.SellsLooseCigarettes = True
+    sin_nada.SellsLooseCigarettes = True
+    _plan(db, r, planificado, u.UserId)
+    _visit(db, planificado, u)
+    v_canje = _visit(db, con_canje, u)
+    db.add(VisitActionModel(VisitId=v_canje.VisitId, ActionType="canje_sueltos", Status="DONE"))
+    v_promo = _visit(db, con_promo, u)
+    db.add(VisitActionModel(VisitId=v_promo.VisitId, ActionType="promo", Status="DONE"))
+    v_mat = _visit(db, con_material, u)
+    db.add(VisitPOPItemModel(VisitId=v_mat.VisitId, MaterialType="exhibidor", MaterialName="Exhibidor Espert", Present=True))
+    db.flush()
+
+    rows = {x["id"]: x for x in build_pdvs(db, [u.UserId], YEAR, MONTH)["tmr_pdvs"][u.DisplayName]}
+    for row in rows.values():
+        assert row["route_id"] == r.RouteId
+    assert rows[planificado.PdvId]["planned"] and rows[planificado.PdvId]["vis"] == 1
+    assert not rows[sin_nada.PdvId]["planned"]
+    assert rows[con_canje.PdvId]["canje"] and rows[con_canje.PdvId]["sells_loose"]
+    assert rows[sin_nada.PdvId]["sells_loose"] and not rows[sin_nada.PdvId]["canje"]
+    assert rows[con_promo.PdvId]["promo"] and not rows[sin_nada.PdvId]["promo"]
+    assert rows[con_material.PdvId]["material"] and not rows[sin_nada.PdvId]["material"]
+
+    # Los agregados de la ruta son la suma de las banderas.
+    ruta = next(x for x in build_routes(db, [u.UserId], YEAR, MONTH)["rutas"] if x["route_id"] == r.RouteId)
+    assert ruta["planned_mes"] == sum(1 for x in rows.values() if x["planned"])
+    assert ruta["con_canje"] == sum(1 for x in rows.values() if x["canje"] and x["sells_loose"])
+    assert ruta["vende_sueltos"] == sum(1 for x in rows.values() if x["sells_loose"])
+    assert ruta["con_promo"] == sum(1 for x in rows.values() if x["promo"])
+    assert ruta["con_material"] == sum(1 for x in rows.values() if x["material"])

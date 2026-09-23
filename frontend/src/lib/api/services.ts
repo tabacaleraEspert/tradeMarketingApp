@@ -1433,6 +1433,13 @@ export interface TmrPdvRow {
   comp?: number; // % completitud del censo del PDV
   comp_esp?: number; // ídem, solo Espert
   sin_dato?: number; // productos Espert sin dato
+  // Drill "Mi gestión" (responses nuevos; opcionales por cache viejo)
+  route_id?: number | null;
+  planned?: boolean; // planificado este mes en la ruta
+  canje?: boolean; // tuvo acción canje_sueltos
+  promo?: boolean; // tuvo acción promo
+  material?: boolean; // tiene material POP colocado
+  sells_loose?: boolean; // vende sueltos (PDV.SellsLooseCigarettes)
 }
 
 export interface TmrPdvsResponse {
@@ -1446,6 +1453,7 @@ export interface TmrPdvsResponse {
 
 // Ruta foco de /kpi/tmr/routes (por vendedor): cobertura y precios por producto.
 export interface TmrRutaRow {
+  route_id?: number; // RouteId (opcional por cache viejo)
   nombre: string;
   trade: string;
   user_id: number;

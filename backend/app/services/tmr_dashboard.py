@@ -174,6 +174,9 @@ class TmrContext:
     pdvs_by_route: dict = field(default_factory=dict)
     universe_by_user: dict = field(default_factory=dict)
     route_of_pdv: dict = field(default_factory=dict)
+    # (uid, pdv_id) -> RouteId de la primera ruta foco que lo contiene (drill
+    # KPI → Ruta → PDVs de "Mi gestión" mobile).
+    route_id_of_pdv: dict = field(default_factory=dict)
     pdv_by_id: dict = field(default_factory=dict)
     channel_names: dict = field(default_factory=dict)
     planned_by_route: dict = field(default_factory=dict)
@@ -261,6 +264,7 @@ def load_context(
     ctx.pdvs_by_route = defaultdict(list)
     ctx.universe_by_user = defaultdict(set)
     ctx.route_of_pdv = {}
+    ctx.route_id_of_pdv = {}
     rows = (
         db.query(RoutePdv.RouteId, RoutePdv.PdvId)
         .join(PDV, PDV.PdvId == RoutePdv.PdvId)
@@ -274,6 +278,7 @@ def load_context(
         ctx.pdvs_by_route[route_id].append(pdv_id)
         ctx.universe_by_user[r.AssignedUserId].add(pdv_id)
         ctx.route_of_pdv.setdefault((r.AssignedUserId, pdv_id), r.Name)
+        ctx.route_id_of_pdv.setdefault((r.AssignedUserId, pdv_id), route_id)
 
     # La ficha completa de cada PDV (~5k filas) solo la necesitan `routes` y
     # `pdvs`; `team` trabaja con los conteos del universo, así que se saltea.
@@ -799,6 +804,7 @@ def build_routes(
         ]
         comps = [ctx.completitud(uid, p) for p in pdv_list]
         row = {
+            "route_id": r.RouteId,
             "nombre": r.Name,
             "trade": ctx.name_of.get(uid, ""),
             "user_id": uid,
@@ -888,6 +894,7 @@ def build_pdvs(
             nvis = ctx.visits_count_by_pdv.get((uid, pdv_id), 0)
             acts = sorted(ctx.actions_by_pdv.get((uid, pdv_id), ()))
             ruta = ctx.route_of_pdv.get((uid, pdv_id), "Sin ruta asignada")
+            route_id = ctx.route_id_of_pdv.get((uid, pdv_id))
             comp, comp_esp = ctx.completitud(uid, pdv_id)
             rows.append({
                 # `id`: para el drill al PDV desde Inteligencia (la página
@@ -914,6 +921,16 @@ def build_pdvs(
                 "comp_esp": round(comp_esp),
                 "sin_dato": len(ctx.catalog_own - seen),
                 "ruta": ruta,
+                # Banderas por PDV para el drill KPI → Ruta → PDVs ("Mi gestión"
+                # mobile). Mismas fuentes que los agregados por ruta de
+                # `build_routes` (planned_by_route / actions_by_pdv /
+                # pdvs_with_material / SellsLooseCigarettes): cero queries extra.
+                "route_id": route_id,
+                "planned": bool(route_id is not None and pdv_id in ctx.planned_by_route.get(route_id, ())),
+                "canje": "canje_sueltos" in acts,
+                "promo": "promo" in acts,
+                "material": (uid, pdv_id) in ctx.pdvs_with_material,
+                "sells_loose": bool(p.SellsLooseCigarettes),
             })
 
             if score is not None and score not in GOOD_LABELS:

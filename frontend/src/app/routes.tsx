@@ -33,6 +33,9 @@ const MyRoutesPage = lazy(() => import("./pages/MyRoutesPage").then(m => ({ defa
 const MyRouteEditorPage = lazy(() => import("./pages/MyRouteEditorPage").then(m => ({ default: m.MyRouteEditorPage })));
 const RouteGeneratorPage = lazy(() => import("./pages/RouteGeneratorPage").then(m => ({ default: m.RouteGeneratorPage })));
 const MisObjetivos = lazy(() => import("./pages/MisObjetivos").then(m => ({ default: m.MisObjetivos })));
+const MiGestionPage = lazy(() => import("./pages/mi-gestion/MiGestionPage").then(m => ({ default: m.MiGestionPage })));
+const MiGestionRutasPage = lazy(() => import("./pages/mi-gestion/MiGestionRutasPage").then(m => ({ default: m.MiGestionRutasPage })));
+const MiGestionPdvsPage = lazy(() => import("./pages/mi-gestion/MiGestionPdvsPage").then(m => ({ default: m.MiGestionPdvsPage })));
 
 // Admin pages — lazy loaded (only admins need these)
 const AdminLayout = lazy(() => import("./components/AdminLayout").then(m => ({ default: m.AdminLayout })));
@@ -190,6 +193,10 @@ export const router = createBrowserRouter([
       { path: "alerts", element: <SuspenseWrap><Alerts /></SuspenseWrap> },
       { path: "sync", element: <Sync /> },
       { path: "objectives", element: <SuspenseWrap><MisObjetivos /></SuspenseWrap> },
+      // Mi gestión TMR (mobile): drill KPI → rutas foco → PDVs
+      { path: "mi-gestion", element: <SuspenseWrap><MiGestionPage /></SuspenseWrap> },
+      { path: "mi-gestion/:kpi", element: <SuspenseWrap><MiGestionRutasPage /></SuspenseWrap> },
+      { path: "mi-gestion/:kpi/ruta/:routeId", element: <SuspenseWrap><MiGestionPdvsPage /></SuspenseWrap> },
       { path: "profile", element: <SuspenseWrap><Profile /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],

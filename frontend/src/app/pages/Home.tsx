@@ -646,7 +646,7 @@ export function Home() {
 
         {!isAdmin && (
           <button
-            onClick={() => navigate("/tablero-tmr")}
+            onClick={() => navigate("/mi-gestion")}
             className="w-full flex items-center gap-3 p-3 rounded-xl bg-[#A48242]/5 border border-[#A48242]/20"
           >
             <TrendingUp size={18} className="text-[#A48242]" />
