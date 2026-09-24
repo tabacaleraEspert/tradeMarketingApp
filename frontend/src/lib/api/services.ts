@@ -1562,6 +1562,136 @@ export interface IntelSupplierRow {
   pdvNombres: string[];
 }
 
+// --- Inteligencia › Comportamiento (auditoría GPS/plan de un trade por rango) ---
+export type IntelBehaviorAlertTipo =
+  | "sin_gps"
+  | "fuera_perimetro"
+  | "visita_corta"
+  | "visita_abierta"
+  | "plan_sin_visitas"
+  | "plan_no_visitado"
+  | "orden_distinto"
+  | "on_tarde"
+  | "off_temprano"
+  | "bateria_baja";
+
+export type IntelBehaviorSeveridad = "alta" | "media" | "baja";
+
+export interface IntelBehaviorAlerta {
+  tipo: IntelBehaviorAlertTipo;
+  severidad: IntelBehaviorSeveridad;
+  fecha: string;
+  visitId: number | null;
+  pdvId: number | null;
+  pdvName: string | null;
+  detalle: string;
+}
+
+export interface IntelBehaviorPunto {
+  seq: number;
+  ts: string;
+  tipo: "in" | "out" | "foto";
+  lat: number;
+  lon: number;
+  acc: number | null;
+  distPdv: number | null;
+  bateria: number | null;
+  visitId: number | null;
+  pdvId: number | null;
+  pdvName: string | null;
+}
+
+export interface IntelBehaviorSecuencia {
+  seq: number;
+  visitId: number;
+  pdvId: number;
+  pdvName: string;
+  lat: number | null;
+  lon: number | null;
+  openedAt: string;
+  closedAt: string | null;
+  durMin: number | null;
+  plannedOrder: number | null;
+  hasGps: boolean;
+  distPdv: number | null;
+  kmDesdeAnterior: number | null;
+  alertas: string[];
+}
+
+export interface IntelBehaviorPlanNoVisitado {
+  pdvId: number;
+  pdvName: string;
+  lat: number | null;
+  lon: number | null;
+  plannedOrder: number | null;
+}
+
+export interface IntelBehaviorDia {
+  fecha: string;
+  diaLabel: string;
+  on: string | null;
+  onSource: "gps" | "visit" | null;
+  off: string | null;
+  offSource: "gps" | "visit" | null;
+  activoMin: number | null;
+  visitas: number;
+  pdvs: number;
+  planificados: number;
+  planVisitados: number;
+  ordenRespetado: boolean | null;
+  kmLinea: number;
+  gpsPct: number;
+  sinGps: number;
+  fueraPerimetro: number;
+  cortas: number;
+  abiertas: number;
+  bateriaInicio: number | null;
+  bateriaFin: number | null;
+  alertas: IntelBehaviorAlerta[];
+  puntos: IntelBehaviorPunto[];
+  secuencia: IntelBehaviorSecuencia[];
+  planNoVisitados: IntelBehaviorPlanNoVisitado[];
+}
+
+export interface IntelBehaviorResumen {
+  dias: number;
+  diasConPlan: number;
+  diasConPlanSinVisitas: number;
+  visitas: number;
+  pdvs: number;
+  pdvsPorDia: number;
+  visitasPorDia: number;
+  visitasSinGps: number;
+  fueraPerimetro: number;
+  visitasCortas: number;
+  visitasAbiertas: number;
+  kmLinea: number;
+  kmLineaPorDia: number;
+  onProm: string | null;
+  offProm: string | null;
+  activoPromMin: number | null;
+  durPromMin: number | null;
+  planificados: number;
+  planVisitados: number;
+  planPct: number;
+  ordenRespetadoPct: number | null;
+  onTarde: number;
+  offTemprano: number;
+  bateriaBaja: number;
+}
+
+export interface IntelBehaviorResponse {
+  userId: number;
+  userName: string;
+  from: string;
+  to: string;
+  perimeterM: number;
+  resumen: IntelBehaviorResumen;
+  alertas: IntelBehaviorAlerta[];
+  /** Ordenados por fecha descendente. */
+  dias: IntelBehaviorDia[];
+}
+
 export const intelligenceApi = {
   pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
   suppliers: (params: { user_id?: number; ruta?: string; zone_id?: number }) =>
@@ -1591,6 +1721,8 @@ export const intelligenceApi = {
       params as Record<string, string | number | undefined>
     ),
   map: () => api.get<IntelMapResponse>("/intelligence/map"),
+  behavior: (params: { user_id: number; date_from: string; date_to: string }) =>
+    api.get<IntelBehaviorResponse>("/intelligence/behavior", { ...params }),
 };
 
 // --- Supplier Types (admin lookup) ---

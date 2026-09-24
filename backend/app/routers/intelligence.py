@@ -5,6 +5,7 @@ Tres recursos de solo lectura sobre `services/intelligence.py`:
     GET /intelligence/overview       resumen, zonas, competencia, portfolio, trades, alertas
     GET /intelligence/opportunities  motor de 5 reglas, con filtros y paginado
     GET /intelligence/map            puntos para el mapa canvas
+    GET /intelligence/behavior       comportamiento de un vendedor por rango (auditoría)
 
 Solo admin (decisión 2026-08-27: Inteligencia y Tablero TMR son de dirección).
 El recorte jerárquico por `visible_pdv_ids`/`visible_user_ids` se mantiene por
@@ -16,15 +17,17 @@ campo, no de clicks. El censo se cachea aparte de los responses para que los
 tres endpoints del primer render paguen UNA sola vez el escaneo. La key incluye
 al solicitante (o "all" para admins, que comparten scope completo).
 """
+from datetime import date
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_role
 from ..database import get_db
 from ..hierarchy import visible_pdv_ids, visible_user_ids
 from ..models import User as UserModel
+from ..services import behavior as B
 from ..services import intelligence as I
 from ..utils.ttl_cache import TTLCache
 
@@ -35,6 +38,9 @@ router = APIRouter(
 )
 
 _INTEL_CACHE = TTLCache(ttl_seconds=1800.0, max_entries=500)
+# Comportamiento: TTL más corto (10 min) porque se mira "hoy" mientras el
+# vendedor sigue en la calle.
+_BEHAVIOR_CACHE = TTLCache(ttl_seconds=600.0, max_entries=500)
 
 
 def _scope_key(scope: Optional[set[int]], current_user: UserModel):
@@ -145,3 +151,27 @@ def get_map(
     census, pdv_scope = _census_cached(db, current_user)
     key = ("map", _scope_key(pdv_scope, current_user))
     return _INTEL_CACHE.get_or_build(key, lambda: I.build_map(db, census))
+
+
+@router.get("/behavior")
+def get_behavior(
+    user_id: int = Query(..., description="Vendedor a auditar"),
+    date_from: date = Query(..., description="Desde (fecha AR, inclusive)"),
+    date_to: date = Query(..., description="Hasta (fecha AR, inclusive)"),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Comportamiento en campo de UN vendedor por día (ON/OFF, GPS, plan,
+    alertas) — ver `services/behavior.py`. Rango inclusivo, tope
+    `MAX_RANGE_DAYS`. Cache 10 min por (user_id, from, to)."""
+    if date_to < date_from:
+        raise HTTPException(status_code=400, detail="date_to debe ser mayor o igual a date_from")
+    if (date_to - date_from).days + 1 > B.MAX_RANGE_DAYS:
+        raise HTTPException(status_code=400, detail=f"El rango no puede superar {B.MAX_RANGE_DAYS} días")
+    user_scope = visible_user_ids(db, current_user)
+    if user_scope is not None and user_id not in user_scope:
+        raise HTTPException(status_code=403, detail="No tenés acceso a los datos de este usuario")
+    if db.query(UserModel.UserId).filter(UserModel.UserId == user_id).first() is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    key = ("behavior", user_id, date_from, date_to)
+    return _BEHAVIOR_CACHE.get_or_build(key, lambda: B.build_behavior(db, user_id, date_from, date_to))

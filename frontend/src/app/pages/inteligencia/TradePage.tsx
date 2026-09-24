@@ -12,6 +12,10 @@ import { TradePdvMatrix } from "./TradePdvMatrix";
 import { ProveedoresCard } from "./ProveedoresCard";
 import { OportunidadesSection } from "./OportunidadesSection";
 import { DEFAULT_PERIOD, PeriodFilter, periodParams, periodSuffix, type TmrPeriod } from "./PeriodFilter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
+import { ComportamientoTab } from "./comportamiento/ComportamientoTab";
+
+type TradeTab = "gestion" | "comportamiento";
 
 const nf = (n: number) => n.toLocaleString("es-AR");
 
@@ -38,6 +42,7 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
   const [m, setM] = useState<TmrTeamRow | null>(null);
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState<TmrPeriod>(DEFAULT_PERIOD);
+  const [tab, setTab] = useState<TradeTab>("gestion");
 
   useLayoutEffect(() => {
     document.documentElement.scrollTop = 0;
@@ -114,42 +119,55 @@ export function TradePage({ trade: t, overview, onBack, onRutaClick }: Props) {
           {t.reportaA && <> · reporta a {t.reportaA}</>}
           {t.ultimaVisita && <> · última visita: {t.ultimaVisita}</>}
         </p>
-        <div className="mt-3">
-          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
-        </div>
       </div>
 
-      <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 transition-opacity ${tiles.length > 7 ? "lg:grid-cols-8" : "lg:grid-cols-7"} ${loading ? "opacity-50" : ""}`}>
-        {tiles.map((tile) => (
-          <Card key={tile.l}>
+      <Tabs value={tab} onValueChange={(v) => setTab(v as TradeTab)}>
+        <TabsList>
+          <TabsTrigger value="gestion">Gestión</TabsTrigger>
+          <TabsTrigger value="comportamiento">Comportamiento</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="gestion" className="space-y-5">
+          <PeriodFilter value={period} onChange={setPeriod} loading={loading} />
+
+          <div className={`grid grid-cols-2 sm:grid-cols-4 gap-3 transition-opacity ${tiles.length > 7 ? "lg:grid-cols-8" : "lg:grid-cols-7"} ${loading ? "opacity-50" : ""}`}>
+            {tiles.map((tile) => (
+              <Card key={tile.l}>
+                <CardContent className="p-4">
+                  <p className={`text-xl font-bold tabular-nums ${tile.cls ?? "text-foreground"}`}>{tile.v}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
+                    {tile.l}
+                  </p>
+                  {tile.d && <p className="text-xs text-muted-foreground">{tile.d}</p>}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+
+          <Card>
             <CardContent className="p-4">
-              <p className={`text-xl font-bold tabular-nums ${tile.cls ?? "text-foreground"}`}>{tile.v}</p>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">
-                {tile.l}
-              </p>
-              {tile.d && <p className="text-xs text-muted-foreground">{tile.d}</p>}
+              <h3 className="font-bold text-foreground text-sm mb-3">Cobertura por marca y ruta</h3>
+              <TradeRutaMatrix userId={t.userId} title={t.nombre} period={period} />
             </CardContent>
           </Card>
-        ))}
-      </div>
 
-      <Card>
-        <CardContent className="p-4">
-          <h3 className="font-bold text-foreground text-sm mb-3">Cobertura por marca y ruta</h3>
-          <TradeRutaMatrix userId={t.userId} title={t.nombre} period={period} />
-        </CardContent>
-      </Card>
+          <Card>
+            <CardContent className="p-4">
+              <h3 className="font-bold text-foreground text-sm mb-3">Matriz producto × PDV</h3>
+              <TradePdvMatrix userId={t.userId} title={t.nombre} period={period} onRutaClick={onRutaClick} />
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardContent className="p-4">
-          <h3 className="font-bold text-foreground text-sm mb-3">Matriz producto × PDV</h3>
-          <TradePdvMatrix userId={t.userId} title={t.nombre} period={period} onRutaClick={onRutaClick} />
-        </CardContent>
-      </Card>
+          <ProveedoresCard userId={t.userId} />
 
-      <ProveedoresCard userId={t.userId} />
+          <OportunidadesSection zonas={overview.zonas} fixedTradeId={t.userId} />
+        </TabsContent>
 
-      <OportunidadesSection zonas={overview.zonas} fixedTradeId={t.userId} />
+        <TabsContent value="comportamiento">
+          {/* Montaje perezoso: solo fetchea cuando se elige la pestaña. */}
+          {tab === "comportamiento" && <ComportamientoTab userId={t.userId} userName={t.nombre} />}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

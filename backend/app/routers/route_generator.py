@@ -9,7 +9,6 @@ Algoritmo:
 Endpoint:
     POST /routes/generate-proposal
 """
-import math
 import random
 import logging
 import time
@@ -22,6 +21,7 @@ from ..database import get_db
 from ..models.pdv import PDV as PDVModel
 from ..models import User as UserModel
 from ..hierarchy import get_all_subordinate_ids
+from ..utils.geo import haversine_km as _haversine_km
 
 logger = logging.getLogger("app.route_generator")
 
@@ -77,18 +77,6 @@ class RouteProposal(BaseModel):
 class GenerateResponse(BaseModel):
     routes: list[RouteProposal]
     unassigned_pdv_ids: list[int]  # PDVs sin coordenadas que no se pudieron agrupar
-
-
-# ---------------------------------------------------------------------------
-# Haversine
-# ---------------------------------------------------------------------------
-def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    R = 6371.0
-    to_rad = math.radians
-    dlat = to_rad(lat2 - lat1)
-    dlon = to_rad(lon2 - lon1)
-    a = math.sin(dlat / 2) ** 2 + math.cos(to_rad(lat1)) * math.cos(to_rad(lat2)) * math.sin(dlon / 2) ** 2
-    return 2 * R * math.asin(math.sqrt(a))
 
 
 # ---------------------------------------------------------------------------
