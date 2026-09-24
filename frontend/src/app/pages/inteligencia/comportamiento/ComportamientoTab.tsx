@@ -4,18 +4,19 @@
  * Directions), GPS, cumplimiento del plan y alertas; lista de días expandible
  * con timeline + mapa, mapa del período completo y export CSV.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Loader2, Map as MapIcon, RefreshCw, Route } from "lucide-react";
 import { Card, CardContent } from "../../../components/ui/card";
 import { RoutePathMap, colorForIndex, type RoutePath, type RoutePoint } from "../../../components/RoutePathMap";
 import { semaforo } from "./alert-meta";
 import { AlertasCard } from "./AlertasCard";
-import { DiaRow, dayPoints } from "./DiaRow";
+import { DiaRow, dayPoints, visitHref } from "./DiaRow";
+import { useIntelNav } from "../nav-context";
 import { DEFAULT_RANGE, RangeFilter } from "./RangeFilter";
 import { behaviorCsvRows, csvFilename, downloadCsv, toCsv } from "./csv";
 import { kmFmt, minFmt, rangeError, resolveRange, shortDate, type RangeValue } from "./range-utils";
 import { useRoadKm } from "./road-km";
-import { useBehavior } from "./useBehavior";
+import { prefetchBehavior, useBehavior } from "./useBehavior";
 
 interface Props {
   userId: number;
@@ -33,8 +34,28 @@ export function ComportamientoTab({ userId, userName }: Props) {
   );
   const { data, loading, error, retry } = useBehavior(userId, range);
   const dias = useMemo(() => data?.dias ?? [], [data]);
+
+  // Al entrar se muestra "esta semana" (rango chico, responde rápido) y,
+  // apenas llega, se precargan en segundo plano "semana pasada" y "este mes"
+  // de a uno: cambiar de chip queda instantáneo sin apilar consultas en S0.
+  useEffect(() => {
+    if (!data || rangeValue.preset !== "esta_semana") return;
+    const others = [resolveRange({ preset: "semana_pasada" }), resolveRange({ preset: "este_mes" })]
+      .filter((r): r is NonNullable<typeof r> => r !== null);
+    void prefetchBehavior(userId, others);
+  }, [userId, data, rangeValue.preset]);
   const road = useRoadKm(userId, dias, true);
   const [showPeriodMap, setShowPeriodMap] = useState(false);
+  // Leyenda del mapa del período como filtro: días ocultos + "plan" (planificados no visitados).
+  const [hiddenGroups, setHiddenGroups] = useState<Set<string>>(new Set());
+  const toggleGroup = useCallback((g: string) => {
+    setHiddenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(g)) next.delete(g); else next.add(g);
+      return next;
+    });
+  }, []);
+  const { openPdv } = useIntelNav();
 
   // Km del período: por calle si TODOS los días con puntos ya se calcularon;
   // si no, línea recta (mezclar sería engañoso).
@@ -116,8 +137,11 @@ export function ComportamientoTab({ userId, userName }: Props) {
     const ordered = [...dias].reverse(); // asc para que la leyenda lea natural
     const colors: Record<string, string> = {};
     ordered.forEach((d, i) => (colors[d.fecha] = colorForIndex(i)));
-    const points = ordered.flatMap((d) => dayPoints(d, d.fecha));
-    const paths: RoutePath[] = ordered.map((d) => {
+    const visible = ordered.filter((d) => !hiddenGroups.has(d.fecha));
+    const points = visible
+      .flatMap((d) => dayPoints(d, d.fecha))
+      .filter((p) => !(p.kind === "plan" && hiddenGroups.has("__plan")));
+    const paths: RoutePath[] = visible.map((d) => {
       const e = road.byDay[d.fecha];
       const path =
         e?.status === "done" && e.result && e.result.path.length >= 2
@@ -126,7 +150,7 @@ export function ComportamientoTab({ userId, userName }: Props) {
       return { group: d.fecha, path, color: colors[d.fecha] };
     });
     return { points, paths, colors };
-  }, [showPeriodMap, dias, road.byDay]);
+  }, [showPeriodMap, dias, road.byDay, hiddenGroups]);
 
   return (
     <div className="space-y-4">
@@ -204,18 +228,50 @@ export function ComportamientoTab({ userId, userName }: Props) {
           {showPeriodMap && (
             <Card>
               <CardContent className="p-3 space-y-2">
-                <RoutePathMap points={periodMap.points} paths={periodMap.paths} height={420} colorByDay groupColors={periodMap.colors} />
-                <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                  {Object.entries(periodMap.colors).map(([f, c]) => (
-                    <span key={f} className="inline-flex items-center gap-1">
-                      <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: c }} />
-                      {shortDate(f)}
-                    </span>
-                  ))}
-                  <span className="inline-flex items-center gap-1">
+                <RoutePathMap
+                  points={periodMap.points}
+                  paths={periodMap.paths}
+                  height={420}
+                  colorByDay
+                  groupColors={periodMap.colors}
+                  onPdvClick={openPdv}
+                  visitHref={visitHref}
+                />
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                  <span className="uppercase tracking-wide text-[10px] mr-1">Filtrar:</span>
+                  {Object.entries(periodMap.colors).map(([f, c]) => {
+                    const off = hiddenGroups.has(f);
+                    return (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => toggleGroup(f)}
+                        aria-pressed={!off}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border transition-colors ${
+                          off ? "opacity-40 line-through border-border" : "border-transparent bg-muted"
+                        }`}
+                      >
+                        <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: c }} />
+                        {shortDate(f)}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup("__plan")}
+                    aria-pressed={!hiddenGroups.has("__plan")}
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border transition-colors ${
+                      hiddenGroups.has("__plan") ? "opacity-40 line-through border-border" : "border-transparent bg-muted"
+                    }`}
+                  >
                     <span className="w-2.5 h-2.5 rounded-full inline-block border border-gray-400 bg-white" />
                     planificado no visitado
-                  </span>
+                  </button>
+                  {hiddenGroups.size > 0 && (
+                    <button type="button" onClick={() => setHiddenGroups(new Set())} className="underline ml-1">
+                      mostrar todo
+                    </button>
+                  )}
                 </div>
               </CardContent>
             </Card>

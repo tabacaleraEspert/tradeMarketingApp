@@ -9,6 +9,7 @@ import { RoutePathMap, type RoutePoint } from "../../../components/RoutePathMap"
 import { SEVERITY_CLASS, alertLabel, severityFor } from "./alert-meta";
 import { countAlerts } from "./csv";
 import { hhmm, kmFmt, minFmt } from "./range-utils";
+import { useIntelNav } from "../nav-context";
 import type { RoadKmEntry } from "./road-km";
 
 interface Props {
@@ -20,16 +21,30 @@ interface Props {
 }
 
 export function dayPoints(day: IntelBehaviorDia, group?: string): RoutePoint[] {
-  const pts: RoutePoint[] = day.puntos.map((p) => ({
-    lat: p.lat,
-    lon: p.lon,
-    label: String(p.seq),
-    kind: p.tipo,
-    group,
-    title: `#${p.seq} ${p.tipo.toUpperCase()} ${hhmm(p.ts)}${p.pdvName ? ` · ${p.pdvName}` : ""}${
-      p.distPdv != null ? ` · ${Math.round(p.distPdv)} m del PDV` : ""
-    }`,
-  }));
+  const visitById = new Map(day.secuencia.map((s) => [s.visitId, s]));
+  const pts: RoutePoint[] = day.puntos.map((p) => {
+    const v = visitById.get(p.visitId);
+    return {
+      lat: p.lat,
+      lon: p.lon,
+      label: String(p.seq),
+      kind: p.tipo,
+      group,
+      title: `#${p.seq} ${p.tipo.toUpperCase()} ${hhmm(p.ts)}${p.pdvName ? ` · ${p.pdvName}` : ""}${
+        p.distPdv != null ? ` · ${Math.round(p.distPdv)} m del PDV` : ""
+      }`,
+      info: {
+        pdvId: p.pdvId,
+        pdvName: p.pdvName,
+        visitId: p.visitId,
+        time: hhmm(p.ts),
+        visitStart: v ? hhmm(v.openedAt) : null,
+        visitEnd: v?.closedAt ? hhmm(v.closedAt) : null,
+        durMin: v?.durMin ?? null,
+        note: p.distPdv != null ? `${Math.round(p.distPdv)} m del PDV${p.bateria != null ? ` · 🔋 ${p.bateria}%` : ""}` : undefined,
+      },
+    };
+  });
   for (const pnv of day.planNoVisitados) {
     if (pnv.lat == null || pnv.lon == null) continue;
     pts.push({
@@ -39,13 +54,18 @@ export function dayPoints(day: IntelBehaviorDia, group?: string): RoutePoint[] {
       kind: "plan",
       group,
       title: `Planificado no visitado · ${pnv.pdvName}`,
+      info: { pdvId: pnv.pdvId, pdvName: pnv.pdvName, note: pnv.plannedOrder != null ? `Orden planificado ${pnv.plannedOrder}` : undefined },
     });
   }
   return pts;
 }
 
+/** Detalle de la visita (formulario, cobertura, fotos) en el explorador admin. */
+export const visitHref = (visitId: number) => `/admin/visit-data?visit=${visitId}`;
+
 export function DiaRow({ day, perimeterM, road, onComputeRoad, roadAvailable }: Props) {
   const [expanded, setExpanded] = useState(false);
+  const { openPdv } = useIntelNav();
   const counts = useMemo(() => countAlerts(day.alertas), [day.alertas]);
   const tipos = Object.keys(counts);
   const kmRoad = road?.status === "done" ? road.result?.kmRuta : undefined;
@@ -195,7 +215,7 @@ export function DiaRow({ day, perimeterM, road, onComputeRoad, roadAvailable }: 
             </div>
           )}
 
-          <RoutePathMap points={points} paths={roadPath} height={300} />
+          <RoutePathMap points={points} paths={roadPath} height={300} onPdvClick={openPdv} visitHref={visitHref} />
         </div>
       )}
     </div>

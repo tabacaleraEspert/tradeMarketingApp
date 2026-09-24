@@ -6,8 +6,8 @@
  * Mismo loader que MapaSection/RouteFocoPage (id + libraries idénticos: si
  * difieren, @react-google-maps tira "Loader must not be called again").
  */
-import { useCallback, useEffect, useMemo, useRef } from "react";
-import { GoogleMap, MarkerF, PolylineF, useJsApiLoader } from "@react-google-maps/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GoogleMap, InfoWindowF, MarkerF, PolylineF, useJsApiLoader } from "@react-google-maps/api";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -24,6 +24,22 @@ export interface RoutePoint {
   kind?: RoutePointKind;
   /** Agrupa puntos por día (para `colorByDay`). */
   group?: string;
+  /** Datos para el hover (PDV, horario, visita). */
+  info?: RoutePointInfo;
+}
+
+export interface RoutePointInfo {
+  pdvId?: number | null;
+  pdvName?: string | null;
+  visitId?: number | null;
+  /** Hora del punto (HH:MM). */
+  time?: string;
+  /** Visita: inicio → fin y duración. */
+  visitStart?: string | null;
+  visitEnd?: string | null;
+  durMin?: number | null;
+  /** Línea extra (ej: "350 m del PDV", "Planificado no visitado"). */
+  note?: string;
 }
 
 export interface RoutePath {
@@ -44,6 +60,10 @@ interface Props {
   colorByDay?: boolean;
   /** Mapa de grupo → color (para mantener consistencia con la leyenda). */
   groupColors?: Record<string, string>;
+  /** Link "Ver PDV" del hover (ej: abrir el drill de Inteligencia). */
+  onPdvClick?: (pdvId: number) => void;
+  /** URL del detalle de la visita/formulario para el hover (se abre en pestaña nueva). */
+  visitHref?: (visitId: number) => string;
 }
 
 export const GOLD = "#A48242";
@@ -69,7 +89,19 @@ const MAP_STYLE = [
   { featureType: "transit", stylers: [{ visibility: "off" }] },
 ];
 
-export function RoutePathMap({ points, paths, height = 320, colorByDay = false, groupColors }: Props) {
+export function RoutePathMap({ points, paths, height = 320, colorByDay = false, groupColors, onPdvClick, visitHref }: Props) {
+  // Hover abre el InfoWindow; click lo deja fijo (para poder tocar los links).
+  const [active, setActive] = useState<number | null>(null);
+  const [pinned, setPinned] = useState(false);
+  const hoverTimer = useRef<number | null>(null);
+  const showInfo = (i: number) => {
+    if (hoverTimer.current) window.clearTimeout(hoverTimer.current);
+    setActive(i);
+  };
+  const hideInfo = () => {
+    if (pinned) return;
+    hoverTimer.current = window.setTimeout(() => setActive(null), 250);
+  };
   const { isLoaded, loadError } = useJsApiLoader({
     id: "google-map-script-places",
     googleMapsApiKey: GOOGLE_MAPS_KEY || " ",
@@ -202,10 +234,85 @@ export function RoutePathMap({ points, paths, height = 320, colorByDay = false, 
               strokeWeight: 2,
               scale: kind === "foto" ? 9 : 13,
             }}
-            title={p.title}
+            title={p.info ? undefined : p.title}
+            onMouseOver={() => showInfo(i)}
+            onMouseOut={hideInfo}
+            onClick={() => {
+              setPinned((was) => !(was && active === i));
+              setActive(i);
+            }}
           />
         );
       })}
+      {active !== null && valid[active] && (
+        <InfoWindowF
+          position={{ lat: valid[active].lat, lng: valid[active].lon }}
+          options={{ pixelOffset: new google.maps.Size(0, -14), disableAutoPan: !pinned }}
+          onCloseClick={() => {
+            setPinned(false);
+            setActive(null);
+          }}
+        >
+          <div
+            className="text-[12px] leading-snug text-gray-800 min-w-[180px] max-w-[240px]"
+            onMouseEnter={() => hoverTimer.current && window.clearTimeout(hoverTimer.current)}
+            onMouseLeave={hideInfo}
+          >
+            <PointInfo p={valid[active]} onPdvClick={onPdvClick} visitHref={visitHref} />
+          </div>
+        </InfoWindowF>
+      )}
     </GoogleMap>
+  );
+}
+
+
+function PointInfo({
+  p,
+  onPdvClick,
+  visitHref,
+}: {
+  p: RoutePoint;
+  onPdvClick?: (pdvId: number) => void;
+  visitHref?: (visitId: number) => string;
+}) {
+  const info = p.info;
+  if (!info) return <div className="font-semibold">{p.title ?? p.label}</div>;
+  const kind = (p.kind ?? "in").toUpperCase();
+  const dur = info.durMin != null ? `${info.durMin} min` : info.visitEnd ? "" : "abierta";
+  return (
+    <div className="space-y-1">
+      <div className="font-semibold">
+        {p.label ? `#${p.label} · ` : ""}
+        {p.kind === "plan" ? "Planificado no visitado" : `${kind} ${info.time ?? ""}`}
+      </div>
+      {info.pdvName && (
+        <div>
+          {info.pdvId != null && onPdvClick ? (
+            <button type="button" onClick={() => onPdvClick(info.pdvId!)} className="font-medium underline text-[#A48242]">
+              {info.pdvName}
+            </button>
+          ) : info.pdvId != null ? (
+            <a href={`/pos/${info.pdvId}`} target="_blank" rel="noreferrer" className="font-medium underline text-[#A48242]">
+              {info.pdvName}
+            </a>
+          ) : (
+            <span className="font-medium">{info.pdvName}</span>
+          )}
+        </div>
+      )}
+      {(info.visitStart || info.visitEnd) && (
+        <div className="text-gray-600">
+          Visita {info.visitStart ?? "?"} → {info.visitEnd ?? "abierta"}
+          {dur ? ` · ${dur}` : ""}
+        </div>
+      )}
+      {info.note && <div className="text-gray-500">{info.note}</div>}
+      {info.visitId != null && visitHref && (
+        <a href={visitHref(info.visitId)} target="_blank" rel="noreferrer" className="inline-block mt-0.5 underline text-[#A48242]">
+          Ver formulario de la visita ↗
+        </a>
+      )}
+    </div>
   );
 }

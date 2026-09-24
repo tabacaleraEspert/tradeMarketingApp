@@ -12,7 +12,7 @@ import {
   type RangeValue,
 } from "./range-utils";
 
-export const DEFAULT_RANGE: RangeValue = { preset: "este_mes" };
+export const DEFAULT_RANGE: RangeValue = { preset: "esta_semana" };
 
 interface Props {
   value: RangeValue;

@@ -153,6 +153,14 @@ export function VisitDataExplorer() {
 
   useEffect(() => { loadVisits(); }, [loadVisits]);
 
+  // Deep link desde el mapa de Comportamiento (Inteligencia): ?visit=<id>
+  // abre directo el detalle de esa visita.
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("visit"));
+    if (id > 0) void openDetail(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const openDetail = async (visitId: number) => {
     setDetailLoading(true);
     setDetailTab("forms");
