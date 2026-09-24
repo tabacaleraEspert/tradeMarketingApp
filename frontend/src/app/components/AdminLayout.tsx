@@ -191,9 +191,11 @@ export function AdminLayout() {
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
           } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 ${
             isHovered ? "lg:w-64" : "lg:w-[72px]"
-          } bg-card border-r border-border transition-all duration-300 ease-in-out z-20 overflow-x-hidden`}
+          } bg-card border-r border-border transition-all duration-300 ease-in-out z-20 overflow-x-hidden flex flex-col`}
         >
-          <nav className="p-3 space-y-1">
+          {/* El menú scrollea y el botón de abajo queda en flujo: si el menú no
+              entra en la pantalla (laptops chicas), el botón no lo tapa. */}
+          <nav className="p-3 space-y-1 flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
             {menuItems.map((item) => {
               const Icon = item.icon;
               const isActive = isActivePath(item.path);
@@ -230,7 +232,7 @@ export function AdminLayout() {
           </nav>
 
           {/* Back to Mobile */}
-          <div className="absolute bottom-4 left-3 right-3">
+          <div className="shrink-0 p-3 pt-2 border-t border-border">
             <Button
               variant="outline"
               title="Volver a Modo Campo"
