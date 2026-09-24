@@ -14,7 +14,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 /* TOP BAR */
 .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 20px;background:var(--bg2);border-bottom:1px solid var(--brd);flex-shrink:0;gap:12px}
 .brand{display:flex;align-items:center;gap:10px}
-.logo{width:30px;height:30px;background:var(--acc);border-radius:7px;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:15px;flex-shrink:0}
+.logo{width:30px;height:30px;border-radius:7px;flex-shrink:0;object-fit:contain}
 .brand h1{font-size:15px;font-weight:700}
 .brand span{font-size:11px;color:var(--tx2)}
 /* TABS */
@@ -162,7 +162,7 @@ body{background:var(--bg);color:var(--tx);font-family:'Segoe UI',system-ui,sans-
 <!-- TOP BAR — simplified (no tab switcher) -->
 <div class="topbar">
   <div class="brand">
-    <div class="logo">E</div>
+    <img class="logo" src="/tm-logo.png" alt="TM Espert">
     <div>
       <h1>Trade Marketing — Espert</h1>
       <span id="export-date">Seguimiento TMR · Datos al {}</span>

@@ -130,7 +130,7 @@ export function AdminLayout() {
             </button>
             <div className="flex items-center gap-3">
               <div className="bg-black rounded-lg p-2 flex items-center justify-center">
-                <img src="/espert-logo-white.png" alt="Espert" className="w-7 h-7 object-contain" />
+                <img src="/tm-logo.png" alt="TM Espert" className="w-8 h-8 rounded-lg object-contain" />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-foreground tracking-tight">ESPERT</h1>

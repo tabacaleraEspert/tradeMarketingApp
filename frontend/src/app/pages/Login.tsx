@@ -73,7 +73,7 @@ export function Login() {
         <div className="mb-6">
           {/* Espert isotipo */}
           <div className="w-24 h-24 mx-auto flex items-center justify-center mb-5">
-            <img src="/espert-logo-white.png" alt="Espert" className="w-24 h-24 object-contain" />
+            <img src="/tm-logo.png" alt="TM Espert" className="w-24 h-24 rounded-2xl object-contain" />
           </div>
           <h1 className="text-3xl font-bold text-white tracking-tight">ESPERT</h1>
           <p className="text-sm text-[#979B9B] mt-2 tracking-widest uppercase">Trade Marketing</p>
