@@ -278,13 +278,18 @@ function PointInfo({
 }) {
   const info = p.info;
   if (!info) return <div className="font-semibold">{p.title ?? p.label}</div>;
-  const kind = (p.kind ?? "in").toUpperCase();
   const dur = info.durMin != null ? `${info.durMin} min` : info.visitEnd ? "" : "abierta";
+  const header =
+    p.kind === "plan"
+      ? "Planificado no visitado"
+      : info.visitStart
+        ? `${info.visitStart} → ${info.visitEnd ?? "abierta"}${dur ? ` · ${dur}` : ""}`
+        : `${(p.kind ?? "in").toUpperCase()} ${info.time ?? ""}`;
   return (
     <div className="space-y-1">
       <div className="font-semibold">
         {p.label ? `#${p.label} · ` : ""}
-        {p.kind === "plan" ? "Planificado no visitado" : `${kind} ${info.time ?? ""}`}
+        {header}
       </div>
       {info.pdvName && (
         <div>
@@ -301,10 +306,10 @@ function PointInfo({
           )}
         </div>
       )}
-      {(info.visitStart || info.visitEnd) && (
+      {info.visitStart && (
         <div className="text-gray-600">
-          Visita {info.visitStart ?? "?"} → {info.visitEnd ?? "abierta"}
-          {dur ? ` · ${dur}` : ""}
+          Entrada {info.visitStart} · Salida {info.visitEnd ?? "—"}
+          {info.durMin != null ? ` · Duración ${info.durMin} min` : ""}
         </div>
       )}
       {info.note && <div className="text-gray-500">{info.note}</div>}

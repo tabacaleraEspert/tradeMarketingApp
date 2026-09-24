@@ -21,30 +21,49 @@ interface Props {
 }
 
 export function dayPoints(day: IntelBehaviorDia, group?: string): RoutePoint[] {
-  const visitById = new Map(day.secuencia.map((s) => [s.visitId, s]));
-  const pts: RoutePoint[] = day.puntos.map((p) => {
-    const v = visitById.get(p.visitId);
-    return {
-      lat: p.lat,
-      lon: p.lon,
-      label: String(p.seq),
-      kind: p.tipo,
+  // Un solo punto por visita (no IN y OUT separados): se ubica en el check-in
+  // (fallback: check-out, y si no hay GPS, coordenadas del PDV). El hover
+  // muestra entrada → salida y duración. Las fotos no se dibujan.
+  const byVisit = new Map<number, { in?: (typeof day.puntos)[number]; out?: (typeof day.puntos)[number] }>();
+  for (const p of day.puntos) {
+    if (p.tipo === "foto") continue;
+    const e = byVisit.get(p.visitId) ?? {};
+    if (p.tipo === "in" && !e.in) e.in = p;
+    if (p.tipo === "out") e.out = p;
+    byVisit.set(p.visitId, e);
+  }
+  const pts: RoutePoint[] = [];
+  for (const v of day.secuencia) {
+    const e = byVisit.get(v.visitId) ?? {};
+    const anchor = e.in ?? e.out;
+    const lat = anchor?.lat ?? v.lat;
+    const lon = anchor?.lon ?? v.lon;
+    if (lat == null || lon == null) continue;
+    const batIn = e.in?.bateria ?? null;
+    const batOut = e.out?.bateria ?? null;
+    const bat =
+      batIn != null && batOut != null && batIn !== batOut
+        ? `🔋 ${batIn}% → ${batOut}%`
+        : batIn != null ? `🔋 ${batIn}%` : batOut != null ? `🔋 ${batOut}%` : "";
+    const dist = v.distPdv != null ? `${Math.round(v.distPdv)} m del PDV` : anchor ? "" : "sin GPS (ubicación del PDV)";
+    pts.push({
+      lat,
+      lon,
+      label: String(v.seq),
+      kind: "in",
       group,
-      title: `#${p.seq} ${p.tipo.toUpperCase()} ${hhmm(p.ts)}${p.pdvName ? ` · ${p.pdvName}` : ""}${
-        p.distPdv != null ? ` · ${Math.round(p.distPdv)} m del PDV` : ""
-      }`,
+      title: `#${v.seq} ${hhmm(v.openedAt)} → ${v.closedAt ? hhmm(v.closedAt) : "abierta"} · ${v.pdvName}`,
       info: {
-        pdvId: p.pdvId,
-        pdvName: p.pdvName,
-        visitId: p.visitId,
-        time: hhmm(p.ts),
-        visitStart: v ? hhmm(v.openedAt) : null,
-        visitEnd: v?.closedAt ? hhmm(v.closedAt) : null,
-        durMin: v?.durMin ?? null,
-        note: p.distPdv != null ? `${Math.round(p.distPdv)} m del PDV${p.bateria != null ? ` · 🔋 ${p.bateria}%` : ""}` : undefined,
+        pdvId: v.pdvId,
+        pdvName: v.pdvName,
+        visitId: v.visitId,
+        visitStart: hhmm(v.openedAt),
+        visitEnd: v.closedAt ? hhmm(v.closedAt) : null,
+        durMin: v.durMin ?? null,
+        note: [dist, bat].filter(Boolean).join(" · ") || undefined,
       },
-    };
-  });
+    });
+  }
   for (const pnv of day.planNoVisitados) {
     if (pnv.lat == null || pnv.lon == null) continue;
     pts.push({
