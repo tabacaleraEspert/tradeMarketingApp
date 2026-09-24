@@ -21,3 +21,4 @@ sentry-sdk[fastapi]>=2.0
 # si no pip arrastra 0.64b0/api 1.43 y rompe al exporter (requiere api==1.40). Subir las dos juntas.
 azure-monitor-opentelemetry==1.8.8
 opentelemetry-instrumentation-sqlalchemy==0.61b0
+azure-communication-email>=1.0

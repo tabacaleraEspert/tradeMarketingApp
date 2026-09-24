@@ -1,0 +1,30 @@
+name: Reporte de comportamiento (mail)
+
+# Disparador diario 07:00 AR (10:00 UTC). El backend decide qué toca:
+# lunes → semanal (semana lun-dom cerrada), día 1 → mensual (mes anterior).
+# Idempotente: correrlo dos veces el mismo día no duplica mails.
+on:
+  schedule:
+    - cron: "0 10 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Fecha a simular (YYYY-MM-DD). Vacío = hoy"
+        required: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar envío
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RUN_DATE: ${{ github.event.inputs.date }}
+        run: |
+          URL="https://espert-trade-api.azurewebsites.net/internal/behavior-reports/run"
+          if [ -n "$RUN_DATE" ]; then URL="$URL?date=$RUN_DATE"; fi
+          # Un envío con muchos trades puede tardar: timeout amplio y 2 reintentos
+          # (idempotente, un reintento no duplica).
+          curl --fail-with-body -sS -X POST "$URL" \
+            -H "X-Cron-Key: $CRON_SECRET" \
+            --max-time 600 --retry 2 --retry-delay 30 --retry-all-errors

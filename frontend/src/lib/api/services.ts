@@ -1,5 +1,6 @@
 import { api } from "./client";
 import { getAccessToken } from "./auth-storage";
+import { API_BASE_URL } from "./config";
 
 // --- Dashboard (aggregated Home endpoint) ---
 export interface DashboardHomeData {
@@ -1758,4 +1759,142 @@ export const pdvSuppliersApi = {
     api.delete(`/pdvs/${pdvId}/suppliers/${supplierId}`),
   searchZone: (pdvId: number, phone?: string) =>
     api.get<PdvSupplier[]>(`/pdvs/${pdvId}/suppliers/search-zone`, phone ? { phone } : undefined),
+};
+
+// --- Reporte de comportamiento por mail (backend: routers/behavior_reports.py) ---
+
+export type BehaviorReportKind = "weekly" | "monthly";
+
+export interface BehaviorReportKpis {
+  trades: number;
+  visitas: number;
+  diasTrabajados: number;
+  pdvsPorDia: number;
+  planPct: number | null;
+  gpsPct: number | null;
+  fueraPerimetro: number;
+  diasConPlanSinVisitas: number;
+  alertasAlta: number;
+  alertasTotal: number;
+  kmLinea: number;
+}
+
+export interface BehaviorReportAnomaly {
+  userId: number;
+  userName: string;
+  tipo: IntelBehaviorAlertTipo;
+  label: string;
+  dato: string;
+  severidad: IntelBehaviorSeveridad;
+}
+
+export interface BehaviorReportTrade {
+  userId: number;
+  userName: string;
+  dias: number;
+  visitas: number;
+  pdvs: number;
+  pdvsPorDia: number;
+  planificados: number;
+  planVisitados: number;
+  planPct: number | null;
+  gpsPct: number | null;
+  visitasSinGps: number;
+  fueraPerimetro: number;
+  diasConPlanSinVisitas: number;
+  onProm: string | null;
+  offProm: string | null;
+  durPromMin: number | null;
+  kmLinea: number;
+  ordenRespetadoPct: number | null;
+  alertas: Partial<Record<IntelBehaviorAlertTipo, number>>;
+  alertasTotal: number;
+  alertasAlta: number;
+}
+
+export interface PublicBehaviorReport {
+  kind: BehaviorReportKind;
+  from: string;
+  to: string;
+  periodLabel: string;
+  recipientName: string;
+  expiresAt: string;
+  kpis: BehaviorReportKpis;
+  anomalias: BehaviorReportAnomaly[];
+  trades: BehaviorReportTrade[];
+}
+
+export type BehaviorReportScope = "all" | "team" | "custom";
+
+export interface BehaviorReportRow {
+  reportId: number;
+  kind: BehaviorReportKind | "test";
+  from: string;
+  to: string;
+  email: string;
+  sentAt: string | null;
+  sendError: string | null;
+  expiresAt: string;
+  url: string;
+}
+
+export interface BehaviorReportSubscription {
+  subscriptionId: number;
+  email: string;
+  name: string;
+  scope: BehaviorReportScope;
+  scopeUserId: number | null;
+  scopeUserName: string | null;
+  tradeIds: number[];
+  weeklyEnabled: boolean;
+  monthlyEnabled: boolean;
+  isActive: boolean;
+  autoCreated: boolean;
+  lastReport: BehaviorReportRow | null;
+}
+
+export interface BehaviorReportSubscriptionInput {
+  Email: string;
+  Name: string;
+  Scope: BehaviorReportScope;
+  ScopeUserId: number | null;
+  TradeIds: number[];
+  WeeklyEnabled: boolean;
+  MonthlyEnabled: boolean;
+  IsActive: boolean;
+}
+
+export interface BehaviorReportOptions {
+  trades: { userId: number; name: string }[];
+  managers: { userId: number; name: string; email: string; tradeIds: number[] }[];
+}
+
+// Reporte público (/r/:token): sin sesión — `/public/*` no manda Authorization
+// ni dispara el refresh/logout del cliente.
+export const publicReportsApi = {
+  get: (token: string) => api.get<PublicBehaviorReport>(`/public/reports/${token}`),
+  trade: (token: string, userId: number) =>
+    api.get<IntelBehaviorResponse>(`/public/reports/${token}/trades/${userId}`),
+};
+
+// ABM admin de destinatarios del reporte.
+export const behaviorReportsApi = {
+  list: () => api.get<BehaviorReportSubscription[]>("/behavior-reports/subscriptions"),
+  options: () => api.get<BehaviorReportOptions>("/behavior-reports/options"),
+  create: (data: BehaviorReportSubscriptionInput) =>
+    api.post<BehaviorReportSubscription>("/behavior-reports/subscriptions", data),
+  update: (id: number, data: BehaviorReportSubscriptionInput) =>
+    api.put<BehaviorReportSubscription>(`/behavior-reports/subscriptions/${id}`, data),
+  delete: (id: number) => api.delete(`/behavior-reports/subscriptions/${id}`),
+  sendTest: (id: number, kind: BehaviorReportKind, to?: string) =>
+    api.post<BehaviorReportRow>(`/behavior-reports/subscriptions/${id}/test`, { kind, to: to || undefined }),
+  history: (id: number) => api.get<BehaviorReportRow[]>(`/behavior-reports/subscriptions/${id}/history`),
+  /** HTML del mail (para un iframe): el endpoint devuelve text/html, no JSON. */
+  previewHtml: async (id: number, kind: BehaviorReportKind): Promise<string> => {
+    const res = await fetch(`${API_BASE_URL}/behavior-reports/subscriptions/${id}/preview?kind=${kind}`, {
+      headers: { Authorization: `Bearer ${getAccessToken() ?? ""}` },
+    });
+    if (!res.ok) throw new Error(`No se pudo generar la vista previa (${res.status})`);
+    return res.text();
+  },
 };

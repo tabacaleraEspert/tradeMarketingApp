@@ -35,6 +35,7 @@ from .kpi_config import KpiConfig
 from .scoring_coverage_rule import ScoringCoverageRule
 from .scoring_communication_rule import ScoringCommunicationRule
 from .kpi_monthly_snapshot import KpiMonthlySnapshot
+from .behavior_report import BehaviorReport, BehaviorReportSubscription
 
 __all__ = [
     "Zone",
@@ -91,4 +92,6 @@ __all__ = [
     "ScoringCoverageRule",
     "ScoringCommunicationRule",
     "KpiMonthlySnapshot",
+    "BehaviorReport",
+    "BehaviorReportSubscription",
 ]

@@ -53,7 +53,8 @@ function friendlyErrorMessage(status: number, detail: string | null, requestId?:
 const PUBLIC_PATHS = ["/auth/login", "/auth/refresh", "/health", "/"];
 
 function isPublicPath(path: string): boolean {
-  return PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "?"));
+  // /public/*: reporte por mail con token en la URL (sin sesión).
+  return path.startsWith("/public/") || PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "?"));
 }
 
 // ============ Global handlers ============

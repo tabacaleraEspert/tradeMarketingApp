@@ -84,7 +84,7 @@ export const visitHref = (visitId: number) => `/admin/visit-data?visit=${visitId
 
 export function DiaRow({ day, perimeterM, road, onComputeRoad, roadAvailable }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const { openPdv } = useIntelNav();
+  const { openPdv, readOnly } = useIntelNav();
   const counts = useMemo(() => countAlerts(day.alertas), [day.alertas]);
   const tipos = Object.keys(counts);
   const kmRoad = road?.status === "done" ? road.result?.kmRuta : undefined;
@@ -234,7 +234,7 @@ export function DiaRow({ day, perimeterM, road, onComputeRoad, roadAvailable }: 
             </div>
           )}
 
-          <RoutePathMap points={points} paths={roadPath} height={300} onPdvClick={openPdv} visitHref={visitHref} />
+          <RoutePathMap points={points} paths={roadPath} height={300} onPdvClick={readOnly ? undefined : openPdv} visitHref={readOnly ? undefined : visitHref} />
         </div>
       )}
     </div>

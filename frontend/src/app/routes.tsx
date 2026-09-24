@@ -23,6 +23,8 @@ import { PhotoCapture } from "./pages/PhotoCapture";
 import { Sync } from "./pages/Sync";
 
 // ── Other vendor pages — lazy loaded ──
+const PublicReportPage = lazy(() => import("./pages/public-report/PublicReportPage").then(m => ({ default: m.PublicReportPage })));
+const MailReports = lazy(() => import("./pages/admin/MailReports").then(m => ({ default: m.MailReports })));
 const RouteList = lazy(() => import("./pages/RouteList").then(m => ({ default: m.RouteList })));
 const RouteFocoPage = lazy(() => import("./pages/RouteFocoPage").then(m => ({ default: m.RouteFocoPage })));
 const NewPointOfSale = lazy(() => import("./pages/NewPointOfSale").then(m => ({ default: m.NewPointOfSale })));
@@ -159,6 +161,16 @@ export const router = createBrowserRouter([
     Component: SsoLogin,
   },
   {
+    // Reporte de comportamiento por mail: público, el token de la URL es la
+    // credencial (sin guard ni layout).
+    path: "/r/:token",
+    element: <SuspenseWrap><PublicReportPage /></SuspenseWrap>,
+  },
+  {
+    path: "/r/:token/t/:userId",
+    element: <SuspenseWrap><PublicReportPage /></SuspenseWrap>,
+  },
+  {
     path: "/",
     Component: Layout,
     children: [
@@ -246,6 +258,12 @@ export const router = createBrowserRouter([
       { index: true, element: <SuspenseWrap><TableroPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
+  },
+  {
+    // Reportes por mail: solo admin (el resto de /admin admite managers).
+    path: "/admin/mail-reports",
+    Component: AdminOnlyGuard,
+    children: [{ index: true, element: <SuspenseWrap><MailReports /></SuspenseWrap> }],
   },
   {
     path: "/inteligencia",

@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     # TTL en segundos para URLs firmadas de Azure (no aplica al fallback local).
     blob_sas_ttl_seconds: int = 60 * 60 * 6  # 6 horas
 
+    # --- Mail (Azure Communication Services, recurso compartido espertcommservice) ---
+    # Vacío = modo dev: el mail se loguea en vez de enviarse.
+    acs_connection_string: str = ""
+    # Dominio Azure-managed (el custom tabacaleraespert.com está cargado en ACS pero
+    # sin verificar en DNS: no se puede usar como remitente hasta que IT lo verifique).
+    acs_email_from: str = "DoNotReply@0ba433de-2938-4f43-83f0-17faa6939544.azurecomm.net"
+    # Base de los links que van en los mails (página pública /r/<token>).
+    public_app_url: str = "http://localhost:5173"
+    # Header X-Cron-Key del disparador programado. Vacío = endpoint deshabilitado (503).
+    cron_secret: str = ""
+
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:

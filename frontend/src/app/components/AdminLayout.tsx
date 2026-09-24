@@ -22,6 +22,7 @@ import {
   LayoutGrid,
   Brain,
   Smartphone,
+  Mail,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -91,6 +92,7 @@ export function AdminLayout() {
       ? [
           { path: "/tablero-tmr/index.html", icon: LayoutGrid, label: "Tablero TMR", external: true },
           { path: "/inteligencia", icon: Brain, label: "Inteligencia" },
+          { path: "/admin/mail-reports", icon: Mail, label: "Reportes por mail" },
         ]
       : []),
     { path: "/admin/pos-management", icon: MapPin, label: "Gestion PDV" },
