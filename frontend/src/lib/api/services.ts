@@ -1810,6 +1810,28 @@ export interface BehaviorReportTrade {
   alertas: Partial<Record<IntelBehaviorAlertTipo, number>>;
   alertasTotal: number;
   alertasAlta: number;
+  /** Contra el período anterior (semana o mes). */
+  prev?: { visitas: BehaviorKpiDelta | null; planPct: BehaviorKpiDelta | null; gpsPct: BehaviorKpiDelta | null };
+}
+
+/** Diferencia de un KPI contra su base (backend: behavior_report.kpi_delta). */
+export interface BehaviorKpiDelta {
+  base: number;
+  diff: number;
+  /** Desvío % (null en porcentajes o sin base). */
+  pct: number | null;
+  unit: "" | "pp";
+  /** true = mejoró, false = empeoró, null = neutro / sin cambio. */
+  better: boolean | null;
+}
+
+export interface BehaviorReportComparison {
+  key: "prev" | "monthAvg";
+  label: string;
+  short: string;
+  from: string;
+  to: string;
+  deltas: Partial<Record<keyof BehaviorReportKpis, BehaviorKpiDelta | null>>;
 }
 
 export interface PublicBehaviorReport {
@@ -1820,6 +1842,8 @@ export interface PublicBehaviorReport {
   recipientName: string;
   expiresAt: string;
   kpis: BehaviorReportKpis;
+  /** Reportes enviados antes del 2026-09-25 no la traen. */
+  comparativas?: BehaviorReportComparison[];
   anomalias: BehaviorReportAnomaly[];
   trades: BehaviorReportTrade[];
 }

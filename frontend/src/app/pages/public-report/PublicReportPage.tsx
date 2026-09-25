@@ -12,6 +12,8 @@ import { AlertTriangle, ArrowLeft, ChevronRight, Clock, Loader2 } from "lucide-r
 import {
   ApiError,
   publicReportsApi,
+  type BehaviorKpiDelta,
+  type BehaviorReportKpis,
   type BehaviorReportTrade,
   type IntelBehaviorResponse,
   type PublicBehaviorReport,
@@ -20,6 +22,7 @@ import { Card, CardContent } from "../../components/ui/card";
 import { IntelNavContext } from "../inteligencia/nav-context";
 import { ComportamientoView } from "../inteligencia/comportamiento/ComportamientoView";
 import { SEVERITY_CLASS, alertLabel, semaforo } from "../inteligencia/comportamiento/alert-meta";
+import { dayMonth, deltaClass, fmtDelta } from "./delta-format";
 
 const READ_ONLY_NAV = { openPdv: () => {}, readOnly: true };
 
@@ -192,13 +195,14 @@ function Summary({ token, report }: { token: string; report: PublicBehaviorRepor
     return out;
   }, [report.trades, sort]);
 
-  const tiles = [
-    { l: "Trades con actividad", v: String(k.trades), d: `${plural(k.diasTrabajados, "día trabajado", "días trabajados")}` },
-    { l: "Visitas", v: nf(k.visitas), d: `${nf(k.kmLinea)} km en línea recta` },
-    { l: "PDVs por día", v: nf(k.pdvsPorDia) },
-    { l: "Cumplimiento plan", v: pct(k.planPct), d: `${plural(k.diasConPlanSinVisitas, "día", "días")} con plan sin visitas`, cls: semaforo(k.planPct, 80, 50) },
-    { l: "Visitas con GPS", v: pct(k.gpsPct), d: `${k.fueraPerimetro} fuera de perímetro`, cls: semaforo(k.gpsPct, 90, 70) },
-    { l: "Alertas graves", v: String(k.alertasAlta), d: `${plural(k.alertasTotal, "alerta", "alertas")} en total`, cls: semaforo(k.alertasAlta, 0, 3, false) },
+  const comps = report.comparativas ?? [];
+  const tiles: { key: keyof BehaviorReportKpis; l: string; v: string; d?: string; cls?: string }[] = [
+    { key: "trades", l: "Trades con actividad", v: String(k.trades), d: `${plural(k.diasTrabajados, "día trabajado", "días trabajados")}` },
+    { key: "visitas", l: "Visitas", v: nf(k.visitas), d: `${nf(k.kmLinea)} km en línea recta` },
+    { key: "pdvsPorDia", l: "PDVs por día", v: nf(k.pdvsPorDia) },
+    { key: "planPct", l: "Cumplimiento plan", v: pct(k.planPct), d: `${plural(k.diasConPlanSinVisitas, "día", "días")} con plan sin visitas`, cls: semaforo(k.planPct, 80, 50) },
+    { key: "gpsPct", l: "Visitas con GPS", v: pct(k.gpsPct), d: `${k.fueraPerimetro} fuera de perímetro`, cls: semaforo(k.gpsPct, 90, 70) },
+    { key: "alertasAlta", l: "Alertas graves", v: String(k.alertasAlta), d: `${plural(k.alertasTotal, "alerta", "alertas")} en total`, cls: semaforo(k.alertasAlta, 0, 3, false) },
   ];
 
   return (
@@ -212,10 +216,31 @@ function Summary({ token, report }: { token: string; report: PublicBehaviorRepor
               <p className={`text-xl font-bold tabular-nums leading-tight ${t.cls ?? "text-foreground"}`}>{t.v}</p>
               <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">{t.l}</p>
               {t.d && <p className="text-[11px] text-muted-foreground">{t.d}</p>}
+              {comps.map((c) => {
+                const d = c.deltas[t.key];
+                return (
+                  <p key={c.key} className="text-[11px] mt-0.5 tabular-nums" title={c.label}>
+                    <span className={deltaClass(d)}>{fmtDelta(d)}</span>{" "}
+                    <span className="text-muted-foreground">{c.short}</span>
+                  </p>
+                );
+              })}
             </CardContent>
           </Card>
         ))}
       </div>
+      {comps.length > 0 && (
+        <p className="text-[11px] text-muted-foreground -mt-2">
+          ▲▼ diferencia y desvío % (en porcentajes, puntos). Comparado con{" "}
+          {comps.map((c, i) => (
+            <span key={c.key}>
+              {i > 0 && " y "}
+              {c.label.replace(/^vs /, "")} ({dayMonth(c.from)}–{dayMonth(c.to)})
+            </span>
+          ))}
+          .
+        </p>
+      )}
 
       <Card>
         <CardContent className="p-4">
@@ -248,6 +273,9 @@ function Summary({ token, report }: { token: string; report: PublicBehaviorRepor
         <CardContent className="p-0 sm:p-2">
           <h2 className="font-bold text-sm px-4 pt-4 pb-2">
             Trades <span className="text-xs font-semibold text-muted-foreground">({trades.length})</span>
+            {comps[0] && (
+              <span className="ml-2 text-[11px] font-normal text-muted-foreground">▲▼ {comps[0].label}</span>
+            )}
           </h2>
           {trades.length === 0 ? (
             <p className="text-sm text-muted-foreground px-4 pb-4">Ningún trade registró actividad en el período.</p>
@@ -293,6 +321,12 @@ function Summary({ token, report }: { token: string; report: PublicBehaviorRepor
   );
 }
 
+/** Diferencia contra el período anterior, debajo del valor de la tabla. */
+function Delta({ d }: { d: BehaviorKpiDelta | null | undefined }) {
+  if (!d) return null;
+  return <span className={`block text-[10px] ${deltaClass(d)}`}>{fmtDelta(d, true)}</span>;
+}
+
 function topAlerts(t: BehaviorReportTrade, n = 2) {
   return Object.entries(t.alertas)
     .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
@@ -309,7 +343,8 @@ function TradeItem({ token, t }: { token: string; t: BehaviorReportTrade }) {
         <div className="flex-1 min-w-0">
           <p className="font-semibold truncate">{t.userName}</p>
           <p className="text-xs text-muted-foreground tabular-nums">
-            {t.visitas} visitas · plan <span className={semaforo(t.planPct, 80, 50)}>{pct(t.planPct)}</span> · GPS{" "}
+            {t.visitas} visitas{t.prev?.visitas && <span className={deltaClass(t.prev.visitas)}> ({fmtDelta(t.prev.visitas, true)})</span>} · plan{" "}
+            <span className={semaforo(t.planPct, 80, 50)}>{pct(t.planPct)}</span> · GPS{" "}
             <span className={semaforo(t.gpsPct, 90, 70)}>{pct(t.gpsPct)}</span> · {t.onProm ?? "—"}–{t.offProm ?? "—"}
           </p>
           {top && <p className="text-[11px] text-muted-foreground truncate">{top}</p>}
@@ -349,10 +384,19 @@ function TradeRow({ token, t }: { token: string; t: BehaviorReportTrade }) {
         )}
         {t.alertasTotal}
       </td>
-      <td className="px-3 py-2 text-right tabular-nums">{t.visitas}</td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        {t.visitas}
+        <Delta d={t.prev?.visitas} />
+      </td>
       <td className="px-3 py-2 text-right tabular-nums">{nf(t.pdvsPorDia)}</td>
-      <td className={`px-3 py-2 text-right tabular-nums ${semaforo(t.planPct, 80, 50)}`}>{pct(t.planPct)}</td>
-      <td className={`px-3 py-2 text-right tabular-nums ${semaforo(t.gpsPct, 90, 70)}`}>{pct(t.gpsPct)}</td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        <span className={semaforo(t.planPct, 80, 50)}>{pct(t.planPct)}</span>
+        <Delta d={t.prev?.planPct} />
+      </td>
+      <td className="px-3 py-2 text-right tabular-nums">
+        <span className={semaforo(t.gpsPct, 90, 70)}>{pct(t.gpsPct)}</span>
+        <Delta d={t.prev?.gpsPct} />
+      </td>
       <td className={`px-3 py-2 text-right tabular-nums ${semaforo(t.fueraPerimetro, 0, 2, false)}`}>{t.fueraPerimetro}</td>
       <td className="px-3 py-2 tabular-nums whitespace-nowrap">
         {t.onProm ?? "—"} / {t.offProm ?? "—"}

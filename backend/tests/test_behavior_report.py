@@ -209,8 +209,7 @@ def test_payload_oculta_trades_sin_actividad(db):
     _visit(db, activo, MON)
     _visit(db, activo, MON, hh=11, dist=900)   # fuera de perímetro
     _visit(db, activo, date(2026, 4, 14), gps=False)
-    p = R.build_payload("weekly", MON, SUN, "X", [activo.UserId, quieto.UserId],
-                        R._behavior_getter(db, MON, SUN))
+    p = R.build_payload("weekly", MON, SUN, "X", [activo.UserId, quieto.UserId], R._behavior_getter(db))
     assert [t["userName"] for t in p["trades"]] == ["Activo"]
     assert p["kpis"]["trades"] == 1
     assert p["kpis"]["visitas"] == 3
@@ -411,3 +410,67 @@ def test_rate_limit_no_se_evade_con_x_forwarded_for(anon):
         for i in range(31)
     ]
     assert codes[30] == 429
+
+
+# ---------------------------------------------------------------------------
+# Comparativas (vs semana anterior / promedio semanal del mes pasado)
+# ---------------------------------------------------------------------------
+
+def test_kpi_delta():
+    assert R.kpi_delta(110, 100, "count", True) == {"base": 100, "diff": 10, "pct": 10, "unit": "", "better": True}
+    assert R.kpi_delta(3, 5, "count", False)["better"] is True        # menos alertas = mejor
+    assert R.kpi_delta(40, 46, "pct", True) == {"base": 46, "diff": -6, "pct": None, "unit": "pp", "better": False}
+    assert R.kpi_delta(5, 5, "count", True)["better"] is None
+    assert R.kpi_delta(5, 0, "count", True)["pct"] is None            # sin base no hay desvío %
+    assert R.kpi_delta(None, 5, "count", True) is None
+    assert R.kpi_delta(8, 6, "count", None)["better"] is None         # neutro (trades)
+
+
+def test_periodos_de_comparacion():
+    w = R.comparison_periods("weekly", date(2026, 9, 14), date(2026, 9, 20))
+    assert [(c["key"], c["from"], c["to"]) for c in w] == [
+        ("prev", date(2026, 9, 7), date(2026, 9, 13)),
+        ("monthAvg", date(2026, 8, 1), date(2026, 8, 31)),
+    ]
+    assert w[1]["label"] == "vs promedio semanal de agosto" and abs(w[1]["scale"] - 7 / 31) < 1e-9
+    m = R.comparison_periods("monthly", date(2026, 9, 1), date(2026, 9, 30))
+    assert [(c["key"], c["from"], c["to"], c["label"]) for c in m] == [
+        ("prev", date(2026, 8, 1), date(2026, 8, 31), "vs agosto")]
+
+
+def test_payload_con_comparativas(db):
+    """Semana 13-19/04: 3 visitas. Semana anterior (6-12/04): 2. Marzo: 31 visitas
+    → promedio semanal 31 × 7/31 = 7."""
+    v = _user(db, "vendedor", name="Comparado")
+    for d in (MON, date(2026, 4, 14), date(2026, 4, 15)):
+        _visit(db, v, d)
+    for d in (date(2026, 4, 6), date(2026, 4, 7)):
+        _visit(db, v, d)
+    for day in range(1, 32):
+        _visit(db, v, date(2026, 3, day))
+    p = R.build_payload("weekly", MON, SUN, "X", [v.UserId], R._behavior_getter(db))
+    prev, avg = p["comparativas"]
+    assert prev["deltas"]["visitas"] == {"base": 2, "diff": 1, "pct": 50, "unit": "", "better": True}
+    assert avg["deltas"]["visitas"]["base"] == 7.0 and avg["deltas"]["visitas"]["diff"] == -4
+    assert avg["deltas"]["trades"] is None                 # no escalable
+    assert prev["deltas"]["gpsPct"]["unit"] == "pp"
+    assert p["trades"][0]["prev"]["visitas"]["diff"] == 1
+
+
+def test_mail_muestra_comparativas():
+    from app.services.behavior_report_mail import fmt_delta, render_mail
+    assert fmt_delta({"diff": 32, "pct": 4, "unit": "", "better": True}) == "▲ +32 (+4%)"
+    assert fmt_delta({"diff": -3, "pct": None, "unit": "pp", "better": False}) == "▼ −3 pp"
+    assert fmt_delta(None) == "—"
+    kpis = {"trades": 1, "visitas": 3, "diasTrabajados": 3, "pdvsPorDia": 1.0, "planPct": None, "gpsPct": 100,
+            "fueraPerimetro": 0, "diasConPlanSinVisitas": 0, "alertasAlta": 0, "alertasTotal": 0, "kmLinea": 0}
+    d = {"base": 2, "diff": 1, "pct": 50, "unit": "", "better": True}
+    payload = {"kind": "weekly", "periodLabel": "x", "kpis": kpis, "anomalias": [], "trades": [],
+               "comparativas": [{"key": "prev", "label": "vs semana anterior", "short": "vs sem. ant.",
+                                 "from": "2026-04-06", "to": "2026-04-12", "deltas": {"visitas": d}}]}
+    _, html, plain = render_mail(payload, "https://x/r/t", date(2026, 5, 1), False)
+    assert "▲ +1 (+50%)" in html and "vs sem. ant." in html and "06/04–12/04" in html
+    assert "Visitas: 3 (▲ +1 (+50%) vs sem. ant.)" in plain
+    # Reporte viejo sin comparativas: no rompe.
+    payload.pop("comparativas")
+    render_mail(payload, "https://x/r/t", date(2026, 5, 1), False)

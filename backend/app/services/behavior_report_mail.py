@@ -7,11 +7,13 @@ from __future__ import annotations
 
 from datetime import date
 from html import escape
+from typing import Optional
 
 _INK = "#111111"      # negro de la app
 _GOLD = "#A48242"     # espert-gold
 _MUTED = "#6b7280"
 _BORDER = "#e5e7eb"
+_GOOD = "#15803d"
 _SEV_COLOR = {"alta": "#b91c1c", "media": "#b45309", "baja": "#6b7280"}
 
 
@@ -27,16 +29,42 @@ def _fmt_num(v) -> str:
     return f"{v:,}".replace(",", ".")
 
 
-def tiles(kpis: dict) -> list[tuple[str, str, bool]]:
-    """(label, valor, destacar) de los 6 tiles del mail."""
+def tiles(kpis: dict) -> list[tuple[str, str, str, bool]]:
+    """(clave, label, valor, destacar) de los 6 tiles del mail."""
     return [
-        ("Trades con actividad", _fmt_num(kpis["trades"]), False),
-        ("Visitas", _fmt_num(kpis["visitas"]), False),
-        ("PDVs por día", _fmt_num(kpis["pdvsPorDia"]), False),
-        ("Cumplimiento plan", _fmt_pct(kpis["planPct"]), (kpis["planPct"] or 100) < 80),
-        ("Visitas con GPS", _fmt_pct(kpis["gpsPct"]), (kpis["gpsPct"] or 100) < 90),
-        ("Alertas graves", _fmt_num(kpis["alertasAlta"]), kpis["alertasAlta"] > 0),
+        ("trades", "Trades con actividad", _fmt_num(kpis["trades"]), False),
+        ("visitas", "Visitas", _fmt_num(kpis["visitas"]), False),
+        ("pdvsPorDia", "PDVs por día", _fmt_num(kpis["pdvsPorDia"]), False),
+        ("planPct", "Cumplimiento plan", _fmt_pct(kpis["planPct"]), (kpis["planPct"] or 100) < 80),
+        ("gpsPct", "Visitas con GPS", _fmt_pct(kpis["gpsPct"]), (kpis["gpsPct"] or 100) < 90),
+        ("alertasAlta", "Alertas graves", _fmt_num(kpis["alertasAlta"]), kpis["alertasAlta"] > 0),
     ]
+
+
+def fmt_delta(d: Optional[dict]) -> str:
+    """'▲ +32 (+4%)', '▼ −3 pp', '= 0' o '—' sin dato."""
+    if d is None:
+        return "—"
+    diff = d["diff"]
+    if diff == 0:
+        return "= sin cambio"
+    arrow = "▲" if diff > 0 else "▼"
+    num = _fmt_num(abs(diff))
+    sign = "+" if diff > 0 else "−"
+    txt = f"{arrow} {sign}{num}{' pp' if d['unit'] == 'pp' else ''}"
+    if d.get("pct") is not None:
+        txt += f" ({'+' if d['pct'] > 0 else '−' if d['pct'] < 0 else ''}{abs(d['pct'])}%)"
+    return txt
+
+
+def _dm(iso: str) -> str:
+    return f"{iso[8:10]}/{iso[5:7]}"
+
+
+def _delta_color(d: Optional[dict]) -> str:
+    if not d or d["better"] is None:
+        return _MUTED
+    return _GOOD if d["better"] else "#b91c1c"
 
 
 def subject_for(payload: dict, test: bool) -> str:
@@ -54,17 +82,31 @@ def render_mail(payload: dict, url: str, expires: date, test: bool) -> tuple[str
     periodo = escape(payload["periodLabel"])
     titulo = ("Resumen semanal" if payload["kind"] == "weekly" else "Resumen mensual") + (" (prueba)" if test else "")
 
+    comps = payload.get("comparativas") or []  # reportes viejos no las tienen
     cells = []
-    for label, value, warn in tiles(kpis):
+    for key, label, value, warn in tiles(kpis):
         color = "#b91c1c" if warn else _INK
+        deltas = "".join(
+            f'<div style="font-size:11px;color:{_delta_color(c["deltas"].get(key))};margin-top:2px;white-space:nowrap;">'
+            f'{escape(fmt_delta(c["deltas"].get(key)))} <span style="color:{_MUTED};">{escape(c["short"])}</span></div>'
+            for c in comps
+        )
         cells.append(
-            f'<td width="33%" style="padding:6px;">'
+            f'<td width="33%" style="padding:6px;vertical-align:top;">'
             f'<div style="border:1px solid {_BORDER};border-radius:10px;padding:12px 10px;background:#ffffff;">'
             f'<div style="font-size:11px;color:{_MUTED};text-transform:uppercase;letter-spacing:.04em;">{escape(label)}</div>'
             f'<div style="font-size:24px;font-weight:700;color:{color};margin-top:4px;">{escape(value)}</div>'
-            f"</div></td>"
+            f"{deltas}</div></td>"
         )
     tiles_html = "".join(f"<tr>{''.join(cells[i:i + 3])}</tr>" for i in range(0, len(cells), 3))
+    if comps:
+        legend = " · ".join(
+            f"{escape(c['short'])} = {escape(c['label'].removeprefix('vs '))} ({_dm(c['from'])}–{_dm(c['to'])})" for c in comps
+        )
+        tiles_html += (
+            f'<tr><td colspan="3" style="padding:2px 8px 0;font-size:11px;color:{_MUTED};">'
+            f'▲▼ diferencia y desvío % (pp en porcentajes). {legend}</td></tr>'
+        )
 
     if anomalias:
         items = "".join(
@@ -107,7 +149,9 @@ def render_mail(payload: dict, url: str, expires: date, test: bool) -> tuple[str
 </body></html>"""
 
     lines = [titulo + " de comportamiento — " + payload["periodLabel"], ""]
-    lines += [f"{label}: {value}" for label, value, _ in tiles(kpis)]
+    for key, label, value, _ in tiles(kpis):
+        extra = " · ".join(f"{fmt_delta(c['deltas'].get(key))} {c['short']}" for c in comps)
+        lines.append(f"{label}: {value}" + (f" ({extra})" if extra else ""))
     lines += ["", "Anomalías destacadas:"]
     lines += [f"- {a['userName']} · {a['label']} · {a['dato']}" for a in anomalias] or ["- Sin anomalías"]
     lines += ["", f"Ver reporte completo: {url}", f"El link vence el {expira}."]

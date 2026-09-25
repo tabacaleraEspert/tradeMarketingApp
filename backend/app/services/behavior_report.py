@@ -265,19 +265,37 @@ def top_anomalies(rows: list[dict], limit: int = TOP_ANOMALIES) -> list[dict]:
     return out
 
 
-def build_payload(kind: str, f: date, t: date, recipient_name: str, trade_ids: list[int],
-                  get_behavior: Callable[[int], dict]) -> dict[str, Any]:
-    rows = [_trade_row(get_behavior(uid)) for uid in trade_ids]
-    # Sin actividad en el período (vacaciones, licencia, baja): no aparecen.
-    rows = [r for r in rows if r["visitas"] or r["planificados"]]
-    rows.sort(key=lambda r: (-r["alertasAlta"], -r["alertasTotal"], r["userName"].lower()))
+BehaviorGetter = Callable[[int, date, date], dict]
 
+# KPIs del equipo que se comparan: (clave, tipo, más-es-mejor).
+#   count → diferencia + desvío %; se escala al comparar contra un promedio semanal.
+#   rate  → diferencia + desvío %; no se escala (ya es por día).
+#   pct   → diferencia en puntos porcentuales (pp); el desvío % de un % confunde.
+# `trades` no se escala (no es sumable por semana): contra el promedio semanal va sin dato.
+KPI_COMPARE = [
+    ("trades", "count", None),
+    ("visitas", "count", True),
+    ("pdvsPorDia", "rate", True),
+    ("planPct", "pct", True),
+    ("gpsPct", "pct", True),
+    ("alertasAlta", "count", False),
+]
+_SCALABLE = {"visitas", "diasTrabajados", "fueraPerimetro", "diasConPlanSinVisitas", "alertasAlta", "alertasTotal", "kmLinea"}
+
+
+def _active_rows(trade_ids: list[int], f: date, t: date, get: BehaviorGetter) -> list[dict]:
+    rows = [_trade_row(get(uid, f, t)) for uid in trade_ids]
+    # Sin actividad en el período (vacaciones, licencia, baja): no aparecen.
+    return [r for r in rows if r["visitas"] or r["planificados"]]
+
+
+def _team_kpis(rows: list[dict]) -> dict:
     visitas = sum(r["visitas"] for r in rows)
     dias = sum(r["dias"] for r in rows)
     plan = sum(r["planificados"] for r in rows)
     plan_ok = sum(r["planVisitados"] for r in rows)
     sin_gps = sum(r["visitasSinGps"] for r in rows)
-    kpis = {
+    return {
         "trades": len(rows),
         "visitas": visitas,
         "diasTrabajados": dias,
@@ -290,6 +308,74 @@ def build_payload(kind: str, f: date, t: date, recipient_name: str, trade_ids: l
         "alertasTotal": sum(r["alertasTotal"] for r in rows),
         "kmLinea": round(sum(r["kmLinea"] for r in rows), 1),
     }
+
+
+def comparison_periods(kind: str, f: date, t: date) -> list[dict]:
+    """Contra qué se compara. Semanal: semana anterior y promedio semanal del
+    mes anterior al de la semana (cantidades × 7 / días del mes). Mensual: mes anterior."""
+    if kind == KIND_WEEKLY:
+        mf, mt = previous_month(f)
+        mes = _MESES[mf.month - 1]
+        return [
+            {"key": "prev", "label": "vs semana anterior", "short": "vs sem. ant.",
+             "from": f - timedelta(days=7), "to": t - timedelta(days=7), "scale": None},
+            {"key": "monthAvg", "label": f"vs promedio semanal de {mes}", "short": f"vs prom. sem. {mes[:3]}",
+             "from": mf, "to": mt, "scale": 7 / ((mt - mf).days + 1)},
+        ]
+    pf, pt = previous_month(f)
+    mes = _MESES[pf.month - 1]
+    return [{"key": "prev", "label": f"vs {mes}", "short": f"vs {mes[:3]}", "from": pf, "to": pt, "scale": None}]
+
+
+def _scaled(kpis: dict, scale: Optional[float]) -> dict:
+    if scale is None:
+        return kpis
+    out = {k: (round(v * scale, 1) if k in _SCALABLE and v is not None else v) for k, v in kpis.items()}
+    out["trades"] = None
+    return out
+
+
+def kpi_delta(cur, base, kind: str, higher_better: Optional[bool]) -> Optional[dict]:
+    """Diferencia y desvío % de un KPI contra su base. `better`: True/False si
+    la variación es buena/mala, None si es neutra o no hay variación."""
+    if cur is None or base is None:
+        return None
+    diff = round(cur - base, 1)
+    if diff == int(diff):
+        diff = int(diff)
+    pct = None if kind == "pct" or not base else round(100 * (cur - base) / base)
+    better = None if higher_better is None or diff == 0 else (diff > 0) == higher_better
+    return {"base": base, "diff": diff, "pct": pct, "unit": "pp" if kind == "pct" else "", "better": better}
+
+
+def build_payload(kind: str, f: date, t: date, recipient_name: str, trade_ids: list[int],
+                  get: BehaviorGetter) -> dict[str, Any]:
+    rows = _active_rows(trade_ids, f, t, get)
+    rows.sort(key=lambda r: (-r["alertasAlta"], -r["alertasTotal"], r["userName"].lower()))
+    kpis = _team_kpis(rows)
+
+    comparativas = []
+    prev_by_trade: dict[int, dict] = {}
+    for c in comparison_periods(kind, f, t):
+        base_rows = _active_rows(trade_ids, c["from"], c["to"], get)
+        base = _scaled(_team_kpis(base_rows), c["scale"])
+        comparativas.append({
+            "key": c["key"], "label": c["label"], "short": c["short"],
+            "from": c["from"].isoformat(), "to": c["to"].isoformat(),
+            "deltas": {k: kpi_delta(kpis[k], base[k], kk, hb) for k, kk, hb in KPI_COMPARE},
+        })
+        if c["key"] == "prev":
+            prev_by_trade = {r["userId"]: r for r in base_rows}
+
+    # Por trade: contra el período anterior (sin fila = no tuvo actividad → base 0).
+    for r in rows:
+        p = prev_by_trade.get(r["userId"])
+        r["prev"] = {
+            "visitas": kpi_delta(r["visitas"], p["visitas"] if p else 0, "count", True),
+            "planPct": kpi_delta(r["planPct"], p["planPct"] if p else None, "pct", True),
+            "gpsPct": kpi_delta(r["gpsPct"], p["gpsPct"] if p else None, "pct", True),
+        }
+
     return {
         "kind": kind,
         "from": f.isoformat(),
@@ -297,6 +383,7 @@ def build_payload(kind: str, f: date, t: date, recipient_name: str, trade_ids: l
         "periodLabel": period_label(kind, f, t),
         "recipientName": recipient_name,
         "kpis": kpis,
+        "comparativas": comparativas,
         "anomalias": top_anomalies(rows),
         "trades": rows,
     }
@@ -337,13 +424,17 @@ def _new_report(sub: BehaviorReportSubscription, kind: str, f: date, t: date, pa
     )
 
 
-def _behavior_getter(db: Session, f: date, t: date) -> Callable[[int], dict]:
-    memo: dict[int, dict] = {}
+def _behavior_getter(db: Session) -> BehaviorGetter:
+    """`build_behavior` memoizado por (trade, rango) dentro de una corrida: la
+    semana anterior y el mes pasado de un trade se calculan una sola vez aunque
+    esté en varias suscripciones."""
+    memo: dict[tuple[int, date, date], dict] = {}
 
-    def get(uid: int) -> dict:
-        if uid not in memo:
-            memo[uid] = build_behavior(db, uid, f, t)
-        return memo[uid]
+    def get(uid: int, f: date, t: date) -> dict:
+        key = (uid, f, t)
+        if key not in memo:
+            memo[key] = build_behavior(db, uid, f, t)
+        return memo[key]
     return get
 
 
@@ -355,7 +446,7 @@ def send_period(db: Session, kind: str, f: date, t: date) -> dict:
         BehaviorReportSubscription.IsActive == True, enabled_col == True,  # noqa: E712
     ).order_by(BehaviorReportSubscription.SubscriptionId).all()
     org = Org(db)
-    get_behavior = _behavior_getter(db, f, t)
+    get_behavior = _behavior_getter(db)
     stats = {"kind": kind, "from": f.isoformat(), "to": t.isoformat(), "sent": 0, "skipped": 0, "failed": 0}
 
     for sub in subs:
@@ -398,7 +489,7 @@ def send_test(db: Session, sub: BehaviorReportSubscription, kind: str, to: Optio
               today: Optional[date] = None) -> BehaviorReport:
     """"Resumen de prueba": el último período cerrado de `kind`, repetible."""
     f, t = period_for(kind, today or today_ar())
-    payload = build_payload(kind, f, t, sub.Name, subscription_trades(sub, Org(db)), _behavior_getter(db, f, t))
+    payload = build_payload(kind, f, t, sub.Name, subscription_trades(sub, Org(db)), _behavior_getter(db))
     report = _new_report(sub, KIND_TEST, f, t, payload, email=to)
     db.add(report)
     db.commit()
@@ -409,4 +500,4 @@ def send_test(db: Session, sub: BehaviorReportSubscription, kind: str, to: Optio
 def preview_payload(db: Session, sub: BehaviorReportSubscription, kind: str,
                     today: Optional[date] = None) -> dict:
     f, t = period_for(kind, today or today_ar())
-    return build_payload(kind, f, t, sub.Name, subscription_trades(sub, Org(db)), _behavior_getter(db, f, t))
+    return build_payload(kind, f, t, sub.Name, subscription_trades(sub, Org(db)), _behavior_getter(db))
