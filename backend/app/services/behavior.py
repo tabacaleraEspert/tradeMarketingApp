@@ -21,6 +21,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from ..models import PDV, File, RouteDay, RouteDayPdv, User, Visit, VisitCheck, VisitPhoto
 from ..utils.geo import haversine_km
@@ -64,6 +65,14 @@ def _to_ar(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(BUSINESS_TZ)
+
+
+def _naive_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    """En prod conviven columnas DATETIME2 (naive) y DATETIMEOFFSET (aware):
+    todo se normaliza a naive UTC para poder comparar/ordenar."""
+    if dt is None or dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _iso(dt: Optional[datetime]) -> Optional[str]:
@@ -139,7 +148,11 @@ def _load(db: Session, user_id: int, date_from: date, date_to: date):
         .order_by(Visit.OpenedAt, Visit.VisitId)
         .all()
     )
+    # Fechas a naive UTC sin marcar los objetos como modificados (un commit
+    # posterior de la misma sesión, p.ej. el envío del reporte, no las reescribe).
     for v, name, lat, lon in rows:
+        set_committed_value(v, "OpenedAt", _naive_utc(v.OpenedAt))
+        set_committed_value(v, "ClosedAt", _naive_utc(v.ClosedAt))
         visits[v.VisitId] = _VisitRow(v, name, _f(lat), _f(lon))
 
     # Join por Visit (no `IN (ids)`): Azure SQL tope de 2100 parámetros.
@@ -151,6 +164,7 @@ def _load(db: Session, user_id: int, date_from: date, date_to: date):
         .all()
     )
     for c in checks:
+        set_committed_value(c, "Ts", _naive_utc(c.Ts))
         visits[c.VisitId].checks.append(c)
 
     photos = (
@@ -161,7 +175,7 @@ def _load(db: Session, user_id: int, date_from: date, date_to: date):
         .all()
     )
     for vid, taken, lat, lon in photos:
-        visits[vid].photos.append((taken, float(lat), float(lon)))
+        visits[vid].photos.append((_naive_utc(taken), float(lat), float(lon)))
 
     # Plan: {fecha: {pdvId: (order, name, lat, lon)}} — si un PDV aparece en dos
     # RouteDay del mismo día se queda con el menor PlannedOrder.
@@ -207,7 +221,7 @@ def _gps_points(day_visits: list[_VisitRow]) -> list[dict]:
                 "ts": _iso(taken), "tipo": "foto", "lat": lat, "lon": lon,
                 "acc": None, "distPdv": None, "bateria": None, **base,
             }))
-    raw.sort(key=lambda r: r[0])
+    raw.sort(key=lambda r: _naive_utc(r[0]))
 
     kept: list[dict] = []
     for _, p in raw:

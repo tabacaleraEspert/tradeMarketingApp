@@ -504,3 +504,65 @@ def test_shape_dia_punto_secuencia(db):
     }
     assert set(d["planNoVisitados"][0]) == {"pdvId", "pdvName", "lat", "lon", "plannedOrder"}
     assert set(d["alertas"][0]) == {"tipo", "severidad", "fecha", "visitId", "pdvId", "pdvName", "detalle"}
+
+
+# ---------------------------------------------------------------------------
+# Fechas naive + aware mezcladas (prod: DATETIME2 y DATETIMEOFFSET conviven)
+# ---------------------------------------------------------------------------
+
+def test_mezcla_naive_y_aware_no_rompe_y_no_ensucia_la_sesion(db):
+    """Regresión prod 2026-09-25: con columnas DATETIMEOFFSET (aware) y DATETIME2
+    (naive) mezcladas → `can't compare offset-naive and offset-aware datetimes`.
+    SQLite siempre devuelve naive: se simula DATETIMEOFFSET con un evento de
+    carga que vuelve aware a VisitCheck.Ts y Visit.OpenedAt/ClosedAt."""
+    from datetime import timezone
+    from sqlalchemy import event
+
+    u, p = _user(db), _pdv(db)
+    v = _visit(db, p, u, ar(D1, 9, 0))
+    _check(db, v, "IN", ar(D1, 9, 1))
+    _check(db, v, "OUT", ar(D1, 9, 20))
+    _photo(db, v, ar(D1, 9, 10), LAT, LON)
+    db.flush()
+    db.expire_all()
+
+    def to_aware(target, _ctx):
+        for attr in ("Ts", "OpenedAt", "ClosedAt"):
+            val = getattr(target, attr, None) if attr in target.__dict__ else None
+            if val is not None and val.tzinfo is None:
+                target.__dict__[attr] = val.replace(tzinfo=timezone.utc)
+
+    event.listen(VisitCheckModel, "load", to_aware)
+    event.listen(VisitModel, "load", to_aware)
+    try:
+        out = build_behavior(db, u.UserId, D1, D1)
+    finally:
+        event.remove(VisitCheckModel, "load", to_aware)
+        event.remove(VisitModel, "load", to_aware)
+    d = _day(out, D1)
+    assert [x["tipo"] for x in d["puntos"]] == ["in", "foto", "out"]
+    assert out["resumen"]["onProm"] == "09:00"  # min(check-in 09:01, apertura 09:00)
+    assert not db.dirty  # la normalización no marca filas para UPDATE
+
+
+def test_gps_points_ordena_mezcla_naive_aware():
+    from datetime import timezone
+
+    class _V:
+        VisitId, PdvId = 1, 1
+
+    vr = B._VisitRow(_V(), "PDV", LAT, LON)
+    vr.photos = [
+        (datetime(2026, 4, 13, 12, 30, tzinfo=timezone.utc), LAT, LON),
+        (datetime(2026, 4, 13, 12, 10), LAT, LON),
+    ]
+    pts = B._gps_points([vr])
+    assert [p["seq"] for p in pts] == [1, 2] and pts[0]["ts"] < pts[1]["ts"]
+
+
+def test_naive_utc():
+    from datetime import timezone
+    aware = datetime(2026, 9, 25, 9, 0, tzinfo=timezone(timedelta(hours=-3)))
+    assert B._naive_utc(aware) == datetime(2026, 9, 25, 12, 0)
+    assert B._naive_utc(datetime(2026, 9, 25, 12, 0)) == datetime(2026, 9, 25, 12, 0)
+    assert B._naive_utc(None) is None
