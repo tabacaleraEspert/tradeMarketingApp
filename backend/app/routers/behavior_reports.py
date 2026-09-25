@@ -206,7 +206,8 @@ def preview(sub_id: int, kind: Literal["weekly", "monthly"] = "weekly", db: Sess
     """HTML del mail tal como se enviaría hoy (no envía ni guarda nada)."""
     sub = _get_sub(db, sub_id)
     payload = R.preview_payload(db, sub, kind)
-    _, html, _ = render_mail(payload, R.report_url("0" * 64), date.today(), test=True)
+    # Sin link real (no se genera token): el botón no navega.
+    _, html, _ = render_mail(payload, "#vista-previa", date.today(), test=True)
     return HTMLResponse(html)
 
 

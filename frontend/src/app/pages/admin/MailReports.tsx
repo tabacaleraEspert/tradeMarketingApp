@@ -276,9 +276,9 @@ export function MailReports() {
             {preview.html == null ? (
               <p className="text-sm text-muted-foreground py-8 text-center">Generando...</p>
             ) : (
-              <iframe title="Vista previa del mail" srcDoc={preview.html} className="w-full h-[70vh] rounded-lg border border-border bg-white" />
+              <iframe title="Vista previa del mail" srcDoc={preview.html} sandbox="" className="w-full h-[70vh] rounded-lg border border-border bg-white" />
             )}
-            <p className="text-xs text-muted-foreground">Con los datos de hoy (último período cerrado). El link de la vista previa no funciona.</p>
+            <p className="text-xs text-muted-foreground">Con los datos de hoy (último período cerrado). El botón "Ver reporte completo" funciona en el mail real (acá no navega).</p>
           </div>
         )}
       </Modal>

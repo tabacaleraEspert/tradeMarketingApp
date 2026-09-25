@@ -64,7 +64,9 @@ class Settings(BaseSettings):
     # sin verificar en DNS: no se puede usar como remitente hasta que IT lo verifique).
     acs_email_from: str = "DoNotReply@0ba433de-2938-4f43-83f0-17faa6939544.azurecomm.net"
     # Base de los links que van en los mails (página pública /r/<token>).
-    public_app_url: str = "http://localhost:5173"
+    # Default = frontend de prod: si falta la variable, un link nunca debe
+    # apuntar a localhost (en dev los mails no salen: van al log).
+    public_app_url: str = "https://red-grass-0c483f30f.6.azurestaticapps.net"
     # Header X-Cron-Key del disparador programado. Vacío = endpoint deshabilitado (503).
     cron_secret: str = ""
 
