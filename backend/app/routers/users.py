@@ -18,39 +18,60 @@ def hash_password(password: str) -> str:
 router = APIRouter(prefix="/users", tags=["Usuarios"])
 
 
-def _attach_role(user: UserModel, db: Session) -> User:
-    """Serializa un User incluyendo el nombre del rol y la URL del avatar."""
-    ur = db.query(UserRoleModel).filter(UserRoleModel.UserId == user.UserId).first()
-    role_name = None
-    if ur:
-        r = db.query(RoleModel).filter(RoleModel.RoleId == ur.RoleId).first()
-        role_name = r.Name if r else None
+def _serialize_users(users: list[UserModel], db: Session) -> list[User]:
+    """Serializa usuarios con nombre del rol y URL del avatar en 2 queries en
+    total (antes eran 2-3 POR usuario: /users con ~130 usuarios hacía ~400
+    idas y vueltas a Azure SQL y la pantalla de Usuarios tardaba segundos)."""
+    ids = [u.UserId for u in users]
+    role_by_user: dict[int, str] = {}
+    if ids:
+        # Orden por RoleId = mismo rol que devolvía el `.first()` anterior
+        # (PK clustered (UserId, RoleId)) para usuarios con más de un rol.
+        rows = (
+            db.query(UserRoleModel.UserId, RoleModel.Name)
+            .join(RoleModel, RoleModel.RoleId == UserRoleModel.RoleId)
+            .filter(UserRoleModel.UserId.in_(ids))
+            .order_by(UserRoleModel.UserId, UserRoleModel.RoleId)
+            .all()
+        )
+        for uid, name in rows:
+            role_by_user.setdefault(uid, name)
 
-    avatar_url = None
-    avatar_id = getattr(user, "AvatarFileId", None)
-    if avatar_id:
-        f = db.query(FileModel).filter(FileModel.FileId == avatar_id).first()
+    avatar_ids = {u.AvatarFileId for u in users if getattr(u, "AvatarFileId", None)}
+    files = (
+        {f.FileId: f for f in db.query(FileModel).filter(FileModel.FileId.in_(avatar_ids)).all()}
+        if avatar_ids else {}
+    )
+
+    out = []
+    for user in users:
+        avatar_url = None
+        f = files.get(getattr(user, "AvatarFileId", None))
         if f and f.BlobKey:
             try:
                 avatar_url = storage.get_url(f.BlobKey)
             except Exception:
                 avatar_url = f.Url
+        out.append(User.model_validate({
+            "UserId": user.UserId,
+            "Email": user.Email,
+            "DisplayName": user.DisplayName,
+            "DNI": getattr(user, "DNI", None),
+            "ZoneId": user.ZoneId,
+            "ManagerUserId": getattr(user, "ManagerUserId", None),
+            "IsActive": user.IsActive,
+            "MustChangePassword": bool(getattr(user, "MustChangePassword", False)),
+            "RoleName": role_by_user.get(user.UserId),
+            "AvatarUrl": avatar_url,
+            "CreatedAt": user.CreatedAt,
+            "UpdatedAt": user.UpdatedAt,
+        }))
+    return out
 
-    data = {
-        "UserId": user.UserId,
-        "Email": user.Email,
-        "DisplayName": user.DisplayName,
-        "DNI": getattr(user, "DNI", None),
-        "ZoneId": user.ZoneId,
-        "ManagerUserId": getattr(user, "ManagerUserId", None),
-        "IsActive": user.IsActive,
-        "MustChangePassword": bool(getattr(user, "MustChangePassword", False)),
-        "RoleName": role_name,
-        "AvatarUrl": avatar_url,
-        "CreatedAt": user.CreatedAt,
-        "UpdatedAt": user.UpdatedAt,
-    }
-    return User.model_validate(data)
+
+def _attach_role(user: UserModel, db: Session) -> User:
+    """Serializa un User incluyendo el nombre del rol y la URL del avatar."""
+    return _serialize_users([user], db)[0]
 
 
 def _ensure_role(db: Session, user_id: int, role_name: str) -> None:
@@ -70,7 +91,9 @@ def _ensure_role(db: Session, user_id: int, role_name: str) -> None:
 @router.get("", response_model=list[User])
 def list_users(
     skip: int = 0,
-    limit: int = Query(default=100, le=500),
+    # Default 500 (= tope): los callers piden la lista completa sin paginar;
+    # con default 100 la pantalla de Usuarios dejaba afuera a los de ID alto.
+    limit: int = Query(default=500, le=500),
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user),
 ):
@@ -83,7 +106,7 @@ def list_users(
             return []
         q = q.filter(UserModel.UserId.in_(visible_ids))
     users = q.order_by(UserModel.UserId).offset(skip).limit(limit).all()
-    return [_attach_role(u, db) for u in users]
+    return _serialize_users(users, db)
 
 
 @router.get("/{user_id}", response_model=User)
@@ -125,7 +148,7 @@ def list_subordinates(
         subs = db.query(UserModel).filter(UserModel.UserId.in_(sub_ids)).all()
     else:
         subs = get_direct_subordinates(db, user_id)
-    return [_attach_role(s, db) for s in subs]
+    return _serialize_users(subs, db)
 
 
 @router.get("/{user_id}/stats/monthly", dependencies=[Depends(get_current_user)])
