@@ -35,6 +35,7 @@ import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
 import { todayAR } from "../../lib/dateUtils";
+import { describeOverlaps } from "@/lib/routeDays";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -917,6 +918,15 @@ export function RouteManagement() {
                             await routesApi.update(route.RouteId, { AssignedUserId: newUserId });
                             toast.success(newUserId ? "TM reasignado" : "TM desasignado");
                             refetch();
+                            if (newUserId) {
+                              // Aviso (no restricción): 2 rutas el mismo día están permitidas.
+                              routesApi.checkOverlap(route.RouteId).then((o) => {
+                                if (o.hasOverlap) {
+                                  const name = users.find((u) => u.UserId === newUserId)?.DisplayName ?? "El trade";
+                                  toast.warning(`${name} ya tiene otra ruta esos días: ${describeOverlaps(o.overlaps)}`, { duration: 10000 });
+                                }
+                              }).catch(() => {});
+                            }
                           } catch (err) { toast.error(err instanceof Error ? err.message : "Error"); }
                         }}
                       >

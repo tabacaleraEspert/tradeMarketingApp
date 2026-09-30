@@ -55,3 +55,14 @@ describe("monthlyDates", () => {
     expect(monthlyDates("2026-09-01", "2026-11-30", "2026-10-10")).toEqual(["2026-10-10", "2026-11-10"]);
   });
 });
+
+describe("describeOverlaps", () => {
+  it("resume rutas y fechas", async () => {
+    const { describeOverlaps, shortDay } = await import("./routeDays");
+    expect(shortDay("2026-10-05")).toBe("lun 05/10");
+    expect(describeOverlaps([
+      { routeName: "Ruta Norte", routeType: "regular", overlapDates: ["2026-10-05", "2026-10-12", "2026-10-19"], overlapCount: 5 },
+      { routeName: "Verano", routeType: "campaign", overlapDates: ["2026-10-06"], overlapCount: 1 },
+    ])).toBe("'Ruta Norte' (lun 05/10, lun 12/10 y 3 más) · campaña 'Verano' (mar 06/10)");
+  });
+});

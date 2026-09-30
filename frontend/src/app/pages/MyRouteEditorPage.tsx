@@ -27,7 +27,7 @@ import {
 import { toast } from "sonner";
 import { getCurrentUser } from "../lib/auth";
 import { todayAR } from "../lib/dateUtils";
-import { planRouteDates } from "@/lib/routeDays";
+import { describeOverlaps, planRouteDates } from "@/lib/routeDays";
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Diaria" },
@@ -355,8 +355,7 @@ export function MyRouteEditorPage() {
           try {
             const overlap = await routesApi.checkOverlap(id);
             if (overlap.hasOverlap) {
-              const names = overlap.overlaps.map((o) => o.routeName).join(", ");
-              toast.warning(`Solapamiento detectado con: ${names}. Revisá las frecuencias.`);
+              toast.warning(`Ya tenés otra ruta esos días: ${describeOverlaps(overlap.overlaps)}. Podés mantener las dos.`, { duration: 8000 });
             }
           } catch { /* non-blocking */ }
           await handleGenerateDays(8);

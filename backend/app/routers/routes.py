@@ -2,6 +2,7 @@ import json as _json
 from datetime import date as _date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from ..auth import require_role, get_current_user, get_user_role
@@ -1311,116 +1312,161 @@ def monthly_dates(start: _date, end: _date, anchor_iso: str | None) -> list[_dat
     return out
 
 
+OVERLAP_WEEKS = 8
+
+
+def planned_dates(freq: str | None, config_str: str | None, end_date: _date | None = None,
+                  weeks: int = OVERLAP_WEEKS) -> set[_date]:
+    """Días que la frecuencia de una ruta programaría en las próximas `weeks`
+    semanas (desde hoy o el inicio, hasta la fecha de fin). Espejo de
+    `planRouteDates` (frontend/src/lib/routeDays.ts). `day`/`days` en JS: 0 = domingo."""
+    if not freq:
+        return set()
+    try:
+        config = _json.loads(config_str) if config_str else {}
+    except ValueError:
+        config = {}
+    today = _today_ar()
+    end = today + _timedelta(weeks=weeks)
+    if end_date is not None and end_date < end:
+        end = end_date
+    anchor = _date.fromisoformat(config["startDate"]) if config.get("startDate") else today
+    start = max(anchor, today)
+    if start > end:
+        return set()
+
+    def every(n: int) -> set[_date]:
+        d, out = anchor, set()
+        while d < start:
+            d += _timedelta(days=n)
+        while d <= end:
+            out.add(d)
+            d += _timedelta(days=n)
+        return out
+
+    def weekdays(keep) -> set[_date]:
+        out, d = set(), start
+        while d <= end:
+            if keep((d.weekday() + 1) % 7):
+                out.add(d)
+            d += _timedelta(days=1)
+        return out
+
+    def first_on_or_after(d: _date, js_day: int) -> _date:
+        return d + _timedelta(days=(js_day - (d.weekday() + 1) % 7) % 7)
+
+    if freq == "daily":
+        return weekdays(lambda js: 1 <= js <= 5)
+    if freq in ("weekly", "biweekly") and config.get("day") is not None:
+        step = 7 if freq == "weekly" else 14
+        d = first_on_or_after(start, config["day"])
+        if freq == "biweekly":
+            off = (d - first_on_or_after(anchor, config["day"])).days % 14
+            if off:
+                d += _timedelta(days=14 - off)
+        out = set()
+        while d <= end:
+            out.add(d)
+            d += _timedelta(days=step)
+        return out
+    if freq == "every_15_days":
+        return every(15)
+    if freq == "every_x_days":
+        return every(int(config.get("interval") or 15))
+    if freq == "monthly":
+        return set(monthly_dates(start, end, config.get("startDate")))
+    if freq == "specific_days":
+        days = set(config.get("days") or [])
+        return weekdays(lambda js: js in days) if days else set()
+    return set()
+
+
+def find_overlaps(db: Session, user_id: int, dates: set[_date], exclude_route_id: int | None = None) -> list[dict]:
+    """Otras rutas vigentes del trade que caen en alguno de `dates`: por sus días
+    programados (RouteDay, incluye los cargados a mano) y por su frecuencia (por
+    si todavía no generaron días). Solo informa: tener 2 rutas el mismo día está
+    permitido."""
+    if not dates:
+        return []
+    others = db.query(RouteModel).filter(RouteModel.AssignedUserId == user_id, route_is_live())
+    if exclude_route_id is not None:
+        others = others.filter(RouteModel.RouteId != exclude_route_id)
+    others = others.all()
+    if not others:
+        return []
+    by_route: dict[int, set[_date]] = {r.RouteId: set() for r in others}
+    for rid, wd in (
+        db.query(RouteDayModel.RouteId, RouteDayModel.WorkDate)
+        .filter(
+            RouteDayModel.RouteId.in_(list(by_route)),
+            RouteDayModel.AssignedUserId == user_id,
+            RouteDayModel.WorkDate >= min(dates),
+            RouteDayModel.WorkDate <= max(dates),
+        )
+        .all()
+    ):
+        if wd in dates:
+            by_route[rid].add(wd)
+    out = []
+    for r in others:
+        common = by_route[r.RouteId] | (planned_dates(r.FrequencyType, r.FrequencyConfig, r.EndDate) & dates)
+        if common:
+            ordered = sorted(common)
+            out.append({
+                "routeId": r.RouteId,
+                "routeName": r.Name,
+                "routeType": r.RouteType or ROUTE_REGULAR,
+                "overlapDates": [d.isoformat() for d in ordered[:5]],
+                "overlapCount": len(ordered),
+            })
+    out.sort(key=lambda o: (o["overlapDates"][0], o["routeName"]))
+    return out
+
+
+class OverlapPreviewIn(BaseModel):
+    AssignedUserId: int
+    RouteId: int | None = None
+    FrequencyType: str | None = None
+    FrequencyConfig: str | None = None
+    EndDate: _date | None = None
+
+
+@router.post("/overlap-preview")
+def overlap_preview(data: OverlapPreviewIn, db: Session = Depends(get_db)):
+    """Antes de guardar: ¿el trade ya tiene otra ruta alguno de los días que
+    programaría esta? Para avisar en el editor al asignar/cambiar frecuencia
+    (no restringe). Con RouteId se suman sus días ya programados (manuales)."""
+    dates = planned_dates(data.FrequencyType, data.FrequencyConfig, data.EndDate)
+    if data.RouteId is not None:
+        today = _today_ar()
+        dates |= {
+            wd for (wd,) in db.query(RouteDayModel.WorkDate).filter(
+                RouteDayModel.RouteId == data.RouteId,
+                RouteDayModel.WorkDate >= today,
+                RouteDayModel.WorkDate <= today + _timedelta(weeks=OVERLAP_WEEKS),
+            ).all()
+            if data.EndDate is None or wd <= data.EndDate
+        }
+    overlaps = find_overlaps(db, data.AssignedUserId, dates, data.RouteId)
+    return {"overlaps": overlaps, "hasOverlap": bool(overlaps)}
+
+
 @router.get("/{route_id}/check-overlap")
 def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
-    """Check if this route's frequency overlaps with other routes for the same user."""
+    """Después de guardar: otras rutas del mismo trade en los días de esta
+    (frecuencia + días ya programados). Informativo."""
     route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not route:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    if not route.AssignedUserId or not route.FrequencyType:
+    if not route.AssignedUserId:
         return {"overlaps": [], "hasOverlap": False}
-
-    # Get all other active routes for the same user
-    other_routes = (
-        db.query(RouteModel)
-        .filter(
-            RouteModel.AssignedUserId == route.AssignedUserId,
-            RouteModel.RouteId != route_id,
-            route_is_live(),
-            RouteModel.FrequencyType != None,
-        )
-        .all()
-    )
-
-    if not other_routes:
-        return {"overlaps": [], "hasOverlap": False}
-
-    # Generate next 8 weeks of dates for this route
-    def generate_dates(freq: str, config_str: str | None, end_date: _date | None = None) -> set[str]:
-        config = _json.loads(config_str) if config_str else {}
-        today = _today_ar()
-        end = today + _timedelta(weeks=8)
-        if end_date is not None and end_date < end:
-            end = end_date
-        start = _date.fromisoformat(config["startDate"]) if config.get("startDate") else today
-        if start < today:
-            start = today
-        dates = set()
-
-        if freq == "daily":
-            d = start
-            while d <= end:
-                if d.weekday() < 5:
-                    dates.add(d.isoformat())
-                d += _timedelta(days=1)
-        elif freq == "weekly":
-            day_js = config.get("day")
-            if day_js is not None:
-                py_wd = (day_js - 1) % 7
-                d = start
-                while d.weekday() != py_wd:
-                    d += _timedelta(days=1)
-                while d <= end:
-                    dates.add(d.isoformat())
-                    d += _timedelta(days=7)
-        elif freq == "biweekly":
-            day_js = config.get("day")
-            if day_js is not None:
-                py_wd = (day_js - 1) % 7
-                d = start
-                while d.weekday() != py_wd:
-                    d += _timedelta(days=1)
-                # Align to biweekly cycle from startDate
-                anchor_str = config.get("startDate")
-                if anchor_str:
-                    anchor = _date.fromisoformat(anchor_str)
-                    while anchor.weekday() != py_wd:
-                        anchor += _timedelta(days=1)
-                    diff = (d - anchor).days % 14
-                    if diff != 0:
-                        d += _timedelta(days=14 - diff)
-                while d <= end:
-                    dates.add(d.isoformat())
-                    d += _timedelta(days=14)
-            else:
-                # Fallback: old behavior for routes without day set
-                d = start
-                while d <= end:
-                    dates.add(d.isoformat())
-                    d += _timedelta(days=14)
-        elif freq == "every_15_days":
-            interval = config.get("interval", 15)
-            d = start
-            while d <= end:
-                dates.add(d.isoformat())
-                d += _timedelta(days=interval)
-        elif freq == "monthly":
-            dates |= {d.isoformat() for d in monthly_dates(start, end, config.get("startDate"))}
-        elif freq == "specific_days":
-            day_list = config.get("days", [])
-            d = start
-            while d <= end:
-                js_day = (d.weekday() + 1) % 7
-                if js_day in day_list:
-                    dates.add(d.isoformat())
-                d += _timedelta(days=1)
-        return dates
-
-    my_dates = generate_dates(route.FrequencyType, route.FrequencyConfig, route.EndDate)
-    overlaps = []
-
-    for other in other_routes:
-        other_dates = generate_dates(other.FrequencyType, other.FrequencyConfig, other.EndDate)
-        common = my_dates & other_dates
-        if common:
-            overlaps.append({
-                "routeId": other.RouteId,
-                "routeName": other.Name,
-                "overlapDates": sorted(list(common))[:5],
-                "overlapCount": len(common),
-            })
-
-    return {
-        "overlaps": overlaps,
-        "hasOverlap": len(overlaps) > 0,
+    today = _today_ar()
+    dates = planned_dates(route.FrequencyType, route.FrequencyConfig, route.EndDate) | {
+        wd for (wd,) in db.query(RouteDayModel.WorkDate).filter(
+            RouteDayModel.RouteId == route_id,
+            RouteDayModel.WorkDate >= today,
+            RouteDayModel.WorkDate <= today + _timedelta(weeks=OVERLAP_WEEKS),
+        ).all()
     }
+    overlaps = find_overlaps(db, route.AssignedUserId, dates, route_id)
+    return {"overlaps": overlaps, "hasOverlap": bool(overlaps)}

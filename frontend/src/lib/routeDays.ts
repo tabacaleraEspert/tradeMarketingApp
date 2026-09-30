@@ -125,3 +125,24 @@ export function planRouteDates({
   }
   return skip ? dates.filter((d) => !skip.has(d)) : dates;
 }
+
+const DOW = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+/** "lun 05/10" */
+export function shortDay(iso: string): string {
+  const d = parse(iso);
+  return `${DOW[d.getUTCDay()]} ${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+/** Texto del aviso de solapamiento: "'Ruta Norte' (lun 05/10, lun 12/10 y 3 más) · campaña 'Verano' (mar 06/10)". */
+export function describeOverlaps(
+  overlaps: { routeName: string; routeType?: string; overlapDates: string[]; overlapCount: number }[],
+): string {
+  return overlaps
+    .map((o) => {
+      const shown = o.overlapDates.slice(0, 2).map(shortDay).join(", ");
+      const extra = o.overlapCount > 2 ? ` y ${o.overlapCount - 2} más` : "";
+      return `${o.routeType === "campaign" ? "campaña " : ""}'${o.routeName}' (${shown}${extra})`;
+    })
+    .join(" · ");
+}

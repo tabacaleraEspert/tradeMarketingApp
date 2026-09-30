@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
-import { planRouteDates } from "@/lib/routeDays";
+import { describeOverlaps, planRouteDates } from "@/lib/routeDays";
 import { todayAR } from "../../lib/dateUtils";
 import { Card, CardContent } from "../../components/ui/card";
 import { ConfirmModal } from "../../components/ui/modal";
@@ -36,7 +36,7 @@ import {
   useApiList,
   BEJERMAN_ZONES,
 } from "@/lib/api";
-import type { MandatoryActivity, PdvRouteAssignment, RouteType } from "@/lib/api";
+import type { MandatoryActivity, PdvRouteAssignment, RouteOverlap, RouteType } from "@/lib/api";
 import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 import { toast } from "sonner";
@@ -264,6 +264,34 @@ export function RouteEditorPage() {
   const totalKm = useMemo(() => totalRouteKm(orderedPdvs), [orderedPdvs]);
 
   const isCampaign = routeDraft?.RouteType === "campaign";
+
+  // Aviso (no restricción): ¿el trade elegido ya tiene otra ruta alguno de los días
+  // que programaría esta? Se recalcula al cambiar trade / frecuencia / fin.
+  const [overlaps, setOverlaps] = useState<RouteOverlap[]>([]);
+  const overlapUser = isMyRoute ? null : routeDraft?.AssignedUserId ?? null;
+  useEffect(() => {
+    if (!overlapUser) {
+      setOverlaps([]);
+      return;
+    }
+    let alive = true;
+    const t = setTimeout(() => {
+      routesApi
+        .overlapPreview({
+          AssignedUserId: overlapUser,
+          RouteId: id ?? undefined,
+          FrequencyType: routeDraft?.FrequencyType ?? null,
+          FrequencyConfig: routeDraft?.FrequencyConfig ?? null,
+          EndDate: routeDraft?.EndDate ?? null,
+        })
+        .then((r) => alive && setOverlaps(r.overlaps))
+        .catch(() => alive && setOverlaps([]));
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(t);
+    };
+  }, [overlapUser, id, routeDraft?.FrequencyType, routeDraft?.FrequencyConfig, routeDraft?.EndDate]);
 
   // PDVs en OTRA ruta regular — exclusividad. Una campaña no bloquea ni es
   // bloqueada: en campaña este set queda vacío y `pdvOwnerRoute` es solo informativo.
@@ -798,11 +826,7 @@ export function RouteEditorPage() {
         try {
           const overlap = await routesApi.checkOverlap(id);
           if (overlap.hasOverlap) {
-            const routeNames = [...new Set(overlap.overlaps.map((o: { routeName: string }) => o.routeName))];
-            toast.warning(
-              `Solapamiento con: ${routeNames.join(", ")} (${overlap.overlaps.length} días en común)`,
-              { duration: 6000 },
-            );
+            toast.warning(`El trade ya tiene otra ruta esos días: ${describeOverlaps(overlap.overlaps)}`, { duration: 8000 });
           }
         } catch { /* overlap check is best-effort */ }
       }
@@ -1222,6 +1246,18 @@ export function RouteEditorPage() {
                 <p className="text-sm text-muted-foreground mt-2">
                   Asignado a: <span className="font-medium text-foreground">{route.AssignedUserName}</span>
                 </p>
+              )}
+              {overlaps.length > 0 && (
+                <div
+                  role="status"
+                  className="mt-3 rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 p-3 text-sm text-amber-900 dark:text-amber-200"
+                >
+                  <p className="font-semibold">
+                    {users.find((u) => u.UserId === routeDraft?.AssignedUserId)?.DisplayName ?? "Este trade"} ya tiene otra ruta esos días
+                  </p>
+                  <p className="mt-0.5">{describeOverlaps(overlaps)}.</p>
+                  <p className="mt-1 text-xs opacity-80">Podés guardar igual: ese día va a tener las dos rutas.</p>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -589,11 +589,16 @@ export const routesApi = {
     api.put<RoutePdv[]>(`/routes/${routeId}/pdvs/reorder`, pdvIds),
 
   // Overlap detection
-  checkOverlap: (routeId: number) =>
-    api.get<{
-      overlaps: Array<{ routeId: number; routeName: string; overlapDates: string[]; overlapCount: number }>;
-      hasOverlap: boolean;
-    }>(`/routes/${routeId}/check-overlap`),
+  /** Después de guardar: otras rutas del mismo trade en los días de esta (informativo). */
+  checkOverlap: (routeId: number) => api.get<RouteOverlapResult>(`/routes/${routeId}/check-overlap`),
+  /** Antes de guardar: ¿el trade ya tiene otra ruta alguno de esos días? (no restringe) */
+  overlapPreview: (data: {
+    AssignedUserId: number;
+    RouteId?: number;
+    FrequencyType?: string | null;
+    FrequencyConfig?: string | null;
+    EndDate?: string | null;
+  }) => api.post<RouteOverlapResult>("/routes/overlap-preview", data),
 
   // Route Generation
   generateProposal: (data: {
@@ -1934,4 +1939,18 @@ export interface PdvRouteAssignment {
   routeType: RouteType;
   routeName: string;
   assignedUserName: string | null;
+}
+
+export interface RouteOverlap {
+  routeId: number;
+  routeName: string;
+  routeType: RouteType;
+  /** Primeras 5 fechas en común ("YYYY-MM-DD"). */
+  overlapDates: string[];
+  overlapCount: number;
+}
+
+export interface RouteOverlapResult {
+  overlaps: RouteOverlap[];
+  hasOverlap: boolean;
 }
