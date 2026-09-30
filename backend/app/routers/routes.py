@@ -1,3 +1,6 @@
+import json as _json
+from datetime import date as _date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -13,6 +16,8 @@ from ..models import (
     PDV as PDVModel,
     User as UserModel,
 )
+from ..models.route import ROUTE_CAMPAIGN, ROUTE_REGULAR, route_is_live
+from ..models.audit import AuditEvent as AuditEventModel
 from ..models.channel import Channel as ChannelModel
 from ..utils.pagination import Page, PageParams, make_page, paginate
 from ..utils.ttl_cache import TTLCache
@@ -61,6 +66,8 @@ def _route_to_response(r: RouteModel, db: Session) -> Route:
         "AssignedUserName": assigned_user_name,
         "IsOptimized": bool(getattr(r, "IsOptimized", False)),
         "IsFocus": bool(getattr(r, "IsFocus", True)),
+        "RouteType": getattr(r, "RouteType", None) or ROUTE_REGULAR,
+        "EndDate": getattr(r, "EndDate", None),
         "CreatedByUserId": getattr(r, "CreatedByUserId", None),
         "PdvCount": pdv_count,
         "CreatedAt": r.CreatedAt,
@@ -100,6 +107,8 @@ def _routes_to_response_batch(rs: list[RouteModel], db: Session) -> list[Route]:
             "AssignedUserName": names.get(getattr(r, "AssignedUserId", None)),
             "IsOptimized": bool(getattr(r, "IsOptimized", False)),
             "IsFocus": bool(getattr(r, "IsFocus", True)),
+            "RouteType": getattr(r, "RouteType", None) or ROUTE_REGULAR,
+            "EndDate": getattr(r, "EndDate", None),
             "CreatedByUserId": getattr(r, "CreatedByUserId", None),
             "PdvCount": counts.get(r.RouteId, 0),
             "CreatedAt": r.CreatedAt,
@@ -182,6 +191,66 @@ def _assert_route_access(
             raise HTTPException(403, "No puede reasignar esta ruta a otro usuario")
 
 
+def _is_campaign(route: RouteModel | None) -> bool:
+    return route is not None and (getattr(route, "RouteType", None) or ROUTE_REGULAR) == ROUTE_CAMPAIGN
+
+
+def _start_date_of(freq_config: str | None) -> _date | None:
+    try:
+        raw = _json.loads(freq_config).get("startDate") if freq_config else None
+        return _date.fromisoformat(raw) if raw else None
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
+def _assert_campaign_rules(
+    db: Session,
+    current_user: UserModel,
+    route: RouteModel | None,
+    data: "RouteCreate | RouteUpdate | None" = None,
+) -> None:
+    """Reglas de rutas de campaña y fecha de fin (se suman a `_assert_route_access`).
+
+    - El tipo (regular/campaña) se elige al crear y no cambia.
+    - Crear/editar/borrar una campaña, o tocar sus PDVs y días: solo admin. El trade
+      asignado igual la ejecuta (visitas, estados del día) — esos endpoints no llaman acá.
+    - Campaña: nunca foco (fuera de KPI/TMR) y con fecha de fin obligatoria.
+    - Fecha de fin >= fecha de inicio (`FrequencyConfig.startDate`) si hay inicio.
+    """
+    changes = data.model_dump(exclude_unset=True) if data is not None else {}
+    if route is not None and changes.get("RouteType") not in (None, route.RouteType or ROUTE_REGULAR):
+        raise HTTPException(400, "El tipo de ruta (regular / campaña) no se puede cambiar")
+    campaign = _is_campaign(route) or (route is None and getattr(data, "RouteType", None) == ROUTE_CAMPAIGN)
+    if campaign and get_user_role(db, current_user.UserId) != "admin":
+        raise HTTPException(403, "Solo un admin puede crear o modificar rutas de campaña")
+    if data is None:
+        return
+    if campaign and getattr(data, "IsFocus", None):
+        data.IsFocus = False
+    end = changes["EndDate"] if "EndDate" in changes else getattr(route, "EndDate", None)
+    if campaign and end is None:
+        raise HTTPException(400, "La ruta de campaña necesita fecha de fin")
+    start = _start_date_of(changes["FrequencyConfig"] if "FrequencyConfig" in changes else getattr(route, "FrequencyConfig", None))
+    if end is not None and start is not None and end < start:
+        raise HTTPException(400, "La fecha de fin no puede ser anterior a la fecha de inicio")
+
+
+def _audit(db: Session, user: UserModel, action: str, route_id: int, payload: dict) -> None:
+    """Rastro de cambios de rutas (quién, qué, antes/después) en AuditEvent.
+    Va en la misma transacción que el cambio."""
+    db.add(AuditEventModel(
+        UserId=user.UserId, Entity="Route", EntityId=str(route_id), Action=action,
+        PayloadJson=_json.dumps(payload, default=str, ensure_ascii=False),
+    ))
+
+
+def _route_snapshot(r: RouteModel) -> dict:
+    return {k: getattr(r, k, None) for k in (
+        "Name", "RouteType", "IsActive", "IsFocus", "AssignedUserId", "FrequencyType",
+        "FrequencyConfig", "EndDate", "BejermanZone", "ZoneId",
+    )}
+
+
 # --- Zonas Bejerman ---
 @router.get("/bejerman-zones")
 def list_bejerman_zones():
@@ -194,8 +263,17 @@ def pdv_assignments(db: Session = Depends(get_db)):
     """Mapping of PdvId -> RouteId for every PDV currently assigned to a route.
     Used by the route editor to enforce PDV exclusivity (a PDV can only belong to one route).
     """
-    rows = db.query(RoutePdvModel.PdvId, RoutePdvModel.RouteId).all()
-    return [{"pdvId": pid, "routeId": rid} for pid, rid in rows]
+    rows = (
+        db.query(RoutePdvModel.PdvId, RoutePdvModel.RouteId, RouteModel.RouteType, RouteModel.Name, UserModel.DisplayName)
+        .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+        .outerjoin(UserModel, UserModel.UserId == RouteModel.AssignedUserId)
+        .all()
+    )
+    # routeType: solo las regulares son exclusivas (las campañas no bloquean ni son bloqueadas).
+    return [
+        {"pdvId": pid, "routeId": rid, "routeType": rtype or ROUTE_REGULAR, "routeName": rname, "assignedUserName": uname}
+        for pid, rid, rtype, rname, uname in rows
+    ]
 
 
 # --- Today's executive overview ---
@@ -347,7 +425,7 @@ def _build_map_overview(db: Session, current_user) -> dict:
     # La lógica de conjuntos la resuelve la DB con joins/NOT EXISTS: nada de
     # IN/NOT IN con miles de parámetros (TDS timeout en S0, App Insights
     # 2026-09-04) ni de bajar la tabla PDV completa para filtrar en memoria.
-    routes_q = db.query(RouteModel).filter(RouteModel.IsActive == True)
+    routes_q = db.query(RouteModel).filter(route_is_live())
     visible = visible_user_ids(db, current_user)
     if visible is not None:
         routes_q = routes_q.filter(RouteModel.AssignedUserId.in_(visible))
@@ -363,7 +441,7 @@ def _build_map_overview(db: Session, current_user) -> dict:
         db.query(RoutePdvModel.RouteId, RoutePdvModel.SortOrder, *_MAP_PDV_COLS)
         .join(PDVModel, PDVModel.PdvId == RoutePdvModel.PdvId)
         .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
-        .filter(RouteModel.IsActive == True)
+        .filter(route_is_live())
     )
     if visible is not None:
         routed_q = routed_q.filter(RouteModel.AssignedUserId.in_(visible))
@@ -404,7 +482,7 @@ def _build_map_overview(db: Session, current_user) -> dict:
     en_alguna_ruta = (
         db.query(RoutePdvModel.PdvId)
         .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
-        .filter(RouteModel.IsActive == True, RoutePdvModel.PdvId == PDVModel.PdvId)
+        .filter(route_is_live(), RoutePdvModel.PdvId == PDVModel.PdvId)
     )
     if visible is not None:
         en_alguna_ruta = en_alguna_ruta.filter(RouteModel.AssignedUserId.in_(visible))
@@ -501,7 +579,15 @@ def my_routes_detail(
     db: Session = Depends(get_db),
 ):
     """Returns all routes for a user with their PDVs embedded. Replaces N+1 pattern."""
-    routes = db.query(RouteModel).filter(RouteModel.AssignedUserId == user_id).order_by(RouteModel.RouteId).all()
+    routes = (
+        db.query(RouteModel)
+        .filter(
+            RouteModel.AssignedUserId == user_id,
+            or_(RouteModel.EndDate.is_(None), RouteModel.EndDate >= _today_ar()),  # vencidas no se muestran
+        )
+        .order_by(RouteModel.RouteId)
+        .all()
+    )
     if not routes:
         return []
 
@@ -547,6 +633,8 @@ def my_routes_detail(
             "RouteId": r.RouteId, "Name": r.Name, "PdvCount": len(rps),
             "BejermanZone": r.BejermanZone, "FrequencyType": r.FrequencyType,
             "EstimatedMinutes": r.EstimatedMinutes, "IsOptimized": r.IsOptimized,
+            "RouteType": r.RouteType or ROUTE_REGULAR,
+            "EndDate": r.EndDate.isoformat() if r.EndDate else None,
             "nextDay": next_day_map.get(r.RouteId),
             "pdvs": pdvs,
         })
@@ -562,6 +650,7 @@ def list_routes(
     limit: int = Query(default=100, le=500),
     created_by: int | None = None,
     assigned_user_id: int | None = None,
+    route_type: str | None = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
@@ -575,6 +664,8 @@ def list_routes(
         q = q.filter(RouteModel.CreatedByUserId == created_by)
     if assigned_user_id is not None:
         q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
+    if route_type:
+        q = q.filter(RouteModel.RouteType == route_type)
 
     routes = q.order_by(RouteModel.RouteId).offset(skip).limit(limit).all()
     return _routes_to_response_batch(routes, db)
@@ -585,6 +676,7 @@ def admin_list_routes(
     p: PageParams = Depends(),
     assigned_user_id: int | None = None,
     is_active: bool | None = None,
+    route_type: str | None = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
@@ -598,6 +690,8 @@ def admin_list_routes(
         q = q.filter(RouteModel.AssignedUserId == assigned_user_id)
     if is_active is not None:
         q = q.filter(RouteModel.IsActive == is_active)
+    if route_type:
+        q = q.filter(RouteModel.RouteType == route_type)
     if p.q:
         like = f"%{p.q}%"
         q = q.outerjoin(UserModel, RouteModel.AssignedUserId == UserModel.UserId).filter(or_(
@@ -614,7 +708,7 @@ def route_stats(db: Session = Depends(get_db), current_user = Depends(get_curren
     """Totales para las cards de /admin/routes — sin traer todas las rutas."""
     base = _visible_routes_query(db, current_user)
     total = base.count()
-    active = base.filter(RouteModel.IsActive == True).count()  # noqa: E712
+    active = base.filter(route_is_live()).count()  # noqa: E712
     visible_route_ids = base.with_entities(RouteModel.RouteId).scalar_subquery()
     total_pdvs = (
         db.query(func.count())
@@ -641,6 +735,7 @@ def get_route(route_id: int, db: Session = Depends(get_db)):
 @router.post("", response_model=Route, status_code=201, dependencies=[Depends(require_role("vendedor"))])
 def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user = Depends(get_current_user)):
     _assert_route_access(db, current_user, None, data)
+    _assert_campaign_rules(db, current_user, None, data)
     r = RouteModel(
         Name=data.Name,
         ZoneId=data.ZoneId,
@@ -655,9 +750,12 @@ def create_route(data: RouteCreate, db: Session = Depends(get_db), current_user 
         FrequencyConfig=data.FrequencyConfig,
         EstimatedMinutes=data.EstimatedMinutes,
         IsFocus=data.IsFocus,
+        RouteType=data.RouteType,
+        EndDate=data.EndDate,
     )
     db.add(r)
     db.flush()
+    _audit(db, current_user, "ROUTE_CREATE", r.RouteId, {"despues": _route_snapshot(r)})
     if data.FormId is not None:
         rf = RouteFormModel(RouteId=r.RouteId, FormId=data.FormId, SortOrder=0)
         db.add(rf)
@@ -673,7 +771,10 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     _assert_route_access(db, current_user, r, data)
+    _assert_campaign_rules(db, current_user, r, data)
     update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("RouteType", None)
+    before = _route_snapshot(r)
 
     # Detectar cambios reales comparando contra valores actuales
     old_assigned = r.AssignedUserId
@@ -696,7 +797,8 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
     # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta
     today = _today_ar()
 
-    if assigned_actually_changed:
+    # En una campaña el dueño de los PDVs no cambia (siguen siendo del trade de su ruta regular).
+    if assigned_actually_changed and not _is_campaign(r):
         pdv_ids = [
             row[0]
             for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route_id).all()
@@ -706,6 +808,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
                 {PDVModel.AssignedUserId: new_assigned_user}, synchronize_session=False
             )
 
+    if assigned_actually_changed:
         # Update future PLANNED RouteDays
         future_days = db.query(RouteDayModel).filter(
             RouteDayModel.RouteId == route_id,
@@ -737,6 +840,26 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
             db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
             db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
 
+    # Fecha de fin: los días planificados posteriores sobran.
+    if r.EndDate is not None and r.EndDate != before["EndDate"]:
+        beyond_ids = [
+            d.RouteDayId for d in db.query(RouteDayModel).filter(
+                RouteDayModel.RouteId == route_id,
+                RouteDayModel.WorkDate > r.EndDate,
+                RouteDayModel.WorkDate >= today,
+                RouteDayModel.Status == "PLANNED",
+            ).all()
+        ]
+        if beyond_ids:
+            db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(beyond_ids)).delete(synchronize_session=False)
+            db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(beyond_ids)).delete(synchronize_session=False)
+
+    after = _route_snapshot(r)
+    diff = [k for k in after if after[k] != before[k]]
+    if diff:
+        _audit(db, current_user, "ROUTE_UPDATE", route_id,
+               {"antes": {k: before[k] for k in diff}, "despues": {k: after[k] for k in diff}})
+
     db.commit()
     _MAP_CACHE.clear()
     db.refresh(r)
@@ -744,10 +867,12 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/{route_id}", status_code=204, dependencies=[Depends(require_role("territory_manager"))])
-def delete_route(route_id: int, db: Session = Depends(get_db)):
+def delete_route(route_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    _assert_campaign_rules(db, current_user, r)
+    _audit(db, current_user, "ROUTE_DELETE", route_id, {"antes": _route_snapshot(r)})
 
     # PDVs keep their AssignedUserId — deleting a route does NOT unassign the TM.
     # Only removing a PDV from a route or explicitly unassigning clears the TM.
@@ -788,28 +913,37 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel =
     if not route:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     _assert_route_access(db, current_user, route)
+    _assert_campaign_rules(db, current_user, route)
 
-    # Enforce PDV exclusivity: a PDV can only belong to one route at a time
-    existing = (
-        db.query(RoutePdvModel)
-        .filter(RoutePdvModel.PdvId == data.PdvId)
-        .first()
-    )
-    if existing:
-        if existing.RouteId == route_id:
-            # Ya está en esta ruta — actualizar el SortOrder en vez de fallar (reordenamiento)
-            existing.SortOrder = data.SortOrder
-            existing.Priority = data.Priority
-            db.commit()
-            _MAP_CACHE.clear()
-            db.refresh(existing)
-            return existing
-        other = db.query(RouteModel).filter(RouteModel.RouteId == existing.RouteId).first()
-        other_name = other.Name if other else f"Ruta #{existing.RouteId}"
-        raise HTTPException(
-            status_code=409,
-            detail=f"El PDV ya está asignado a la ruta '{other_name}'. Quitalo primero de esa ruta.",
+    same = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == data.PdvId).first()
+    if same:
+        # Ya está en esta ruta — actualizar el SortOrder en vez de fallar (reordenamiento)
+        same.SortOrder = data.SortOrder
+        same.Priority = data.Priority
+        db.commit()
+        _MAP_CACHE.clear()
+        db.refresh(same)
+        return same
+
+    # Exclusividad: un PDV está en una sola ruta REGULAR (no vencida). Las campañas
+    # no bloquean ni son bloqueadas: usan PDVs de otras rutas sin quitárselos.
+    if not _is_campaign(route):
+        other = (
+            db.query(RouteModel)
+            .join(RoutePdvModel, RoutePdvModel.RouteId == RouteModel.RouteId)
+            .filter(
+                RoutePdvModel.PdvId == data.PdvId,
+                RouteModel.RouteId != route_id,
+                RouteModel.RouteType == ROUTE_REGULAR,
+                or_(RouteModel.EndDate.is_(None), RouteModel.EndDate >= _today_ar()),
+            )
+            .first()
         )
+        if other:
+            raise HTTPException(
+                status_code=409,
+                detail=f"El PDV ya está asignado a la ruta '{other.Name}'. Quitalo primero de esa ruta.",
+            )
     rp = RoutePdvModel(
         RouteId=route_id,
         PdvId=data.PdvId,
@@ -818,14 +952,17 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel =
     )
     db.add(rp)
 
-    # Auto-asignar Trade Marketer al PDV si la ruta tiene uno (task 13)
-    if route.AssignedUserId is not None:
+    # Auto-asignar Trade Marketer al PDV si la ruta tiene uno (task 13).
+    # En campaña NO: el PDV sigue siendo del trade de su ruta regular.
+    if route.AssignedUserId is not None and not _is_campaign(route):
         pdv = db.query(PDVModel).filter(PDVModel.PdvId == data.PdvId).first()
         if pdv:
             pdv.AssignedUserId = route.AssignedUserId
 
     # Cualquier modificación de PDVs invalida la optimización (task 11)
     route.IsOptimized = False
+
+    _audit(db, current_user, "ROUTE_PDV_ADD", route_id, {"pdvId": data.PdvId})
 
     # Auto-add PDV to today's and future RouteDays (so it appears immediately in Home)
     today = _today_ar()
@@ -866,7 +1003,9 @@ def remove_route_pdv(route_id: int, pdv_id: int, current_user: UserModel = Depen
     if not route:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     _assert_route_access(db, current_user, route)
+    _assert_campaign_rules(db, current_user, route)
     db.delete(rp)
+    _audit(db, current_user, "ROUTE_PDV_DEL", route_id, {"pdvId": pdv_id})
 
     # NO tocar pdv.AssignedUserId: quitar un PDV de la ruta no desasigna al Trade Rep.
 
@@ -1018,6 +1157,9 @@ def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserMode
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
     _assert_route_access(db, current_user, r)
+    _assert_campaign_rules(db, current_user, r)
+    if r.EndDate is not None and data.WorkDate > r.EndDate:
+        raise HTTPException(status_code=400, detail=f"La ruta termina el {r.EndDate.strftime('%d/%m/%Y')}")
     # Use route's assigned user if not specified
     user_id = data.AssignedUserId or getattr(r, "AssignedUserId", None)
     if not user_id:
@@ -1150,6 +1292,25 @@ def _today_ar() -> _date:
     return _datetime.now(ar_tz).date()
 
 
+def monthly_dates(start: _date, end: _date, anchor_iso: str | None) -> list[_date]:
+    """Frecuencia mensual: el mismo día del mes que la fecha de inicio (`anchor`);
+    en meses más cortos, el último día (inicio 31 → 30/11, 28 ó 29/02).
+    Espejo de `monthlyDates` en frontend/src/lib/routeDays.ts."""
+    import calendar
+    anchor = _date.fromisoformat(anchor_iso) if anchor_iso else start
+    out: list[_date] = []
+    y, m = start.year, start.month
+    while True:
+        day = min(anchor.day, calendar.monthrange(y, m)[1])
+        d = _date(y, m, day)
+        if d > end:
+            break
+        if d >= start and d >= anchor:
+            out.append(d)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
 @router.get("/{route_id}/check-overlap")
 def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
     """Check if this route's frequency overlaps with other routes for the same user."""
@@ -1165,7 +1326,7 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
         .filter(
             RouteModel.AssignedUserId == route.AssignedUserId,
             RouteModel.RouteId != route_id,
-            RouteModel.IsActive == True,
+            route_is_live(),
             RouteModel.FrequencyType != None,
         )
         .all()
@@ -1175,10 +1336,12 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
         return {"overlaps": [], "hasOverlap": False}
 
     # Generate next 8 weeks of dates for this route
-    def generate_dates(freq: str, config_str: str | None) -> set[str]:
+    def generate_dates(freq: str, config_str: str | None, end_date: _date | None = None) -> set[str]:
         config = _json.loads(config_str) if config_str else {}
         today = _today_ar()
         end = today + _timedelta(weeks=8)
+        if end_date is not None and end_date < end:
+            end = end_date
         start = _date.fromisoformat(config["startDate"]) if config.get("startDate") else today
         if start < today:
             start = today
@@ -1231,6 +1394,8 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
             while d <= end:
                 dates.add(d.isoformat())
                 d += _timedelta(days=interval)
+        elif freq == "monthly":
+            dates |= {d.isoformat() for d in monthly_dates(start, end, config.get("startDate"))}
         elif freq == "specific_days":
             day_list = config.get("days", [])
             d = start
@@ -1241,11 +1406,11 @@ def check_route_overlap(route_id: int, db: Session = Depends(get_db)):
                 d += _timedelta(days=1)
         return dates
 
-    my_dates = generate_dates(route.FrequencyType, route.FrequencyConfig)
+    my_dates = generate_dates(route.FrequencyType, route.FrequencyConfig, route.EndDate)
     overlaps = []
 
     for other in other_routes:
-        other_dates = generate_dates(other.FrequencyType, other.FrequencyConfig)
+        other_dates = generate_dates(other.FrequencyType, other.FrequencyConfig, other.EndDate)
         common = my_dates & other_dates
         if common:
             overlaps.append({

@@ -27,6 +27,7 @@ import {
 import { toast } from "sonner";
 import { getCurrentUser } from "../lib/auth";
 import { todayAR } from "../lib/dateUtils";
+import { planRouteDates } from "@/lib/routeDays";
 
 const FREQUENCY_OPTIONS = [
   { value: "daily", label: "Diaria" },
@@ -93,7 +94,8 @@ export function MyRouteEditorPage() {
   useEffect(() => {
     routesApi.listPdvAssignments()
       .then((assignments) => {
-        setAllAssignedPdvIds(new Set(assignments.map((a) => a.pdvId)));
+        // Solo las rutas regulares son exclusivas: una campaña no bloquea el PDV.
+        setAllAssignedPdvIds(new Set(assignments.filter((a) => a.routeType !== "campaign").map((a) => a.pdvId)));
       })
       .catch(() => {});
   }, [routePdvs]);
@@ -204,16 +206,6 @@ export function MyRouteEditorPage() {
       // Use Argentina timezone for all date operations
       const todayStr = todayAR(); // YYYY-MM-DD in Argentina TZ
 
-      // Helper: parse YYYY-MM-DD to a local-noon Date (avoids timezone shift)
-      const parseDate = (s: string) => new Date(s + "T12:00:00");
-      // Helper: Date → YYYY-MM-DD string (timezone-safe, uses the date's local representation)
-      const toStr = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
-        return `${y}-${m}-${day}`;
-      };
-
       // Delete future planned days (not completed/in-progress) to regenerate
       const futureDays = routeDays.filter((d) =>
         d.WorkDate.split("T")[0] >= todayStr && d.Status === "PLANNED"
@@ -227,88 +219,16 @@ export function MyRouteEditorPage() {
         !(d.WorkDate.split("T")[0] >= todayStr && d.Status === "PLANNED")
       ));
 
-      const ft = routeDraft.FrequencyType;
-      const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
-      const dates: string[] = [];
-      const today = parseDate(todayStr);
-      const startDate = config.startDate ? parseDate(config.startDate) : parseDate(todayStr);
-      const endDate = parseDate(todayStr);
-      endDate.setDate(endDate.getDate() + weeksAhead * 7);
       // After deletion, remaining are past/non-planned — skip them
       const existingDates = new Set(routeDays.filter((d) => d.Status !== "PLANNED" || d.WorkDate.split("T")[0] < todayStr).map((d) => d.WorkDate.split("T")[0]));
-
-      // Start from startDate or today, whichever is later (INCLUSIVE of both)
-      const effectiveStart = startDate >= today ? startDate : parseDate(todayStr);
-
-      if (ft === "daily") {
-        const d = new Date(effectiveStart);
-        while (d <= endDate) {
-          if (d.getDay() >= 1 && d.getDay() <= 5) { // Lun-Vie
-            const ds = toStr(d);
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
-          d.setDate(d.getDate() + 1);
-        }
-      } else if (ft === "weekly" && config.day != null) {
-        const d = new Date(effectiveStart);
-        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + 7);
-        }
-      } else if (ft === "biweekly" && config.day != null) {
-        const d = new Date(effectiveStart);
-        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-        // Align to the correct biweekly cycle from startDate
-        if (config.startDate) {
-          const anchor = parseDate(config.startDate);
-          while (anchor.getDay() !== config.day) anchor.setDate(anchor.getDate() + 1);
-          const diffDays = Math.round((d.getTime() - anchor.getTime()) / 86400000);
-          const weeksOff = diffDays % 14;
-          if (weeksOff !== 0) d.setDate(d.getDate() + (14 - weeksOff));
-        }
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + 14);
-        }
-      } else if (ft === "every_15_days") {
-        const d = new Date(startDate);
-        // Advance to first occurrence >= today (INCLUSIVE)
-        while (toStr(d) < todayStr) d.setDate(d.getDate() + 15);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + 15);
-        }
-      } else if (ft === "monthly") {
-        const d = new Date(startDate);
-        while (toStr(d) < todayStr) d.setMonth(d.getMonth() + 1);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setMonth(d.getMonth() + 1);
-        }
-      } else if (ft === "every_x_days") {
-        const interval = config.interval || 15;
-        const d = new Date(startDate);
-        while (toStr(d) < todayStr) d.setDate(d.getDate() + interval);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + interval);
-        }
-      } else if (ft === "specific_days" && config.days?.length > 0) {
-        const d = new Date(effectiveStart);
-        while (d <= endDate) {
-          if (config.days.includes(d.getDay())) {
-            const ds = toStr(d);
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
-          d.setDate(d.getDate() + 1);
-        }
-      }
+      const dates = planRouteDates({
+        frequencyType: routeDraft.FrequencyType,
+        frequencyConfig: routeDraft.FrequencyConfig,
+        today: todayStr,
+        weeksAhead,
+        endDate: route?.EndDate,
+        skip: existingDates,
+      });
 
       if (dates.length === 0) {
         setSaving(false);

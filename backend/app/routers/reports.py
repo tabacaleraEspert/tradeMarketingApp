@@ -13,6 +13,7 @@ from ..models import (
     User as UserModel,
     PDV as PDVModel,
 )
+from ..models.route import route_is_live
 from ..models.visit import VisitCheck as VisitCheckModel, VisitPhoto as VisitPhotoModel, VisitAnswer as VisitAnswerModel
 from ..models.channel import Channel as ChannelModel
 from ..models.route import Route as RouteModel, RoutePdv as RoutePdvModel, RouteDay as RouteDayModel, RouteDayPdv as RouteDayPdvModel
@@ -713,7 +714,7 @@ def territory_overview(
     rep_routes_map: dict[int, RouteModel] = {}
     if all_rep_ids:
         for rt in db.query(RouteModel).filter(
-            RouteModel.AssignedUserId.in_(all_rep_ids), RouteModel.IsActive == True
+            RouteModel.AssignedUserId.in_(all_rep_ids), route_is_live()
         ).all():
             if rt.AssignedUserId not in rep_routes_map:
                 rep_routes_map[rt.AssignedUserId] = rt
@@ -798,7 +799,7 @@ def territory_overview(
     # PDVs in territory: count unique PDVs assigned to reps' routes
     pdv_count = 0
     if all_rep_ids:
-        rep_routes = db.query(RouteModel).filter(RouteModel.AssignedUserId.in_(all_rep_ids), RouteModel.IsActive == True).all()
+        rep_routes = db.query(RouteModel).filter(RouteModel.AssignedUserId.in_(all_rep_ids), route_is_live()).all()
         rep_route_ids = [r.RouteId for r in rep_routes]
         if rep_route_ids:
             pdv_count = db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId.in_(rep_route_ids)).distinct().count()
@@ -1450,7 +1451,7 @@ def route_analytics(
     today = datetime.now(timezone.utc).date()
     thirty_days_ago = today - timedelta(days=30)
 
-    routes_q = db.query(RouteModel).filter(RouteModel.IsActive == True)
+    routes_q = db.query(RouteModel).filter(route_is_live())
     visible = visible_user_ids(db, current_user)
     if visible is not None:
         # Solo rutas asignadas a usuarios del sub-árbol (las sin asignar quedan para admin)

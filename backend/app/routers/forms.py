@@ -15,6 +15,7 @@ from ..models import (
     UserRole as UserRoleModel,
     Role as RoleModel,
 )
+from ..models.route import route_is_live
 
 # Máximo de formularios no-admin que un territory/ejecutivo puede asignar por ruta
 MAX_REGIONAL_FORMS_PER_ROUTE = 2
@@ -190,7 +191,7 @@ def bulk_assign_form_to_routes(
         raise HTTPException(status_code=404, detail="Formulario no encontrado")
 
     if data.assign_to_all:
-        routes = db.query(RouteModel).filter(RouteModel.IsActive == True).all()
+        routes = db.query(RouteModel).filter(route_is_live()).all()
         route_ids = [r.RouteId for r in routes]
     elif data.route_ids:
         route_ids = data.route_ids

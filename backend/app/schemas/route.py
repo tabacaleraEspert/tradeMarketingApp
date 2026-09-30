@@ -1,4 +1,5 @@
 from datetime import date, datetime, time
+from typing import Literal
 from pydantic import BaseModel
 from .form import Form
 
@@ -15,6 +16,10 @@ class RouteBase(BaseModel):
     AssignedUserId: int | None = None
     IsOptimized: bool = False
     IsFocus: bool = True
+    # "regular" | "campaign" (ruta de campaña: temporal, solo admin). No cambia después del alta.
+    RouteType: Literal["regular", "campaign"] = "regular"
+    # Fecha de fin inclusive (obligatoria en campaña).
+    EndDate: date | None = None
 
 
 class RouteCreate(RouteBase):
@@ -33,6 +38,9 @@ class RouteUpdate(BaseModel):
     AssignedUserId: int | None = None
     IsOptimized: bool | None = None
     IsFocus: bool | None = None
+    EndDate: date | None = None
+    # Solo se acepta si coincide con el actual (el tipo no se cambia).
+    RouteType: Literal["regular", "campaign"] | None = None
 
 
 class Route(RouteBase):

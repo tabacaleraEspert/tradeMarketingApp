@@ -34,6 +34,7 @@ import { api } from "@/lib/api/client";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, PolygonF } from "@react-google-maps/api";
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
+import { todayAR } from "../../lib/dateUtils";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const LIBRARIES: ("places")[] = ["places"];
@@ -266,8 +267,12 @@ export function RouteManagement() {
     q: searchQ,
     setQ: setSearchQ,
     setPage,
+    filters: routeFilters,
+    setFilters: setRouteFilters,
     refetch: refetchRoutes,
-  } = usePaginated<Route>({ endpoint: "/routes/admin-list", pageSize: 50 });
+  } = usePaginated<Route, { route_type?: string }>({ endpoint: "/routes/admin-list", pageSize: 50 });
+  const canManageCampaigns = currentUser.role === "admin";
+  const todayStr = todayAR();
 
   // Totales para las cards — vienen de /routes/stats, no de la página actual
   const [stats, setStats] = useState<RouteStats | null>(null);
@@ -440,6 +445,17 @@ export function RouteManagement() {
             <Plus size={20} />
             Nueva Ruta
           </Button>
+          {canManageCampaigns && (
+            <Button
+              variant="outline"
+              onClick={() => navigate("/admin/routes/new?tipo=campana")}
+              className="gap-2 border-amber-300 text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/40"
+              title="Ruta temporal: usa PDVs de otras rutas sin quitárselos, a cualquier trade"
+            >
+              <Plus size={20} />
+              Nueva campaña
+            </Button>
+          )}
         </div>
       </div>
 
@@ -790,6 +806,24 @@ export function RouteManagement() {
               placeholder="Buscar por ruta, trade marketer o zona..."
               className="w-full md:w-80"
             />
+            <div className="inline-flex rounded-full bg-muted p-1 text-xs font-semibold" role="tablist" aria-label="Tipo de ruta">
+              {([
+                { v: "", l: "Todas" },
+                { v: "regular", l: "Regulares" },
+                { v: "campaign", l: "Campañas" },
+              ] as const).map((o) => (
+                <button
+                  key={o.v}
+                  type="button"
+                  role="tab"
+                  aria-selected={(routeFilters.route_type ?? "") === o.v}
+                  onClick={() => setRouteFilters({ route_type: o.v || undefined })}
+                  className={`px-3 py-1 rounded-full ${(routeFilters.route_type ?? "") === o.v ? "bg-espert-gold text-white" : "text-muted-foreground"}`}
+                >
+                  {o.l}
+                </button>
+              ))}
+            </div>
             {loading && <p className="text-sm text-muted-foreground">Cargando rutas...</p>}
           </div>
           <Card>
@@ -832,6 +866,23 @@ export function RouteManagement() {
                       {route.IsOptimized && (
                         <Badge className="bg-green-100 text-green-700 border-green-200 text-[10px] px-1.5 py-0 shrink-0" title="Orden de PDVs optimizado">
                           ⚡ Optimizada
+                        </Badge>
+                      )}
+                      {route.RouteType === "campaign" && (
+                        <Badge
+                          className="bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 text-[10px] px-1.5 py-0 shrink-0"
+                          title="Ruta de campaña: temporal, usa PDVs de otras rutas"
+                        >
+                          Campaña
+                        </Badge>
+                      )}
+                      {route.EndDate && (
+                        <Badge
+                          variant="outline"
+                          className={`text-[10px] px-1.5 py-0 shrink-0 ${route.EndDate < todayStr ? "text-muted-foreground line-through" : ""}`}
+                          title={route.EndDate < todayStr ? "Finalizada" : "Fecha de fin"}
+                        >
+                          {route.EndDate < todayStr ? "Finalizada" : `hasta ${route.EndDate.split("-").reverse().join("/")}`}
                         </Badge>
                       )}
                       {route.IsFocus && (

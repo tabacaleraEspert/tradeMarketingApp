@@ -126,6 +126,7 @@ import type {
   SubChannel,
   Route,
   RouteStats,
+  RouteType,
   RoutePdv,
   RouteFormWithForm,
   RouteFormRead,
@@ -510,6 +511,8 @@ export const routesApi = {
     EstimatedMinutes?: number;
     AssignedUserId?: number;
     IsFocus?: boolean;
+    RouteType?: RouteType;
+    EndDate?: string | null;
   }) => api.post<Route>("/routes", data),
   update: (
     id: number,
@@ -525,6 +528,7 @@ export const routesApi = {
       AssignedUserId?: number | null;
       IsOptimized?: boolean;
       IsFocus?: boolean;
+      EndDate?: string | null;
     }
   ) => api.patch<Route>(`/routes/${id}`, data),
   delete: (id: number) => api.delete(`/routes/${id}`),
@@ -533,7 +537,7 @@ export const routesApi = {
   listPdvs: (routeId: number) =>
     api.get<RoutePdv[]>(`/routes/${routeId}/pdvs`),
   listPdvAssignments: () =>
-    api.get<{ pdvId: number; routeId: number }[]>(`/routes/pdv-assignments`),
+    api.get<PdvRouteAssignment[]>(`/routes/pdv-assignments`),
   addPdv: (routeId: number, data: { PdvId: number; SortOrder: number; Priority?: number }) =>
     api.post<RoutePdv>(`/routes/${routeId}/pdvs`, data),
   removePdv: (routeId: number, pdvId: number) =>
@@ -1922,3 +1926,12 @@ export const behaviorReportsApi = {
     return res.text();
   },
 };
+
+/** PDV → ruta que lo contiene (un PDV puede estar en una regular y en campañas). */
+export interface PdvRouteAssignment {
+  pdvId: number;
+  routeId: number;
+  routeType: RouteType;
+  routeName: string;
+  assignedUserName: string | null;
+}

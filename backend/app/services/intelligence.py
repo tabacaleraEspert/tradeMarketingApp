@@ -48,6 +48,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..models import PDV, Channel, Product, Route, RoutePdv, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
+from ..models.route import route_is_live
 from ..models.pdv_contact import PdvContact
 from ..models.pdv_supplier import PdvSupplier
 from ..models.supplier_type import SupplierType
@@ -807,7 +808,7 @@ def build_map(db: Session, census: Census) -> dict[str, Any]:
     for pdv_id, rid, rname in (
         db.query(RoutePdv.PdvId, Route.RouteId, Route.Name)
         .join(Route, Route.RouteId == RoutePdv.RouteId)
-        .filter(Route.IsActive == True)  # noqa: E712
+        .filter(route_is_live(), Route.RouteType == "regular")  # la campaña no define la ruta del PDV
         .all()
     ):
         if pdv_id in c.pdvs and pdv_id not in ruta_of:
@@ -1085,7 +1086,7 @@ def build_suppliers(
             .join(RoutePdv, RoutePdv.PdvId == PdvSupplier.PdvId)
             .join(Route, Route.RouteId == RoutePdv.RouteId)
             .filter(
-                Route.IsActive == True,  # noqa: E712
+                route_is_live(),  # noqa: E712
                 Route.AssignedUserId == trade_user_id,
             )
         )

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useNavigate, useParams } from "react-router";
+import { planRouteDates } from "@/lib/routeDays";
 import { todayAR } from "../../lib/dateUtils";
 import { Card, CardContent } from "../../components/ui/card";
 import { ConfirmModal } from "../../components/ui/modal";
@@ -35,7 +36,7 @@ import {
   useApiList,
   BEJERMAN_ZONES,
 } from "@/lib/api";
-import type { MandatoryActivity } from "@/lib/api";
+import type { MandatoryActivity, PdvRouteAssignment, RouteType } from "@/lib/api";
 import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 import { toast } from "sonner";
@@ -136,7 +137,19 @@ export function RouteEditorPage() {
 
   const [route, setRoute] = useState<Awaited<ReturnType<typeof routesApi.get>> | null>(null);
   const [routePdvs, setRoutePdvs] = useState<Awaited<ReturnType<typeof routesApi.listPdvs>>>([]);
-  const [pdvAssignments, setPdvAssignments] = useState<{ pdvId: number; routeId: number }[]>([]);
+  const [pdvAssignments, setPdvAssignments] = useState<PdvRouteAssignment[]>([]);
+  const [routeDraft, setRouteDraft] = useState<{
+    Name?: string;
+    ZoneId?: number | null;
+    BejermanZone?: string | null;
+    EstimatedMinutes?: number | null;
+    FrequencyType?: string | null;
+    FrequencyConfig?: string | null;
+    AssignedUserId?: number | null;
+    IsFocus?: boolean;
+    RouteType?: RouteType;
+    EndDate?: string | null;
+  } | null>(null);
   const [routeForms, setRouteForms] = useState<Awaited<ReturnType<typeof routesApi.listForms>>>([]);
   const [routeDays, setRouteDays] = useState<Awaited<ReturnType<typeof routesApi.listDays>>>([]);
   const [loading, setLoading] = useState(!!id);
@@ -166,6 +179,8 @@ export function RouteEditorPage() {
 
   const currentUser = getCurrentUser();
   const isAdmin = ["admin", "regional_manager", "territory_manager"].includes(currentUser.role);
+  // Rutas de campaña: solo admin (Rodrigo y equipo central).
+  const canManageCampaigns = currentUser.role === "admin";
   const { data: allPdvs, loading: pdvsLoading } = usePdvs();
   const { data: zones } = useZones();
   const { data: forms } = useForms();
@@ -190,7 +205,7 @@ export function RouteEditorPage() {
         routesApi.listPdvs(id),
         routesApi.listForms(id),
         routesApi.listDays(id),
-        routesApi.listPdvAssignments().catch(() => [] as { pdvId: number; routeId: number }[]),
+        routesApi.listPdvAssignments().catch(() => [] as PdvRouteAssignment[]),
       ]);
       setRoute(r);
       setRoutePdvs(rp.sort((a, b) => a.SortOrder - b.SortOrder));
@@ -248,13 +263,28 @@ export function RouteEditorPage() {
   const distances = useMemo(() => segmentDistances(orderedPdvs), [orderedPdvs]);
   const totalKm = useMemo(() => totalRouteKm(orderedPdvs), [orderedPdvs]);
 
-  // PDVs assigned to OTHER routes (excluding this one) — exclusivity
+  const isCampaign = routeDraft?.RouteType === "campaign";
+
+  // PDVs en OTRA ruta regular — exclusividad. Una campaña no bloquea ni es
+  // bloqueada: en campaña este set queda vacío y `pdvOwnerRoute` es solo informativo.
   const pdvIdsInOtherRoutes = useMemo(() => {
     const s = new Set<number>();
+    if (isCampaign) return s;
     for (const a of pdvAssignments) {
-      if (a.routeId !== id) s.add(a.pdvId);
+      if (a.routeId !== id && a.routeType !== "campaign") s.add(a.pdvId);
     }
     return s;
+  }, [pdvAssignments, id, isCampaign]);
+
+  /** PDV → "Ruta X · Carlos" (su ruta regular), para mostrarlo en campañas. */
+  const pdvOwnerRoute = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const a of pdvAssignments) {
+      if (a.routeType !== "campaign" && a.routeId !== id) {
+        m.set(a.pdvId, a.assignedUserName ? `${a.routeName} · ${a.assignedUserName}` : a.routeName);
+      }
+    }
+    return m;
   }, [pdvAssignments, id]);
 
   // Distinct values for filters (only over PDVs not yet in this route)
@@ -518,24 +548,7 @@ export function RouteEditorPage() {
     if (!id || !routeDraft?.FrequencyType || !route?.AssignedUserId) return;
     setSaving(true);
     try {
-      const ft = routeDraft.FrequencyType;
-      const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
-      const dates: string[] = [];
-
-      // Use Argentina timezone for all date operations
       const todayStr = todayAR();
-      const parseDate = (s: string) => new Date(s + "T12:00:00");
-      const toStr = (d: Date) => {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, "0");
-        const day = String(d.getDate()).padStart(2, "0");
-        return `${y}-${m}-${day}`;
-      };
-
-      const today = parseDate(todayStr);
-      const startDate = config.startDate ? parseDate(config.startDate) : parseDate(todayStr);
-      const endDate = parseDate(todayStr);
-      endDate.setDate(endDate.getDate() + weeksAhead * 7);
 
       // Delete future planned days (>= today) to regenerate cleanly
       const freshDays = await routesApi.listDays(id);
@@ -556,60 +569,14 @@ export function RouteEditorPage() {
           .map((d) => d.WorkDate.split("T")[0])
       );
 
-      // Start from startDate or today, whichever is later (INCLUSIVE)
-      const effectiveStart = startDate >= today ? startDate : parseDate(todayStr);
-
-      if (ft === "daily") {
-        const d = new Date(effectiveStart);
-        while (d <= endDate) {
-          const dow = d.getDay();
-          if (dow >= 1 && dow <= 5) {
-            const ds = toStr(d);
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
-          d.setDate(d.getDate() + 1);
-        }
-      } else if (ft === "weekly" && config.day != null) {
-        const d = new Date(effectiveStart);
-        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + 7);
-        }
-      } else if (ft === "biweekly" && config.day != null) {
-        const d = new Date(effectiveStart);
-        while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-        if (config.startDate) {
-          const anchor = parseDate(config.startDate);
-          while (anchor.getDay() !== config.day) anchor.setDate(anchor.getDate() + 1);
-          const diffDays = Math.round((d.getTime() - anchor.getTime()) / 86400000);
-          const weeksOff = diffDays % 14;
-          if (weeksOff !== 0) d.setDate(d.getDate() + (14 - weeksOff));
-        }
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + 14);
-        }
-      } else if (ft === "every_x_days" && config.interval) {
-        const d = new Date(startDate);
-        while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
-        while (d <= endDate) {
-          const ds = toStr(d);
-          if (!existingDates.has(ds)) dates.push(ds);
-          d.setDate(d.getDate() + config.interval);
-        }
-      } else if (ft === "specific_days" && config.days?.length > 0) {
-        const d = new Date(effectiveStart);
-        while (d <= endDate) {
-          if (config.days.includes(d.getDay())) {
-            const ds = toStr(d);
-            if (!existingDates.has(ds)) dates.push(ds);
-          }
-          d.setDate(d.getDate() + 1);
-        }
-      }
+      const dates = planRouteDates({
+        frequencyType: routeDraft.FrequencyType,
+        frequencyConfig: routeDraft.FrequencyConfig,
+        today: todayStr,
+        weeksAhead,
+        endDate: routeDraft.EndDate,
+        skip: existingDates,
+      });
 
       if (dates.length === 0) {
         setSaving(false);
@@ -675,16 +642,6 @@ export function RouteEditorPage() {
     }
   };
 
-  const [routeDraft, setRouteDraft] = useState<{
-    Name?: string;
-    ZoneId?: number | null;
-    BejermanZone?: string | null;
-    EstimatedMinutes?: number | null;
-    FrequencyType?: string | null;
-    FrequencyConfig?: string | null;
-    AssignedUserId?: number | null;
-    IsFocus?: boolean;
-  } | null>(null);
 
   useEffect(() => {
     if (route) {
@@ -697,6 +654,8 @@ export function RouteEditorPage() {
         FrequencyConfig: route.FrequencyConfig ?? null,
         AssignedUserId: route.AssignedUserId ?? null,
         IsFocus: route.IsFocus ?? true,
+        RouteType: route.RouteType ?? "regular",
+        EndDate: route.EndDate ?? null,
       });
     } else if (isCreateMode) {
       // Initialize empty draft for create mode
@@ -709,6 +668,9 @@ export function RouteEditorPage() {
         FrequencyConfig: null,
         AssignedUserId: isMyRoute ? Number(getCurrentUser().id) : null,
         IsFocus: true,
+        // /admin/routes/new?tipo=campana abre directo en modo campaña.
+        RouteType: !isMyRoute && new URLSearchParams(window.location.search).get("tipo") === "campana" ? "campaign" : "regular",
+        EndDate: null,
       });
     } else {
       setRouteDraft(null);
@@ -770,7 +732,8 @@ export function RouteEditorPage() {
       (routeDraft.FrequencyType ?? "") !== (route.FrequencyType ?? "") ||
       (routeDraft.FrequencyConfig ?? "") !== (route.FrequencyConfig ?? "") ||
       (routeDraft.AssignedUserId ?? null) !== (route.AssignedUserId ?? null) ||
-      (routeDraft.IsFocus ?? true) !== (route.IsFocus ?? true));
+      (routeDraft.IsFocus ?? true) !== (route.IsFocus ?? true) ||
+      (routeDraft.EndDate ?? null) !== (route.EndDate ?? null));
 
   const handleSaveRouteMetadata = async () => {
     if (!id || !routeDraft) return;
@@ -778,7 +741,16 @@ export function RouteEditorPage() {
     try {
       const frequencyChanged =
         (routeDraft.FrequencyType ?? "") !== (route?.FrequencyType ?? "") ||
-        (routeDraft.FrequencyConfig ?? "") !== (route?.FrequencyConfig ?? "");
+        (routeDraft.FrequencyConfig ?? "") !== (route?.FrequencyConfig ?? "") ||
+        // Extender la fecha de fin genera los días que faltan (acortarla los borra el backend).
+        (routeDraft.EndDate ?? "") > (route?.EndDate ?? "9999-12-31") ||
+        (!!route?.EndDate && !routeDraft.EndDate);
+
+      if (isCampaign && !routeDraft.EndDate) {
+        toast.error("La ruta de campaña necesita fecha de fin");
+        setSaving(false);
+        return;
+      }
 
       const updated = await routesApi.update(id, {
         Name: routeDraft.Name,
@@ -792,6 +764,7 @@ export function RouteEditorPage() {
         // Con undefined el campo se omitía del PATCH y no pasaba nada.
         AssignedUserId: routeDraft.AssignedUserId ?? null,
         IsFocus: routeDraft.IsFocus ?? true,
+        EndDate: routeDraft.EndDate ?? null,
       });
       setRoute(updated);
       setRouteDraft({
@@ -803,6 +776,8 @@ export function RouteEditorPage() {
         FrequencyConfig: updated.FrequencyConfig ?? null,
         AssignedUserId: updated.AssignedUserId ?? null,
         IsFocus: updated.IsFocus ?? true,
+        RouteType: updated.RouteType ?? "regular",
+        EndDate: updated.EndDate ?? null,
       });
       toast.success("Ruta guardada");
 
@@ -844,6 +819,10 @@ export function RouteEditorPage() {
       toast.error("Ponele un nombre a la ruta");
       return;
     }
+    if (isCampaign && !routeDraft.EndDate) {
+      toast.error("La ruta de campaña necesita fecha de fin");
+      return;
+    }
     setCreating(true);
     try {
       const currentUser = getCurrentUser();
@@ -854,7 +833,9 @@ export function RouteEditorPage() {
         AssignedUserId: isMyRoute ? Number(currentUser.id) : (routeDraft.AssignedUserId ?? undefined),
         FrequencyType: routeDraft.FrequencyType ?? undefined,
         FrequencyConfig: routeDraft.FrequencyConfig ?? undefined,
-        IsFocus: routeDraft.IsFocus ?? true,
+        IsFocus: isCampaign ? false : (routeDraft.IsFocus ?? true),
+        RouteType: routeDraft.RouteType ?? "regular",
+        EndDate: routeDraft.EndDate ?? undefined,
       };
 
       const result = await executeOrEnqueue({
@@ -885,41 +866,12 @@ export function RouteEditorPage() {
         const hasTM = isMyRoute ? Number(currentUser.id) : routeDraft.AssignedUserId;
         if (hasFreq && hasTM && draftPdvIds.length > 0) {
           try {
-            const config = routeDraft.FrequencyConfig ? JSON.parse(routeDraft.FrequencyConfig) : {};
-            const todayStr = todayAR();
-            const parseDate = (s: string) => new Date(s + "T12:00:00");
-            const toStr = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-            const today = parseDate(todayStr);
-            const startDate = config.startDate ? parseDate(config.startDate) : today;
-            const effectiveStart = startDate >= today ? startDate : today;
-            const endDate = parseDate(todayStr);
-            endDate.setDate(endDate.getDate() + 8 * 7);
-            const dates: string[] = [];
-            const ft = routeDraft.FrequencyType;
-
-            if (ft === "daily") {
-              const d = new Date(effectiveStart);
-              while (d <= endDate) { if (d.getDay() >= 1 && d.getDay() <= 5) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
-            } else if (ft === "weekly" && config.day != null) {
-              const d = new Date(effectiveStart);
-              while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 7); }
-            } else if (ft === "biweekly" && config.day != null) {
-              const d = new Date(effectiveStart);
-              while (d.getDay() !== config.day) d.setDate(d.getDate() + 1);
-              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + 14); }
-            } else if (ft === "specific_days" && config.days?.length) {
-              const d = new Date(effectiveStart);
-              while (d <= endDate) { if (config.days.includes(d.getDay())) dates.push(toStr(d)); d.setDate(d.getDate() + 1); }
-            } else if (ft === "every_x_days" && config.interval) {
-              const d = new Date(startDate);
-              while (toStr(d) < todayStr) d.setDate(d.getDate() + config.interval);
-              while (d <= endDate) { dates.push(toStr(d)); d.setDate(d.getDate() + config.interval); }
-            } else if (ft === "monthly") {
-              const d = new Date(startDate);
-              while (toStr(d) < todayStr) d.setMonth(d.getMonth() + 1);
-              while (d <= endDate) { dates.push(toStr(d)); d.setMonth(d.getMonth() + 1); }
-            }
+            const dates = planRouteDates({
+              frequencyType: routeDraft.FrequencyType,
+              frequencyConfig: routeDraft.FrequencyConfig,
+              today: todayAR(),
+              endDate: routeDraft.EndDate,
+            });
 
             for (const dt of dates) {
               try { await routesApi.createDay(newRoute.RouteId, { WorkDate: dt, AssignedUserId: Number(hasTM) }); } catch { /* skip dups */ }
@@ -985,10 +937,17 @@ export function RouteEditorPage() {
         </button>
         <div className="flex-1">
           <h1 className="text-2xl font-bold text-foreground">
-            {isCreateMode ? "Crear Ruta Foco" : "Editar Ruta Foco"}
+            {isCampaign
+              ? (isCreateMode ? "Crear ruta de campaña" : "Editar ruta de campaña")
+              : (isCreateMode ? "Crear Ruta Foco" : "Editar Ruta Foco")}
           </h1>
           <p className="text-muted-foreground">{routeDraft?.Name || (route?.Name ?? "Nueva ruta")}</p>
         </div>
+        {isCampaign && (
+          <Badge className="bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950/50 dark:text-amber-300">
+            Campaña{routeDraft?.EndDate ? ` · hasta ${routeDraft.EndDate.split("-").reverse().join("/")}` : ""}
+          </Badge>
+        )}
         {!isCreateMode && (route?.IsOptimized ? (
           <Badge className="bg-green-100 text-green-700 border-green-200 gap-1">
             <Zap size={12} /> Optimizada
@@ -999,6 +958,30 @@ export function RouteEditorPage() {
           </Badge>
         ))}
       </div>
+
+      {/* Tipo de ruta — solo al crear y solo admin; no cambia después */}
+      {isCreateMode && !isMyRoute && canManageCampaigns && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="radiogroup" aria-label="Tipo de ruta">
+          {([
+            { v: "regular", l: "Ruta regular", d: "Cartera fija del trade. Un PDV está en una sola ruta regular." },
+            { v: "campaign", l: "Ruta de campaña", d: "Temporal (con fecha de fin). Usa PDVs de otras rutas sin quitárselos, a cualquier trade. No cuenta para KPIs." },
+          ] as const).map((o) => (
+            <button
+              key={o.v}
+              type="button"
+              role="radio"
+              aria-checked={(routeDraft?.RouteType ?? "regular") === o.v}
+              onClick={() => setRouteDraft((d) => (d ? { ...d, RouteType: o.v, IsFocus: o.v === "regular" } : null))}
+              className={`text-left rounded-lg border p-4 transition-colors ${
+                (routeDraft?.RouteType ?? "regular") === o.v ? "border-espert-gold bg-espert-gold/10" : "border-border hover:bg-muted/50"
+              }`}
+            >
+              <p className="font-semibold text-foreground">{o.l}</p>
+              <p className="text-xs text-muted-foreground mt-1">{o.d}</p>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Route Info */}
       <Card>
@@ -1075,7 +1058,7 @@ export function RouteEditorPage() {
                 />
               </div>
             )}
-            {!isMyRoute && (
+            {!isMyRoute && !isCampaign && (
               <div className="md:col-span-2 flex items-start gap-2">
                 <input
                   type="checkbox"
@@ -1354,17 +1337,54 @@ export function RouteEditorPage() {
                 </div>
               )}
 
-              {/* Start date — always visible when frequency is set */}
-              {routeDraft?.FrequencyType && (
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Fecha de inicio</label>
-                  <Input
-                    type="date"
-                    value={frequencyStartDate}
-                    onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
-                    className="max-w-xs"
-                  />
-                </div>
+              {/* Inicio (con frecuencia) + fin de la ruta */}
+              <div className="flex flex-wrap gap-4">
+                {routeDraft?.FrequencyType && (
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">Fecha de inicio</label>
+                    <Input
+                      type="date"
+                      value={frequencyStartDate}
+                      onChange={(e) => updateFrequencyConfig({ startDate: e.target.value })}
+                      className="max-w-xs"
+                    />
+                  </div>
+                )}
+                {!isMyRoute && (
+                  <div>
+                    <label htmlFor="route-end-date" className="block text-xs text-muted-foreground mb-1">
+                      Fecha de fin{isCampaign ? " *" : " (opcional)"}
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        id="route-end-date"
+                        type="date"
+                        value={routeDraft?.EndDate ?? ""}
+                        min={frequencyStartDate || undefined}
+                        onChange={(e) => setRouteDraft((d) => (d ? { ...d, EndDate: e.target.value || null } : null))}
+                        className="max-w-xs"
+                      />
+                      {routeDraft?.EndDate && !isCampaign && (
+                        <button
+                          type="button"
+                          onClick={() => setRouteDraft((d) => (d ? { ...d, EndDate: null } : null))}
+                          className="text-xs text-muted-foreground underline"
+                        >
+                          Sin fin
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {!isMyRoute && (
+                <p className="text-xs text-muted-foreground -mt-2">
+                  {routeDraft?.EndDate
+                    ? "No se programan días después de la fecha de fin; pasada, la ruta queda finalizada (deja de verse en la app del trade y de contar en KPIs)."
+                    : isCampaign
+                      ? "La campaña necesita fecha de fin."
+                      : "Sin fecha de fin: la ruta sigue vigente hasta que la desactives."}
+                </p>
               )}
 
               {/* Summary */}
@@ -1564,6 +1584,9 @@ export function RouteEditorPage() {
                           {inOther && !inRoute && (
                             <p className="text-xs text-red-500 font-medium mb-1">Asignado a otra ruta</p>
                           )}
+                          {isCampaign && pdvOwnerRoute.get(p.PdvId) && (
+                            <p className="text-xs text-amber-700 mb-1">Sigue en su ruta: {pdvOwnerRoute.get(p.PdvId)}</p>
+                          )}
                           <button
                             onClick={() => handleTogglePdv(p.PdvId)}
                             disabled={saving}
@@ -1751,6 +1774,11 @@ export function RouteEditorPage() {
                           <p className="text-xs text-muted-foreground truncate">
                             {p.Address || p.City || "-"}
                           </p>
+                          {isCampaign && pdvOwnerRoute.get(p.PdvId) && (
+                            <p className="text-[11px] text-amber-700 dark:text-amber-400 truncate">
+                              Sigue en su ruta: {pdvOwnerRoute.get(p.PdvId)}
+                            </p>
+                          )}
                         </div>
                         <Badge variant="outline" className="text-xs shrink-0">
                           {p.ChannelName || p.Channel}
@@ -1945,9 +1973,9 @@ export function RouteEditorPage() {
           <Button
             className="w-full bg-[#A48242] hover:bg-[#8B6E38] text-white h-12 text-base font-semibold"
             onClick={handleCreateRoute}
-            disabled={creating || !routeDraft?.Name?.trim()}
+            disabled={creating || !routeDraft?.Name?.trim() || (isCampaign && !routeDraft?.EndDate)}
           >
-            {creating ? "Creando..." : "Crear Ruta Foco"}
+            {creating ? "Creando..." : isCampaign ? "Crear ruta de campaña" : "Crear Ruta Foco"}
           </Button>
         </div>
       )}

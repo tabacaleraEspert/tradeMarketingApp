@@ -53,6 +53,7 @@ from ..models import (
     VisitPOPItem,
     Zone,
 )
+from ..models.route import route_is_live
 from . import kpi_engine as E
 from .coverage_semantics import get_coverage_cutoff, row_is_known
 
@@ -253,7 +254,7 @@ def load_context(
         db.query(Route)
         .filter(
             Route.IsFocus == True,  # noqa: E712
-            Route.IsActive == True,  # noqa: E712
+            route_is_live(),  # noqa: E712
             Route.AssignedUserId.in_(user_ids),
         )
         .all()
@@ -506,7 +507,7 @@ def _focus_route_join(q):
         .filter(
             Route.AssignedUserId == Visit.UserId,
             Route.IsFocus == True,  # noqa: E712
-            Route.IsActive == True,  # noqa: E712
+            route_is_live(),  # noqa: E712
         )
     )
 
@@ -594,7 +595,7 @@ def build_team(
             *in_month,
             Route.AssignedUserId == Visit.UserId,
             Route.IsFocus == True,  # noqa: E712
-            Route.IsActive == True,  # noqa: E712
+            route_is_live(),  # noqa: E712
             RouteDay.WorkDate >= d_start,
             RouteDay.WorkDate < d_end,
         )
@@ -610,7 +611,7 @@ def build_team(
         .filter(
             Route.AssignedUserId.in_(user_ids),
             Route.IsFocus == True,  # noqa: E712
-            Route.IsActive == True,  # noqa: E712
+            route_is_live(),  # noqa: E712
             PDV.IsActive == True,  # noqa: E712
         )
         .group_by(Route.AssignedUserId)
@@ -623,7 +624,7 @@ def build_team(
         .filter(
             Route.AssignedUserId.in_(user_ids),
             Route.IsFocus == True,  # noqa: E712
-            Route.IsActive == True,  # noqa: E712
+            route_is_live(),  # noqa: E712
             RouteDay.WorkDate >= d_start,
             RouteDay.WorkDate < d_end,
         )

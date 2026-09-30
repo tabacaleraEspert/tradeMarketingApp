@@ -113,17 +113,18 @@ def visible_pdv_ids(db: Session, current_user: UserModel) -> set[int] | None:
         return None
 
     from .models import PDV as PDVModel
-    from .models.route import Route as RouteModel, RoutePdv as RoutePdvModel
+    from .models.route import Route as RouteModel, RoutePdv as RoutePdvModel, route_is_live
 
     ids: set[int] = set()
     # PDVs asignados directamente a usuarios visibles
     for row in db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId.in_(visible_users)).all():
         ids.add(row[0])
-    # PDVs en rutas asignadas a usuarios visibles
+    # PDVs en rutas vigentes asignadas a usuarios visibles (incluye rutas de campaña:
+    # el trade de la campaña ve PDVs de otro dueño mientras dure; vencida, deja de verlos).
     route_rows = (
         db.query(RoutePdvModel.PdvId)
         .join(RouteModel, RoutePdvModel.RouteId == RouteModel.RouteId)
-        .filter(RouteModel.AssignedUserId.in_(visible_users))
+        .filter(RouteModel.AssignedUserId.in_(visible_users), route_is_live())
         .all()
     )
     for row in route_rows:

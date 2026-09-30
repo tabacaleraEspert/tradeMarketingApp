@@ -57,6 +57,9 @@ interface RouteWithPdvs {
   estimatedMinutes: number | null;
   isOptimized: boolean;
   nextDay: string | null;
+  /** Ruta de campaña (temporal, la edita solo admin). */
+  isCampaign: boolean;
+  endDate: string | null;
   pdvs: Pdv[];
   routePdvs: RoutePdv[];
   color: string;
@@ -128,6 +131,8 @@ export function MyRoutesPage() {
           estimatedMinutes: r.EstimatedMinutes,
           isOptimized: r.IsOptimized,
           nextDay: r.nextDay ?? null,
+          isCampaign: r.RouteType === "campaign",
+          endDate: r.EndDate ?? null,
           pdvs: r.pdvs.map((p: any) => ({ ...p } as Pdv)),
           routePdvs: r.pdvs.map((p: any) => ({ PdvId: p.PdvId, SortOrder: p.SortOrder, Priority: p.Priority, RouteId: r.RouteId } as RoutePdv)),
           color: ROUTE_COLORS[i % ROUTE_COLORS.length],
@@ -671,6 +676,10 @@ export function MyRoutesPage() {
                     toast.info("Esta ruta se sincronizará cuando vuelva la conexión.");
                     return;
                   }
+                  if (route.isCampaign) {
+                    toast.info("Ruta de campaña: la arma el equipo central. Sus PDVs te aparecen en los días programados.");
+                    return;
+                  }
                   navigate(`/my-routes/${route.routeId}/edit`);
                 }}
               >
@@ -681,6 +690,11 @@ export function MyRoutesPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap mb-1">
                         <h3 className="font-bold text-foreground truncate">{route.name}</h3>
+                        {route.isCampaign && (
+                          <Badge className="bg-sky-100 text-sky-800 border-sky-200 dark:bg-sky-950/50 dark:text-sky-300 text-[10px] px-1.5 py-0">
+                            Campaña{route.endDate ? ` · hasta ${route.endDate.split("-").reverse().slice(0, 2).join("/")}` : ""}
+                          </Badge>
+                        )}
                         {(route as any)._isPendingSync && (
                           <Badge className="bg-amber-100 text-amber-700 border-amber-200 text-[10px] px-1.5 py-0">
                             Pendiente

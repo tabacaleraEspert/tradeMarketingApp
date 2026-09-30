@@ -223,6 +223,7 @@ export const router = createBrowserRouter([
       { path: "supplier-config", element: <SuspenseWrap><SupplierConfig /></SuspenseWrap> },
       { path: "products", element: <SuspenseWrap><ProductManagement /></SuspenseWrap> },
       { path: "routes", element: <SuspenseWrap><RouteManagement /></SuspenseWrap> },
+      { path: "routes/new", element: <SuspenseWrap><RouteEditorPage /></SuspenseWrap> },
       { path: "routes/:routeId/edit", element: <SuspenseWrap><RouteEditorPage /></SuspenseWrap> },
       { path: "territory", element: <SuspenseWrap><TerritoryManagement /></SuspenseWrap> },
       { path: "forms", element: <SuspenseWrap><FormBuilder /></SuspenseWrap> },

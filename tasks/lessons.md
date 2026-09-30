@@ -10,3 +10,9 @@
 - **Qué pasó**: al hacer opcional el teléfono (jun) se cambió validación, placeholder y backend, pero quedó el `disabled` del botón exigiendo teléfono → alta imposible sin teléfono. Además, la pantalla nunca actualizaba el cache offline al guardar: con señal mala, al volver se servía la lista vieja y el proveedor "desaparecía".
 - **Regla**: al hacer opcional un campo, grep TODAS las referencias (`form.Campo`) — validación, `disabled`, placeholder, backend. Un `disabled` desalineado es un bug invisible (no hay error, sólo un botón gris).
 - **Regla**: toda pantalla que use `fetchWithCache(key)` + mutación tiene que hacer `writeCache(key, next)` en la mutación (patrón de VisitActionsPage). Si no, el cache miente cuando la red falla.
+
+## 2026-09-25 — "Error del servidor" al enviar prueba del reporte (naive vs aware)
+- **Qué pasó**: `behavior.py` ordenaba check-ins (naive) junto a `File.TakenAt` (aware en prod, DATETIMEOFFSET) → TypeError. Los tests corren en SQLite, que devuelve TODO naive → invisible hasta prod.
+- **Regla**: en este repo, cualquier código que compare/ordene datetimes de columnas distintas tiene que normalizar (`_naive_utc`) al cargar. Prod mezcla DATETIME2 y DATETIMEOFFSET aunque el modelo diga `DateTime(timezone=True)`.
+- **Regla**: normalizar atributos ORM con `set_committed_value`, nunca asignando (`obj.Ts = ...` → UPDATE en el próximo commit).
+- **Test**: simular DATETIMEOFFSET en SQLite con `event.listen(Model, "load", ...)` que vuelva aware los campos.

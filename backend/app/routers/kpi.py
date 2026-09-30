@@ -51,6 +51,7 @@ from ..models import (
     ScoringCommunicationRule as ScoringCommunicationRuleModel,
     AppSetting as AppSettingModel,
 )
+from ..models.route import route_is_live
 from ..services import tmr_dashboard as tmr
 from ..services.kpi_engine import (
     BUSINESS_TZ,
@@ -130,7 +131,7 @@ def _resolve_target_user_ids(db: Session, current_user: UserModel, user_id: int 
 
     rows = (
         db.query(RouteModel.AssignedUserId)
-        .filter(RouteModel.IsFocus == True, RouteModel.IsActive == True, RouteModel.AssignedUserId.isnot(None))  # noqa: E712
+        .filter(RouteModel.IsFocus == True, route_is_live(), RouteModel.AssignedUserId.isnot(None))  # noqa: E712
         .distinct()
         .all()
     )
@@ -435,7 +436,7 @@ def get_pdv_scoring(
             db.query(RoutePdvModel.PdvId, RouteModel.RouteId, RouteModel.Name)
             .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
             .filter(
-                RouteModel.IsFocus == True, RouteModel.IsActive == True,  # noqa: E712
+                RouteModel.IsFocus == True, route_is_live(),  # noqa: E712
                 RouteModel.AssignedUserId == user_id, RoutePdvModel.PdvId.in_(universe),
             )
             .all()
@@ -631,7 +632,7 @@ def get_route_summary(
     routes = (
         db.query(RouteModel)
         .filter(
-            RouteModel.IsFocus == True, RouteModel.IsActive == True,  # noqa: E712
+            RouteModel.IsFocus == True, route_is_live(),  # noqa: E712
             RouteModel.AssignedUserId.in_(target_ids),
         )
         .all()
@@ -827,7 +828,7 @@ def _focus_route_by_user_pdv(db: Session, user_ids: list[int]) -> dict[tuple[int
         db.query(RoutePdvModel.PdvId, RouteModel.RouteId, RouteModel.Name, RouteModel.AssignedUserId)
         .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
         .filter(
-            RouteModel.IsFocus == True, RouteModel.IsActive == True,  # noqa: E712
+            RouteModel.IsFocus == True, route_is_live(),  # noqa: E712
             RouteModel.AssignedUserId.in_(user_ids),
         )
         .all()
@@ -993,7 +994,7 @@ def _close_month_core(db: Session, year: int, month: int, force: bool = False, o
     user_ids = [
         r[0] for r in
         db.query(RouteModel.AssignedUserId)
-        .filter(RouteModel.IsFocus == True, RouteModel.IsActive == True, RouteModel.AssignedUserId.isnot(None))  # noqa: E712
+        .filter(RouteModel.IsFocus == True, route_is_live(), RouteModel.AssignedUserId.isnot(None))  # noqa: E712
         .distinct()
         .all()
     ]
@@ -1220,7 +1221,7 @@ def get_closed_months(
     reasignó una ruta foco a alguien nuevo (A1 de la auditoría del tablero TMR)."""
     users_with_routes_today = (
         db.query(RouteModel.AssignedUserId)
-        .filter(RouteModel.IsFocus == True, RouteModel.IsActive == True, RouteModel.AssignedUserId.isnot(None))  # noqa: E712
+        .filter(RouteModel.IsFocus == True, route_is_live(), RouteModel.AssignedUserId.isnot(None))  # noqa: E712
         .distinct()
         .count()
     )

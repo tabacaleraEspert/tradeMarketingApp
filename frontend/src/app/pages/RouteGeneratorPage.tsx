@@ -9,7 +9,7 @@ import {
   CheckCircle2, AlertTriangle, Search, Store, ChevronRight,
 } from "lucide-react";
 import { pdvsApi, routesApi } from "@/lib/api";
-import type { Pdv } from "@/lib/api";
+import type { Pdv, PdvRouteAssignment } from "@/lib/api";
 import { getCurrentUser } from "../lib/auth";
 import { toast } from "sonner";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF } from "@react-google-maps/api";
@@ -59,10 +59,11 @@ export function RouteGeneratorPage() {
   useEffect(() => {
     Promise.all([
       pdvsApi.list({ active_only: true }),
-      routesApi.listPdvAssignments().catch(() => [] as { pdvId: number; routeId: number }[]),
+      routesApi.listPdvAssignments().catch(() => [] as PdvRouteAssignment[]),
     ]).then(([list, assignments]) => {
       setAllPdvs(list);
-      setAssignedPdvIds(new Set(assignments.map((a) => a.pdvId)));
+      // Solo las rutas regulares son exclusivas: una campaña no bloquea el PDV.
+      setAssignedPdvIds(new Set(assignments.filter((a) => a.routeType !== "campaign").map((a) => a.pdvId)));
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);

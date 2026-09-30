@@ -58,6 +58,7 @@ from ..models import (
     VisitPhoto,
     VisitPOPItem,
 )
+from ..models.route import route_is_live
 
 # Niveles de rúbrica, de más bajo a más alto.
 LEVELS = ("regular", "bueno", "muy_bueno", "excelente")
@@ -310,7 +311,7 @@ def focus_universe(db: Session, user_id: int, year: int, month: int) -> set:
         .join(Route, Route.RouteId == RoutePdv.RouteId)
         .join(PDV, PDV.PdvId == RoutePdv.PdvId)
         .filter(
-            Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
+            Route.IsFocus == True, route_is_live(), Route.AssignedUserId == user_id,  # noqa: E712
             PDV.IsActive == True,  # noqa: E712
         )
         .distinct()
@@ -611,7 +612,7 @@ def effective_visit_ids(
             db.query(RouteDay.RouteDayId, RouteDay.WorkDate)
             .join(Route, Route.RouteId == RouteDay.RouteId)
             .filter(
-                Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
+                Route.IsFocus == True, route_is_live(), Route.AssignedUserId == user_id,  # noqa: E712
                 RouteDay.WorkDate >= start, RouteDay.WorkDate < end,
             )
             .all()
@@ -677,7 +678,7 @@ def _kpi2_efectividad(db: Session, user_id: int, year: int, month: int) -> tuple
         db.query(RouteDay.RouteDayId)
         .join(Route, Route.RouteId == RouteDay.RouteId)
         .filter(
-            Route.IsFocus == True, Route.IsActive == True, Route.AssignedUserId == user_id,  # noqa: E712
+            Route.IsFocus == True, route_is_live(), Route.AssignedUserId == user_id,  # noqa: E712
             RouteDay.WorkDate >= start, RouteDay.WorkDate < end,
         )
         .all()

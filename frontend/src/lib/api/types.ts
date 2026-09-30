@@ -228,10 +228,16 @@ export interface Route {
   AssignedUserName: string | null;
   IsOptimized: boolean;
   IsFocus: boolean;
+  /** "campaign" = ruta de campaña (temporal, solo admin, fuera de KPI). */
+  RouteType: RouteType;
+  /** Fecha de fin inclusive "YYYY-MM-DD" (obligatoria en campaña). */
+  EndDate: string | null;
   CreatedByUserId: number | null;
   PdvCount: number;
   CreatedAt: string;
 }
+
+export type RouteType = "regular" | "campaign";
 
 export interface RouteStats {
   total_routes: number;

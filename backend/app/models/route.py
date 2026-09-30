@@ -1,4 +1,6 @@
-from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger, text
+from datetime import date, datetime, timedelta, timezone
+
+from sqlalchemy import Column, Index, Integer, String, Boolean, DateTime, ForeignKey, BigInteger, Date, Time, SmallInteger, and_, or_, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -30,6 +32,30 @@ class Route(Base):
     # Ruta foco: universo de PDVs sobre el que se miden los KPIs del tablero TMR.
     # Default true: hoy todas las rutas activas asignadas se consideran foco (comportamiento actual intacto).
     IsFocus = Column(Boolean, nullable=False, server_default=text("1"))
+    # "regular" | "campaign". Campaña = ruta temporal (acciones puntuales): puede usar
+    # PDVs de otras rutas sin quitárselos, se asigna a cualquier trade, no cambia el
+    # dueño del PDV (PDV.AssignedUserId), nunca es foco (fuera de KPI/TMR). Solo admin.
+    RouteType = Column(String(20), nullable=False, server_default=text("'regular'"))
+    # Fecha de fin (inclusive). Pasada, la ruta cuenta como inactiva (ver route_is_live).
+    # Opcional en regulares, obligatoria en campañas.
+    EndDate = Column(Date, nullable=True)
+
+
+ROUTE_REGULAR = "regular"
+ROUTE_CAMPAIGN = "campaign"
+
+
+def today_ar() -> date:
+    return datetime.now(timezone(timedelta(hours=-3))).date()
+
+
+def route_is_live(today: date | None = None):
+    """Condición SQL de "ruta vigente": activa y sin fecha de fin vencida.
+    Reemplaza a `Route.IsActive == True` en KPI/TMR/Inteligencia/visibilidad."""
+    return and_(
+        Route.IsActive == True,  # noqa: E712
+        or_(Route.EndDate.is_(None), Route.EndDate >= (today or today_ar())),
+    )
 
 
 class RouteForm(Base):
