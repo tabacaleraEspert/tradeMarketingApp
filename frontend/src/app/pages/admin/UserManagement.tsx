@@ -168,6 +168,10 @@ export function UserManagement() {
       toast.error("La contraseña es obligatoria al crear un usuario");
       return;
     }
+    if (form.Password && form.Password.length < 8) {
+      toast.error("La contraseña debe tener al menos 8 caracteres");
+      return;
+    }
     setSaving(true);
     try {
       if (editingUser) {
@@ -640,6 +644,9 @@ export function UserManagement() {
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            <p className={`text-xs ${form.Password && form.Password.length < 8 ? "text-destructive" : "text-muted-foreground"}`}>
+              Mínimo 8 caracteres
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

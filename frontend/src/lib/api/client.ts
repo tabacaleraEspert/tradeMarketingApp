@@ -99,6 +99,23 @@ async function tryRefreshAccessToken(): Promise<boolean> {
   return refreshPromise;
 }
 
+/**
+ * FastAPI devuelve `detail` como string (HTTPException) o como array de errores
+ * de validación (422 de Pydantic). Lo aplanamos a un texto legible.
+ */
+function normalizeDetail(detail: unknown): string | null {
+  if (!detail) return null;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    const msgs = detail
+      .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : null))
+      .filter((m): m is string => !!m)
+      .map((m) => m.replace(/^Value error, /, ""));
+    return msgs.length ? msgs.join(". ") : null;
+  }
+  return null;
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   const requestId = res.headers.get("X-Request-ID");
   if (!res.ok) {
@@ -112,7 +129,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
         data = null;
       }
     }
-    const detail = (data as { detail?: string } | null)?.detail || null;
+    const detail = normalizeDetail((data as { detail?: unknown } | null)?.detail);
     throw new ApiError(
       friendlyErrorMessage(res.status, detail, requestId),
       res.status,
