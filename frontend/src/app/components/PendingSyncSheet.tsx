@@ -10,7 +10,7 @@ interface Props {
   onClose: () => void;
 }
 
-const KIND_META: Record<QueuedKind, { label: string; icon: typeof Camera; color: string }> = {
+const KIND_META: Partial<Record<QueuedKind, { label: string; icon: typeof Camera; color: string }>> = {
   visit_check: { label: "Check GPS", icon: MapPin, color: "text-blue-500" },
   visit_create: { label: "Inicio de visita", icon: FileText, color: "text-emerald-500" },
   visit_update: { label: "Cierre de visita", icon: CheckCircle2, color: "text-emerald-600" },
@@ -19,6 +19,7 @@ const KIND_META: Record<QueuedKind, { label: string; icon: typeof Camera; color:
   photo_upload: { label: "Foto", icon: Camera, color: "text-amber-500" },
   pdv_create: { label: "Alta de PDV", icon: FileText, color: "text-indigo-500" },
   pdv_note_create: { label: "Nota de PDV", icon: MessageSquare, color: "text-rose-500" },
+  pdv_supplier_link: { label: "Proveedor de PDV", icon: FileText, color: "text-amber-600" },
 };
 
 export function PendingSyncSheet({ isOpen, onClose }: Props) {

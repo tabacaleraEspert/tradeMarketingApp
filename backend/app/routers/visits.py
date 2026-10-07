@@ -250,6 +250,7 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
     from ..models.file import File as FileModel
     from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
     from ..models.supplier_type import SupplierType as SupplierTypeModel
+    from ..models.supplier import SupplierSeller as SupplierSellerModel
     from ..storage import storage
     from ..services.coverage_semantics import product_brand
 
@@ -333,18 +334,27 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
         {t.SupplierTypeId: t.Name for t in db.query(SupplierTypeModel).filter(SupplierTypeModel.SupplierTypeId.in_(st_ids)).all()}
         if st_ids else {}
     )
+    sel_ids = {s.SupplierSellerId for s in sup_rows if s.SupplierSellerId}
+    sel_map = (
+        {se.SupplierSellerId: se for se in db.query(SupplierSellerModel).filter(SupplierSellerModel.SupplierSellerId.in_(sel_ids)).all()}
+        if sel_ids else {}
+    )
     suppliers = []
     for s in sup_rows:
         try:
             prods = _json.loads(s.Products) if s.Products else []
         except (ValueError, TypeError):
             prods = []
+        seller = sel_map.get(s.SupplierSellerId) if s.SupplierSellerId else None
         suppliers.append({
             "PdvSupplierId": s.PdvSupplierId,
+            "SupplierId": s.SupplierId,
             "Name": s.Name,
             "Phone": s.Phone,
             "SupplierType": st_map.get(s.SupplierTypeId),
             "Products": prods,
+            "SellerName": seller.Name if seller else None,
+            "SellerPhone": (seller.Phone or None) if seller else None,
         })
 
     return {

@@ -29,6 +29,11 @@ class PdvSupplier(BaseModel):
     SupplierTypeId: int | None = None
     Products: list[str] | None = None
     IsActive: bool
+    # Vínculo a Supplier / SupplierSeller (0026). NULL en filas legacy.
+    SupplierId: int | None = None
+    SupplierSellerId: int | None = None
+    SellerName: str | None = None
+    SellerPhone: str | None = None
     CreatedAt: datetime
     UpdatedAt: datetime
 

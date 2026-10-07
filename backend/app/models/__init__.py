@@ -29,6 +29,7 @@ from .app_setting import AppSetting
 from .supplier_type import SupplierType
 from .supplier_product_type import SupplierProductType
 from .pdv_supplier import PdvSupplier
+from .supplier import Supplier, SupplierSeller
 from .sso import SsoUsedJti
 from .kpi_definition import KpiDefinition
 from .kpi_config import KpiConfig
@@ -86,6 +87,8 @@ __all__ = [
     "SupplierType",
     "SupplierProductType",
     "PdvSupplier",
+    "Supplier",
+    "SupplierSeller",
     "SsoUsedJti",
     "KpiDefinition",
     "KpiConfig",

@@ -24,6 +24,7 @@ from ..models.product import Product as ProductModel
 from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
 from ..models.pdv_supplier import PdvSupplier as PdvSupplierModel
 from ..models.supplier_type import SupplierType as SupplierTypeModel
+from ..models.supplier import SupplierSeller as SupplierSellerModel
 from ..models.visit_action import VisitAction as VisitActionModel
 from ..hierarchy import get_visible_user_ids, visible_user_ids, visible_pdv_ids
 from ..auth import get_user_role
@@ -1416,17 +1417,38 @@ def supplier_analytics(
             except (ValueError, TypeError):
                 pass
 
-    # Top suppliers (most PDVs)
-    supplier_pdv_count: dict[str, set] = {}
+    # Top suppliers (most PDVs). Vinculados (0026): clave = SupplierId;
+    # legacy (SupplierId NULL): teléfono, y sin teléfono el nombre.
+    seller_ids = {s.SupplierSellerId for s in suppliers if s.SupplierSellerId}
+    seller_names = (
+        {se.SupplierSellerId: se.Name for se in db.query(SupplierSellerModel).filter(SupplierSellerModel.SupplierSellerId.in_(seller_ids)).all()}
+        if seller_ids else {}
+    )
+    supplier_pdv_count: dict[str, dict] = {}
     for s in suppliers:
-        # phone as unique identifier; sin teléfono, el nombre evita mezclar proveedores
-        key = s.Phone or f"name:{s.Name.strip().lower()}"
-        supplier_pdv_count.setdefault(key, {"name": s.Name, "phone": s.Phone, "pdvs": set(), "type": types.get(s.SupplierTypeId, "-")})
+        if s.SupplierId:
+            key = f"sid:{s.SupplierId}"
+        else:
+            key = s.Phone or f"name:{s.Name.strip().lower()}"
+        entry = supplier_pdv_count.setdefault(key, {
+            "supplierId": s.SupplierId, "name": s.Name, "phone": s.Phone or "",
+            "pdvs": set(), "type": types.get(s.SupplierTypeId, "-"), "sellers": set(),
+        })
+        if not entry["phone"] and s.Phone:
+            entry["phone"] = s.Phone
+        if s.SupplierSellerId and s.SupplierSellerId in seller_names:
+            entry["sellers"].add(seller_names[s.SupplierSellerId])
         if s.PdvId is not None:
-            supplier_pdv_count[key]["pdvs"].add(s.PdvId)
+            entry["pdvs"].add(s.PdvId)
 
     top_suppliers = sorted(
-        [{"name": v["name"], "phone": v["phone"], "type": v["type"], "pdvCount": len(v["pdvs"])} for v in supplier_pdv_count.values()],
+        [
+            {
+                "supplierId": v["supplierId"], "name": v["name"], "phone": v["phone"], "type": v["type"],
+                "pdvCount": len(v["pdvs"]), "sellers": sorted(v["sellers"]),
+            }
+            for v in supplier_pdv_count.values()
+        ],
         key=lambda x: -x["pdvCount"],
     )[:20]
 

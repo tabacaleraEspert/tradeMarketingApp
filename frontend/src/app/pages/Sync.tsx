@@ -27,6 +27,7 @@ const KIND_LABELS: Record<string, string> = {
   photo_upload: "Subir foto",
   pdv_create: "Crear PDV",
   pdv_note_create: "Nota de PDV",
+  pdv_supplier_link: "Proveedor de PDV",
 };
 
 function formatAge(timestamp: number): string {

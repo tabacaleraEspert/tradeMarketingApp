@@ -157,6 +157,8 @@ import type {
   SupplierType,
   SupplierProductType,
   PdvSupplier,
+  Supplier,
+  PdvSupplierLinkBody,
 } from "./types";
 
 // --- Zones ---
@@ -948,7 +950,7 @@ export const reportsApi = {
       byType: Array<{ type: string; count: number }>;
       byZone: Array<{ zone: string; count: number }>;
       byProduct: Array<{ product: string; count: number }>;
-      topSuppliers: Array<{ name: string; phone: string; type: string; pdvCount: number }>;
+      topSuppliers: Array<{ supplierId?: number | null; name: string; phone: string; type: string; pdvCount: number; sellers?: string[] }>;
     }>("/reports/supplier-analytics"),
   routeAnalytics: () =>
     api.get<{
@@ -1520,10 +1522,14 @@ export interface IntelPdvDetail {
     notas: string | null;
   }>;
   proveedores: Array<{
+    supplierId?: number | null;
     nombre: string;
     telefono: string | null;
     tipo: string | null;
     productos: string[];
+    /** Vendedor vinculado al PDV (proveedor con vendedores). */
+    vendedor?: string | null;
+    vendedorTelefono?: string | null;
   }>;
   skusEspertHoy: string[];
   censo: Array<{
@@ -1564,8 +1570,11 @@ export interface TmrQueryPeriod {
 }
 
 export interface IntelSupplierRow {
+  supplierId?: number | null;
   nombre: string;
   telefono: string | null;
+  /** Vendedores del proveedor que atienden PDVs del recorte. */
+  vendedores?: Array<{ nombre: string; telefono: string | null }>;
   tipo: string | null;
   productos: string[];
   pdvs: number;
@@ -1768,6 +1777,26 @@ export const pdvSuppliersApi = {
     api.delete(`/pdvs/${pdvId}/suppliers/${supplierId}`),
   searchZone: (pdvId: number, phone?: string) =>
     api.get<PdvSupplier[]>(`/pdvs/${pdvId}/suppliers/search-zone`, phone ? { phone } : undefined),
+  /** Vincula un proveedor (existente o nuevo) + vendedor opcional al PDV. Idempotente. */
+  link: (pdvId: number, body: PdvSupplierLinkBody) =>
+    api.post<PdvSupplier>(`/pdvs/${pdvId}/suppliers/link`, body),
+};
+
+// --- Proveedores (catálogo por zona con vendedores) ---
+export const suppliersApi = {
+  /** No-admin: el backend filtra a su zona (+ la del PDV si viene pdv_id) y solo activos. */
+  list: (params?: { zone_id?: number; q?: string; include_inactive?: boolean; pdv_id?: number }) =>
+    api.get<Supplier[]>("/suppliers", params as Record<string, string | number | boolean | undefined>),
+  create: (data: { ZoneId: number; Name: string; SupplierTypeId?: number | null; Products?: string[] | null }) =>
+    api.post<Supplier>("/suppliers", data),
+  update: (id: number, data: { Name?: string; ZoneId?: number; SupplierTypeId?: number | null; Products?: string[] | null; IsActive?: boolean }) =>
+    api.patch<Supplier>(`/suppliers/${id}`, data),
+  addSeller: (id: number, data: { Name: string; Phone?: string }) =>
+    api.post<Supplier>(`/suppliers/${id}/sellers`, data),
+  updateSeller: (id: number, sellerId: number, data: { Name?: string; Phone?: string | null; IsActive?: boolean }) =>
+    api.patch<Supplier>(`/suppliers/${id}/sellers/${sellerId}`, data),
+  merge: (destinationId: number, sourceIds: number[]) =>
+    api.post<Supplier>(`/suppliers/${destinationId}/merge`, { SourceSupplierIds: sourceIds }),
 };
 
 // --- Reporte de comportamiento por mail (backend: routers/behavior_reports.py) ---

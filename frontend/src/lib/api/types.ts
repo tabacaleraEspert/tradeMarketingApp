@@ -492,4 +492,39 @@ export interface PdvSupplier {
   IsActive: boolean;
   CreatedAt: string;
   UpdatedAt: string;
+  /** Proveedor (catálogo por zona) al que está vinculada la fila; null en filas legacy. */
+  SupplierId?: number | null;
+  SupplierSellerId?: number | null;
+  SellerName?: string | null;
+  SellerPhone?: string | null;
+}
+
+/** Vendedor de un proveedor (nombre obligatorio, teléfono opcional). */
+export interface SupplierSeller {
+  SupplierSellerId: number;
+  Name: string;
+  Phone: string | null;
+  IsActive: boolean;
+}
+
+/** Proveedor del catálogo por zona (GET /suppliers). */
+export interface Supplier {
+  SupplierId: number;
+  ZoneId: number | null;
+  ZoneName: string | null;
+  Name: string;
+  SupplierTypeId: number | null;
+  SupplierTypeName: string | null;
+  Products: string[] | null;
+  IsActive: boolean;
+  PdvCount: number;
+  Sellers: SupplierSeller[];
+}
+
+/** Body de POST /pdvs/{pdvId}/suppliers/link. Exactamente uno de SupplierId / NewSupplier. */
+export interface PdvSupplierLinkBody {
+  SupplierId?: number;
+  NewSupplier?: { Name: string; SupplierTypeId?: number; Products?: string[] };
+  SupplierSellerId?: number;
+  NewSeller?: { Name: string; Phone?: string };
 }

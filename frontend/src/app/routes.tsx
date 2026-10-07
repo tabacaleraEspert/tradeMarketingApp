@@ -57,6 +57,7 @@ const VisitDataExplorer = lazy(() => import("./pages/admin/VisitDataExplorer").t
 const PlantDashboard = lazy(() => import("./pages/plant/PlantDashboard").then(m => ({ default: m.PlantDashboard })));
 const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m => ({ default: m.AuditTimeline })));
 const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
+const SupplierManagement = lazy(() => import("./pages/admin/SupplierManagement").then(m => ({ default: m.SupplierManagement })));
 const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").then(m => ({ default: m.ProductDeliveries })));
 const TableroPage = lazy(() => import("./pages/tablero/TableroPage").then(m => ({ default: m.TableroPage })));
 const InteligenciaPage = lazy(() => import("./pages/inteligencia/InteligenciaPage").then(m => ({ default: m.InteligenciaPage })));
@@ -221,6 +222,7 @@ export const router = createBrowserRouter([
       { path: "pos-management", element: <SuspenseWrap><POSManagement /></SuspenseWrap> },
       { path: "channels", element: <SuspenseWrap><ChannelManagement /></SuspenseWrap> },
       { path: "supplier-config", element: <SuspenseWrap><SupplierConfig /></SuspenseWrap> },
+      { path: "suppliers", element: <SuspenseWrap><SupplierManagement /></SuspenseWrap> },
       { path: "products", element: <SuspenseWrap><ProductManagement /></SuspenseWrap> },
       { path: "routes", element: <SuspenseWrap><RouteManagement /></SuspenseWrap> },
       { path: "routes/new", element: <SuspenseWrap><RouteEditorPage /></SuspenseWrap> },

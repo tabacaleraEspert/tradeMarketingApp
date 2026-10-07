@@ -14,12 +14,13 @@ import {
   routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
   pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
   channelsApi, subchannelsApi, supplierTypesApi, supplierProductTypesApi, zonesApi,
-  usersApi, mandatoryActivitiesApi, pdvSuppliersApi, pdvProductCategoriesApi,
+  usersApi, mandatoryActivitiesApi, pdvSuppliersApi, pdvProductCategoriesApi, suppliersApi,
   useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
 import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
 import { useQuery } from "@/lib/api/useQuery";
 import { fetchWithCache, writeCache } from "@/lib/offline";
+import { ZONE_SUPPLIERS_CACHE_KEY } from "@/lib/suppliers";
 import type { DashboardHomeData } from "@/lib/api/services";
 
 /** Timezone-safe Date → YYYY-MM-DD */
@@ -187,6 +188,8 @@ export function Home() {
       track(fetchWithCache("products_active", () => productsApi.list({ active_only: true })).catch(() => {}));
       track(fetchWithCache("supplier_types", () => supplierTypesApi.list()).catch(() => {}));
       track(fetchWithCache("supplier_product_types", () => supplierProductTypesApi.list()).catch(() => {}));
+      // Catálogo de proveedores de la zona (censo offline / PDVs temporales)
+      track(fetchWithCache(ZONE_SUPPLIERS_CACHE_KEY, () => suppliersApi.list()).catch(() => {}));
       track(fetchWithCache("zones", () => zonesApi.list()).catch(() => {}));
       track(fetchWithCache("users", () => usersApi.list()).catch(() => {}));
       track(fetchWithCache("mandatory_activities", () => mandatoryActivitiesApi.list({ active_only: true })).catch(() => {}));

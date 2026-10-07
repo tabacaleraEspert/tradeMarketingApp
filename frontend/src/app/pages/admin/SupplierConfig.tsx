@@ -230,7 +230,8 @@ function AnalyticsView({ analytics, loading }: { analytics: SupplierAnalytics | 
   if (!analytics) return <div className="py-12 text-center text-muted-foreground">Sin datos de proveedores</div>;
 
   const filteredTop = analytics.topSuppliers.filter((s) =>
-    !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.phone.includes(search)
+    !search || s.name.toLowerCase().includes(search.toLowerCase()) || s.phone.includes(search) ||
+    (s.sellers ?? []).some((v) => v.toLowerCase().includes(search.toLowerCase()))
   );
 
   return (
@@ -318,7 +319,12 @@ function AnalyticsView({ analytics, loading }: { analytics: SupplierAnalytics | 
               <tbody>
                 {filteredTop.map((s, i) => (
                   <tr key={i} className="border-b hover:bg-muted/50">
-                    <td className="py-2.5 px-4 font-medium">{s.name}</td>
+                    <td className="py-2.5 px-4 font-medium">
+                      {s.name}
+                      {s.sellers && s.sellers.length > 0 && (
+                        <p className="text-[11px] font-normal text-muted-foreground">{s.sellers.join(" · ")}</p>
+                      )}
+                    </td>
                     <td className="py-2.5 px-4 text-muted-foreground">{s.phone}</td>
                     <td className="py-2.5 px-4 text-center"><Badge variant="outline">{s.type}</Badge></td>
                     <td className="py-2.5 px-4 text-center font-bold">{s.pdvCount}</td>

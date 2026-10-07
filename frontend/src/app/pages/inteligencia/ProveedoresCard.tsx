@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Phone, RefreshCw, Truck } from "lucide-react";
+import { Phone, RefreshCw, Truck, User } from "lucide-react";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type IntelSupplierRow } from "@/lib/api";
 
@@ -7,6 +7,11 @@ import { intelligenceApi, type IntelSupplierRow } from "@/lib/api";
 export interface ProveedorItem {
   nombre: string;
   telefono: string | null;
+  /** Vendedor del vínculo PDV↔proveedor (detalle de PDV). */
+  vendedor?: string | null;
+  vendedorTelefono?: string | null;
+  /** Vendedores agregados (drill ruta/trade/zona). */
+  vendedores?: Array<{ nombre: string; telefono: string | null }>;
   tipo: string | null;
   productos: string[];
   pdvs?: number;
@@ -15,6 +20,7 @@ export interface ProveedorItem {
 
 /** Fila de proveedor compartida por los tres niveles del drill (PDV, ruta, trade). */
 export function ProveedorRow({ p, showPdvCount }: { p: ProveedorItem; showPdvCount?: boolean }) {
+  const sellers = p.vendedores ?? (p.vendedor ? [{ nombre: p.vendedor, telefono: p.vendedorTelefono ?? null }] : []);
   return (
     <div className="flex items-start gap-3 py-2 border-b border-border last:border-0">
       <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center shrink-0 mt-0.5">
@@ -38,13 +44,25 @@ export function ProveedorRow({ p, showPdvCount }: { p: ProveedorItem; showPdvCou
           )}
         </div>
         <div className="flex items-center gap-3 flex-wrap mt-0.5 text-xs text-muted-foreground">
-          {p.telefono && (
+          {p.telefono && !sellers.some((v) => v.telefono === p.telefono) && (
             <a href={`tel:${p.telefono}`} className="inline-flex items-center gap-1 hover:text-espert-gold">
               <Phone size={11} /> {p.telefono}
             </a>
           )}
           {p.productos.length > 0 && <span className="truncate">{p.productos.join(" · ")}</span>}
         </div>
+        {sellers.length > 0 && (
+          <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap mt-0.5 text-xs text-muted-foreground">
+            {sellers.map((v) => (
+              <span key={v.nombre} className="inline-flex items-center gap-1">
+                <User size={11} /> <span className="text-foreground">{v.nombre}</span>
+                {v.telefono && (
+                  <a href={`tel:${v.telefono}`} className="hover:text-espert-gold">({v.telefono})</a>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -111,7 +129,7 @@ export function ProveedoresCard({ userId, ruta, zoneId }: Props) {
         {items !== null && (
           <div className="max-h-[380px] overflow-y-auto">
             {items.map((p) => (
-              <ProveedorRow key={`${p.telefono ?? ""}|${p.nombre}`} p={p} showPdvCount />
+              <ProveedorRow key={p.supplierId ? `s:${p.supplierId}` : `${p.telefono ?? ""}|${p.nombre}`} p={p} showPdvCount />
             ))}
           </div>
         )}

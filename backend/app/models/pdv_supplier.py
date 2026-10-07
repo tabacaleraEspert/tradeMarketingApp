@@ -20,6 +20,10 @@ class PdvSupplier(Base):
     Phone = Column(String(40), nullable=False)
     SupplierTypeId = Column(Integer, ForeignKey("SupplierType.SupplierTypeId"), nullable=True)
     Products = Column(String(500), nullable=True)  # JSON array: '["Cigarrillos","Golosinas"]'
+    # Vínculo a la entidad Supplier (0026). NULL = fila legacy (solo texto Name/Phone).
+    # Al vincular se rellenan igual las columnas legacy (Name/Phone/ZoneId/tipo/productos).
+    SupplierId = Column(Integer, ForeignKey("Supplier.SupplierId"), nullable=True, index=True)
+    SupplierSellerId = Column(Integer, ForeignKey("SupplierSeller.SupplierSellerId"), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     UpdatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

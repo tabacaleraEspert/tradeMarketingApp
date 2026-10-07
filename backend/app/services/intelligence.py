@@ -52,6 +52,7 @@ from ..models.route import route_is_live
 from ..models.pdv_contact import PdvContact
 from ..models.pdv_supplier import PdvSupplier
 from ..models.supplier_type import SupplierType
+from ..models.supplier import SupplierSeller
 from ..models.user import Role as RoleModel, UserRole as UserRoleModel
 from .coverage_semantics import get_coverage_cutoff, product_brand, row_is_known
 from .kpi_engine import filter_price_outliers
@@ -996,14 +997,18 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
     # Proveedores cargados en el PDV (censo de proveedores; dato del PDV, no de la visita)
     proveedores = [
         {
+            "supplierId": s.SupplierId,
             "nombre": s.Name,
             "telefono": s.Phone or None,
             "tipo": tipo,
             "productos": _supplier_products(s.Products),
+            "vendedor": vend_nombre,
+            "vendedorTelefono": vend_tel or None,
         }
-        for s, tipo in (
-            db.query(PdvSupplier, SupplierType.Name)
+        for s, tipo, vend_nombre, vend_tel in (
+            db.query(PdvSupplier, SupplierType.Name, SupplierSeller.Name, SupplierSeller.Phone)
             .outerjoin(SupplierType, SupplierType.SupplierTypeId == PdvSupplier.SupplierTypeId)
+            .outerjoin(SupplierSeller, SupplierSeller.SupplierSellerId == PdvSupplier.SupplierSellerId)
             .filter(PdvSupplier.PdvId == pdv_id, PdvSupplier.IsActive == True)
             .order_by(PdvSupplier.Name)
             .all()
@@ -1061,9 +1066,10 @@ def build_suppliers(
     ruta con `ruta_nombre`) o TODOS los PDVs activos de una zona (`zone_id` —
     el tablero de zona abarca la zona completa, no solo lo ruteado).
 
-    El mismo proveedor aparece en varios PDVs (el teléfono es la clave lógica;
-    sin teléfono, el nombre): se devuelve una fila por proveedor con la cantidad
-    de PDVs donde está cargado. Set-logic en SQL (joins), agregado liviano acá.
+    El mismo proveedor aparece en varios PDVs: vinculados (0026) se agrupan por
+    SupplierId; legacy (SupplierId NULL) por teléfono y, sin teléfono, por
+    nombre. Se devuelve una fila por proveedor con la cantidad de PDVs donde
+    está cargado y sus vendedores. Set-logic en SQL (joins), agregado liviano acá.
     """
     base = (
         db.query(
@@ -1073,9 +1079,13 @@ def build_suppliers(
             SupplierType.Name.label("tipo"),
             PDV.PdvId,
             PDV.Name.label("pdv_nombre"),
+            PdvSupplier.SupplierId,
+            SupplierSeller.Name.label("vend_nombre"),
+            SupplierSeller.Phone.label("vend_tel"),
         )
         .join(PDV, PDV.PdvId == PdvSupplier.PdvId)
         .outerjoin(SupplierType, SupplierType.SupplierTypeId == PdvSupplier.SupplierTypeId)
+        .outerjoin(SupplierSeller, SupplierSeller.SupplierSellerId == PdvSupplier.SupplierSellerId)
         .filter(PdvSupplier.IsActive == True)  # noqa: E712
     )
     if zone_id is not None:
@@ -1094,19 +1104,28 @@ def build_suppliers(
             q = q.filter(Route.Name == ruta_nombre)
 
     agg: dict[str, dict[str, Any]] = {}
-    for nombre, phone, products_raw, tipo, pdv_id, pdv_nombre in q.all():
-        key = phone.strip() if phone and phone.strip() else f"n:{nombre.strip().lower()}"
+    for nombre, phone, products_raw, tipo, pdv_id, pdv_nombre, supplier_id, vend_nombre, vend_tel in q.all():
+        phone_clean = phone.strip() if phone and phone.strip() else None
+        if supplier_id:
+            key = f"s:{supplier_id}"
+        else:
+            key = phone_clean or f"n:{nombre.strip().lower()}"
         row = agg.get(key)
         if row is None:
             row = agg[key] = {
+                "supplierId": supplier_id,
                 "nombre": nombre,
-                "telefono": phone.strip() if phone and phone.strip() else None,
+                "telefono": phone_clean,
                 "tipo": tipo,
                 "productos": set(),
                 "_pdv_ids": set(),
                 "pdvNombres": [],
+                "_vendedores": {},
             }
         row["tipo"] = row["tipo"] or tipo
+        row["telefono"] = row["telefono"] or phone_clean
+        if vend_nombre and vend_nombre not in row["_vendedores"]:
+            row["_vendedores"][vend_nombre] = (vend_tel or "").strip() or None
         row["productos"].update(_supplier_products(products_raw))
         if pdv_id not in row["_pdv_ids"]:
             row["_pdv_ids"].add(pdv_id)
@@ -1115,8 +1134,12 @@ def build_suppliers(
     items = []
     for row in agg.values():
         items.append({
+            "supplierId": row["supplierId"],
             "nombre": row["nombre"],
             "telefono": row["telefono"],
+            "vendedores": [
+                {"nombre": n, "telefono": t} for n, t in sorted(row["_vendedores"].items(), key=lambda x: x[0].lower())
+            ],
             "tipo": row["tipo"],
             "productos": sorted(row["productos"]),
             "pdvs": len(row["_pdv_ids"]),

@@ -83,3 +83,48 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 - [ ] Material de la competencia (Massalin/BAT/TABSA): sigue genérico (no está en Bejerman). ¿Solo Espert pasa a catálogo?
 - [ ] `VisitPOPItem`: agregar `MaterialCode` (nullable) manteniendo `MaterialName` → histórico compatible; KPI/Inteligencia (`kpi_engine`, `tmr_dashboard`, `intelligence`) leen `MaterialName` — revisar.
 - [ ] ¿Cantidad por material? ¿cruzar con lo retirado por el vendedor (NPM) para ver dónde terminó el material?
+
+---
+
+# PLAN: Proveedor con vendedores (2026-10-07) — APROBADO, en curso
+
+**Problema**: no existe entidad proveedor. `PdvSupplier` = fila por PDV con Name+Phone; identidad = teléfono. Un proveedor real con 5 vendedores → 5 "proveedores". NOA: 87 "proveedores" ≈ 15-20 reales; teléfonos truchos (381, 3814…) para pasar campo obligatorio.
+
+**Modelo nuevo**
+- `Supplier`: SupplierId, Name, ZoneId, SupplierTypeId, Products, IsActive, CreatedBy/At.
+- `SupplierSeller`: SupplierSellerId, SupplierId, Name, Phone (opcional), IsActive.
+- `PdvSupplier` (vínculo PDV↔proveedor): + `SupplierId`, + `SupplierSellerId` (nullable = qué vendedor lo atiende). Name/Phone quedan por compatibilidad durante la transición.
+
+**Backend**
+- [ ] Modelos + migración alembic 0026 + script DDL prod (prod no está trackeado por alembic, lo corrés vos).
+- [ ] Endpoints: buscar proveedores de zona por nombre (con vendedores); POST atómico "vincular a PDV" que crea proveedor/vendedor si no existen (evita mapa de IDs temporales offline); ABM vendedores; unificar 2 proveedores (admin/TM).
+- [ ] Inteligencia (`build_suppliers`), `/reports/supplier-analytics`, detalle de visita, `export_dashboard_data.py`: agrupar por SupplierId en vez de teléfono.
+- [ ] Auditoría (estándar AuditLog): alta/edición/unificación de proveedores y vendedores.
+
+**Frontend**
+- [ ] Censo (`SupplierCensusPage`): 1) buscar proveedor por nombre → 2) elegir vendedor o "+ agregar vendedor" (nombre + tel opcional) → o "+ proveedor nuevo". Teléfono deja de ser obligatorio.
+- [ ] Offline: nuevo kind de cola para el POST atómico; cache de proveedores de zona con vendedores.
+- [ ] Admin: pantalla Proveedores (lista por zona, vendedores, unificar duplicados).
+- [ ] Inteligencia / VisitDataExplorer: mostrar proveedor → vendedor.
+
+**Migración de datos (prod)**
+- [ ] Script con backup JSON: agrupar filas actuales por nombre normalizado (sin tildes, minúsculas, k/c, typos) por zona → 1 Supplier; cada teléfono distinto → 1 SupplierSeller ("sin nombre" hasta que lo completen); teléfonos < 8 dígitos → descartar tel.
+- [ ] Excel por zona para que el TM confirme agrupaciones dudosas (ej. Paoletti/Psoleti, Deiana/Deiana distribuciones) antes de aplicar.
+
+**Verificación**: pytest + vitest + build + Playwright local (censo online/offline, unificar, Inteligencia) + dry-run de migración contra copia de datos NOA.
+
+## Preguntas abiertas
+1. Proveedor ¿por zona o global (mismo mayorista atiende 2 zonas)?
+2. Vendedor: ¿teléfono obligatorio?
+3. En el PDV ¿se registra el vendedor puntual que lo atiende, o solo el proveedor?
+4. Tipo (mayorista/distribuidor…) y productos: ¿del proveedor o por PDV?
+5. ¿Quién unifica/edita proveedores: admin, TM, ambos?
+6. `Distributor` (campo distribuidor del alta PDV, sistema paralelo): ¿lo unificamos con esto o queda aparte?
+7. "Espert" cargado como proveedor: ¿se permite o se excluye?
+
+## Decisiones (2026-10-07)
+1. Proveedor **por zona**. 2. Vendedor: nombre obligatorio, teléfono opcional. 3. PDV → proveedor (principal) + vendedor opcional. 4. Tipo y productos **del proveedor**. 5. Unificar/editar: **solo admin**. 6. `Distributor` **es lo mismo** → unificar (fase 2, ver abajo). 7. "Espert" permitido.
+
+## Fase 2: absorber `Distributor`
+- `PDV.DistributorId` + `PdvDistributor` (alta/edición PDV, filtros POSManagement, paso obligatorio "Proveedor de cigarrillos" en visit_indicators) → pasar a `Supplier`.
+- Distributor no tiene zona → tomarla de sus PDVs.

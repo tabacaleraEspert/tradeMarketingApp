@@ -44,7 +44,8 @@ export type QueuedKind =
   | "route_create"
   | "route_pdv_add"
   | "pdv_supplier_create"
-  | "pdv_supplier_update";
+  | "pdv_supplier_update"
+  | "pdv_supplier_link";
 
 export interface QueuedOperation {
   /** Auto-incremental, asignado por IDB */

@@ -60,7 +60,7 @@ interface VisitFull {
   pop: Array<{ MaterialType: string; MaterialName: string; Company: string | null; Present: boolean; HasPrice: boolean | null }>;
   marketNews: Array<{ MarketNewsId: number; Tags: string | null; Notes: string; CreatedAt: string | null }>;
   photos: Array<{ FileId: number; PhotoType: string; url: string; Notes: string | null }>;
-  suppliers: Array<{ PdvSupplierId: number; Name: string; Phone: string; SupplierType: string | null; Products: string[] }>;
+  suppliers: Array<{ PdvSupplierId: number; SupplierId?: number | null; Name: string; Phone: string; SupplierType: string | null; Products: string[]; SellerName?: string | null; SellerPhone?: string | null }>;
 }
 
 async function fetchVisitsFull(params: Record<string, string | number>): Promise<EnrichedVisit[]> {
@@ -222,7 +222,8 @@ export function VisitDataExplorer() {
       sheets.push({
         name: "Proveedores",
         data: sv.suppliers.map((s) => ({
-          Proveedor: s.Name, Telefono: s.Phone, Tipo: s.SupplierType || "",
+          Proveedor: s.Name, Vendedor: s.SellerName || "",
+          Telefono: s.SellerName ? (s.SellerPhone || "") : s.Phone, Tipo: s.SupplierType || "",
           Productos: s.Products.join(", "),
         })),
       });
@@ -550,10 +551,19 @@ export function VisitDataExplorer() {
                             <Badge variant="outline" className="text-[9px] shrink-0">{s.SupplierType}</Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <Phone size={11} className="text-muted-foreground" />
-                          <span className="text-xs text-muted-foreground">{s.Phone || "Sin teléfono"}</span>
-                        </div>
+                        {s.SellerName ? (
+                          <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                            <User size={11} className="text-muted-foreground" />
+                            <span className="text-xs text-foreground">{s.SellerName}</span>
+                            <Phone size={11} className="text-muted-foreground ml-1" />
+                            <span className="text-xs text-muted-foreground">{s.SellerPhone || "Sin teléfono"}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <Phone size={11} className="text-muted-foreground" />
+                            <span className="text-xs text-muted-foreground">{s.Phone || "Sin teléfono"}</span>
+                          </div>
+                        )}
                         {s.Products.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1.5">
                             {s.Products.map((p) => (
