@@ -299,11 +299,15 @@ export function SupplierCensusPage() {
                         <span>{showZoneList ? "▲" : "▼"}</span>
                       </button>
                       {showZoneList && (
-                        <div className="mt-1 max-h-40 overflow-y-auto border border-border rounded-lg divide-y divide-border bg-background">
+                        <div className="mt-1 max-h-72 overflow-y-auto border border-border rounded-lg divide-y divide-border bg-background">
+                          {form.Name.trim() === "" && (
+                            <p className="px-3 py-1.5 text-[11px] text-muted-foreground">Escribí el nombre abajo para filtrar</p>
+                          )}
                           {zoneSuppliers
                             .filter((s) => !suppliers.some((ex) =>
                               s.Phone ? ex.Phone === s.Phone : ex.Name.trim().toLowerCase() === s.Name.trim().toLowerCase()
                             ))
+                            .filter((s) => s.Name.toLowerCase().includes(form.Name.trim().toLowerCase()))
                             .map((s) => (
                             <button
                               key={s.PdvSupplierId}

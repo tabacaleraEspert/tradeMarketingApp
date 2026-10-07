@@ -140,8 +140,10 @@ def search_suppliers_in_zone(
     if phone and phone.strip():
         q = q.filter(Model.Phone.contains(phone.strip()))
     # Deduplicate by phone (same supplier can appear in multiple PDVs);
-    # los que no tienen teléfono todavía se dedupean por nombre
-    rows = q.order_by(Model.Name).limit(100).all()
+    # los que no tienen teléfono todavía se dedupean por nombre.
+    # Sin limit antes de deduplicar: con limit(100) una zona con >100 filas
+    # cortaba la lista alfabéticamente (NOA: 429 filas → nada después de "H").
+    rows = q.order_by(Model.Name).all()
     seen_phones: set[str] = set()
     seen_names: set[str] = set()
     unique: list[dict] = []
