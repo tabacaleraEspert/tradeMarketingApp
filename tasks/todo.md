@@ -63,3 +63,23 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 4. **Dueño original (Carlos)**: durante la campaña, ¿sigue visitando esos PDVs en su ruta normal? (propongo **sí**, no se toca su ruta).
 5. **Auditoría**: el nuevo estándar pide tabla `AuditLog` (DNI, antes/después). ¿Acá solo rutas con lo que ya existe (`AuditEvent`), o el estándar completo como tarea aparte?
 6. **Bug "mensual"** (no genera días): ¿lo arreglo en el mismo paquete? ¿"mensual" = mismo día del mes (ej. cada 15) o 1er lunes del mes?
+
+---
+
+# TODO: Material POP genérico → artículos reales de Bejerman (anotado 2026-10-07, en análisis)
+
+**Hoy**: censo POP (`VisitPOPItem`, `POPCensusPage.tsx`) usa lista fija genérica: primario (Cigarrera aérea/espalda, Pantalla/Display, Otro), secundario (Móvil/Colgante, Stopper, Escalerita, Exhibidor, Afiche, Otro). `MaterialName` texto libre 80 chars.
+
+**Objetivo**: que el trade elija los artículos reales de material POP que manejamos en Bejerman (código + descripción), no un genérico.
+
+**Fuente ya resuelta en comercial-nuevo-mobiliza** (`/material` en ca-comercial-prod):
+- `MaestrosBejermanService.ObtenerCatalogoAsync`: SDK Bejerman `TABLAS/ObtenerArticulos` → filtra `EsMarketing` → rubro `MKT`.
+- Clave `Art_CodGenerico`, nombre `Art_DescripcionGeneral`; `ParsearDescripcionMkt()` saca **Línea** (Espert Box, King Size, Institucional…) × **TipoMaterial** (Afiche, Exhibidor, Calco, Señalética…).
+- Doc: `comercial-nuevo-mobiliza/docs/bejerman/analisis-npm-marketing.md`.
+
+**A pensar / decidir**:
+- [ ] Cómo traer el catálogo: ¿consumir API de comercial (endpoint catálogo MKT) o sync propio a tabla `PopMaterial` (código, desc, línea, tipo, activo)? Propuesta: sync diario a tabla local (censo es offline-first, no depender de otra API en campo).
+- [ ] Mapeo tipo Bejerman ↔ primario/secundario actual.
+- [ ] Material de la competencia (Massalin/BAT/TABSA): sigue genérico (no está en Bejerman). ¿Solo Espert pasa a catálogo?
+- [ ] `VisitPOPItem`: agregar `MaterialCode` (nullable) manteniendo `MaterialName` → histórico compatible; KPI/Inteligencia (`kpi_engine`, `tmr_dashboard`, `intelligence`) leen `MaterialName` — revisar.
+- [ ] ¿Cantidad por material? ¿cruzar con lo retirado por el vendedor (NPM) para ver dónde terminó el material?
