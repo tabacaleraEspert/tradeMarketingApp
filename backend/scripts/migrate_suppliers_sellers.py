@@ -104,6 +104,28 @@ def _row_key(zone_id, name, phone) -> tuple:
 
 # ─── Propuesta ───────────────────────────────────────────────────────
 
+# Palabras genéricas: "LAG distribuciones" ~ "Tato distribuciones" da ratio alto
+# solo por el sufijo; la parte distintiva ("lag" vs "tato") tiene que coincidir.
+GENERIC_WORDS = {
+    "distribuciones", "distribucion", "distribuidora", "distribuidor", "distri",
+    "cigarrera", "cigarreria", "ciosco", "ciosc", "mayorista", "intermediario", "intermediarios",
+    "sa", "srl", "de", "del", "la", "el", "los", "las", "y", "av", "avenida",
+}
+
+
+def _distinct_part(key: str) -> str:
+    return " ".join(w for w in key.replace(".", " ").split() if w not in GENERIC_WORDS)
+
+
+def _distinct_parts_match(a: str, b: str) -> bool:
+    da, db_ = _distinct_part(a), _distinct_part(b)
+    if not da or not db_:
+        return True
+    if da in db_ or db_ in da:
+        return True
+    return difflib.SequenceMatcher(None, da, db_).ratio() >= FUZZY_RATIO
+
+
 def cluster_keys(key_counts: Counter) -> dict[str, str]:
     """Agrupa claves similares (ratio >= FUZZY_RATIO). Greedy: las más frecuentes
     primero son representantes. Devuelve clave → clave representante."""
@@ -113,7 +135,7 @@ def cluster_keys(key_counts: Counter) -> dict[str, str]:
         best, best_ratio = None, 0.0
         for rep in reps:
             ratio = difflib.SequenceMatcher(None, key, rep).ratio()
-            if ratio >= FUZZY_RATIO and ratio > best_ratio:
+            if ratio >= FUZZY_RATIO and ratio > best_ratio and _distinct_parts_match(key, rep):
                 best, best_ratio = rep, ratio
         if best is None:
             reps.append(key)
