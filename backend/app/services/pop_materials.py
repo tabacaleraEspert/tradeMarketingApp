@@ -172,7 +172,9 @@ def sync_pop_materials(db: Session, user=None, payload: dict | None = None) -> d
     # Rastro en AuditEvent, misma transacción (estándar de auditoría).
     db.add(AuditEvent(
         UserId=user.UserId if user is not None else None,
-        Entity="PopMaterial", EntityId="catalog", Action="sync",
+        # EntityId "0" = catálogo completo: en prod la columna es INT (drift vs el modelo String),
+        # un texto rompe el INSERT. El resto del código también manda ids numéricos.
+        Entity="PopMaterial", EntityId="0", Action="sync",
         PayloadJson=json.dumps(
             {**result, "DeactivatedCodes": deactivated_codes,
              "Source": "manual" if user is not None else "cron",
