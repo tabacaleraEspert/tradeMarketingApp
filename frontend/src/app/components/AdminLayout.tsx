@@ -24,12 +24,15 @@ import {
   Smartphone,
   Mail,
   Settings2,
+  LogOut,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { authApi, type MeResponse } from "../../lib/api/services";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { ThemeToggle } from "./ThemeToggle";
+import { logout } from "../lib/auth";
+import { toast } from "sonner";
 
 const ROLE_LABELS: Record<string, string> = {
   admin: "Administrador",
@@ -144,24 +147,24 @@ export function AdminLayout() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 sm:gap-3">
             {/* Connection Status */}
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted">
+            <div className="flex items-center gap-2 px-2 sm:px-3 py-1.5 rounded-lg bg-muted">
               {isOnline ? (
                 <>
                   <Wifi size={16} className="text-espert-gold" />
-                  <span className="text-xs font-medium text-espert-gold">Online</span>
+                  <span className="hidden sm:inline text-xs font-medium text-espert-gold">Online</span>
                 </>
               ) : (
                 <>
                   <WifiOff size={16} className="text-destructive" />
-                  <span className="text-xs font-medium text-destructive">Offline</span>
+                  <span className="hidden sm:inline text-xs font-medium text-destructive">Offline</span>
                 </>
               )}
             </div>
 
             {/* Notifications */}
-            <button className="relative p-2 hover:bg-muted rounded-lg transition-colors">
+            <button className="relative p-2 hover:bg-muted rounded-lg transition-colors hidden sm:block">
               <Bell size={20} />
             </button>
 
@@ -192,7 +195,7 @@ export function AdminLayout() {
           onMouseLeave={() => setIsHovered(false)}
           className={`${
             isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100vh-4rem)] w-64 ${
+          } lg:translate-x-0 fixed lg:sticky top-16 left-0 h-[calc(100dvh-4rem)] w-64 ${
             isHovered ? "lg:w-64" : "lg:w-[72px]"
           } bg-card border-r border-border transition-all duration-300 ease-in-out z-20 overflow-x-hidden flex flex-col`}
         >
@@ -249,6 +252,25 @@ export function AdminLayout() {
                 }`}
               >
                 Volver a Modo Campo
+              </span>
+            </Button>
+            <Button
+              variant="ghost"
+              title="Cerrar sesión"
+              className="w-full mt-2 text-destructive hover:bg-destructive/10 hover:text-destructive px-2"
+              onClick={() => {
+                logout();
+                toast.success("Sesión cerrada correctamente");
+                navigate("/login");
+              }}
+            >
+              <LogOut size={16} className="shrink-0" />
+              <span
+                className={`overflow-hidden whitespace-nowrap transition-all duration-300 ease-in-out ${
+                  isHovered ? "ml-2 max-w-[180px] opacity-100" : "ml-2 max-w-[180px] opacity-100 lg:ml-0 lg:max-w-0 lg:opacity-0"
+                }`}
+              >
+                Cerrar sesión
               </span>
             </Button>
           </div>
