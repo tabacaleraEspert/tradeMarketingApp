@@ -34,6 +34,7 @@ export type QueuedKind =
   | "visit_action_update"
   | "visit_coverage"
   | "visit_pop"
+  | "visit_pop_placements"
   | "visit_action_create"
   | "visit_news_create"
   | "visit_news_update"

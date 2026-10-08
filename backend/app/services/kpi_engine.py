@@ -59,6 +59,7 @@ from ..models import (
     VisitPOPItem,
 )
 from ..models.route import route_is_live
+from .pop_materials import espert_only_applies, is_espert_pop
 
 # Niveles de rúbrica, de más bajo a más alto.
 LEVELS = ("regular", "bueno", "muy_bueno", "excelente")
@@ -490,11 +491,18 @@ def pdv_communication_scores(db: Session, user_id: int, year: int, month: int) -
         .all()
     )
 
+    # Desde oct-2026 solo cuenta material Espert (catálogo o Company "Espert").
+    # Un PDV con relevamiento solo de competencia queda relevado (no "sin_relevar")
+    # pero con 0 elementos. Ver `pop_materials.ESPERT_ONLY_FROM`.
+    espert_only = espert_only_applies(year, month)
+
     pdvs_with_data: set = set()
     latest_by_pdv_material: dict = {}
     for pdv_id, item, opened_at in pop_rows:
         pdvs_with_data.add(pdv_id)
-        key = (pdv_id, item.MaterialName)
+        if espert_only and not is_espert_pop(item.Company, item.MaterialCode):
+            continue
+        key = (pdv_id, item.MaterialCode or item.MaterialName)
         current = latest_by_pdv_material.get(key)
         if current is None or opened_at > current[0]:
             latest_by_pdv_material[key] = (opened_at, item.Present)
@@ -743,7 +751,8 @@ def _kpi4_pop(db: Session, user_id: int, communication_scores: dict, universe: s
     **ejecutada** (`executed_action_condition()`, ya NO `Status='DONE'` a secas
     — ver docstring de ese helper; lo que escribe VisitActionsPage.tsx), OR de
     respaldo `VisitPhoto` con `PhotoType` que empieza con `'pop'`
-    (POPCensusPage.tsx usa `pop_<material>_<empresa>`, no el literal `'pop'`) —
+    (POPCensusPage.tsx usa `pop_<material>_<empresa>`, no el literal `'pop'`;
+    desde oct-2026 solo las `..._Espert`) —
     ver nota de módulo.
 
     2-3 queries agregadas sobre el universo elegible (antes: hasta 3 queries por
@@ -778,10 +787,13 @@ def _kpi4_pop(db: Session, user_id: int, communication_scores: dict, universe: s
         )
         .distinct()
     }
+    # Desde oct-2026 (solo Espert): la foto de censo tiene que ser de material Espert.
+    # Clave del front: `pop_<material>_<empresa>` → las de Espert terminan en "_Espert".
+    photo_like = "pop%_Espert" if espert_only_applies(start.year, start.month) else "pop%"
     photo_type_ids = {
         vid for (vid,) in
         db.query(VisitPhoto.VisitId)
-        .filter(VisitPhoto.VisitId.in_(visit_ids), VisitPhoto.PhotoType.like("pop%"))
+        .filter(VisitPhoto.VisitId.in_(visit_ids), VisitPhoto.PhotoType.like(photo_like))
         .distinct()
     }
 

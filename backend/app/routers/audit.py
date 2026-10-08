@@ -10,6 +10,7 @@ from ..models.visit import VisitCheck as VisitCheckModel, VisitAnswer as VisitAn
 from ..models.visit_action import VisitAction as VisitActionModel
 from ..models.visit_coverage import VisitCoverage as CoverageModel
 from ..models.visit_pop import VisitPOPItem as POPModel
+from ..models.pop_material import VisitPOPPlacement as PlacementModel
 from ..models.visit_loose import VisitLooseSurvey as LooseModel
 from ..models.market_news import MarketNews as MNModel
 from ..models.incident import Incident as IncidentModel
@@ -324,6 +325,18 @@ def user_timeline(
             "title": f"Material POP — {visit_pdv.get(p.VisitId, '')}",
             "detail": f"{p.MaterialName} ({p.MaterialType})" + (f" · {p.Company}" if p.Company else "") + (" · Presente" if p.Present else " · No presente"),
             "visitId": p.VisitId,
+        })
+
+    # --- 7b. Colocación de material POP ---
+    placements = db.query(PlacementModel).filter(PlacementModel.VisitId.in_(visit_ids)).all()
+    for pl in placements:
+        events.append({
+            "ts": pl.CreatedAt.isoformat() if pl.CreatedAt else None,
+            "type": "pop_placement",
+            "icon": "📌",
+            "title": f"Colocación POP — {visit_pdv.get(pl.VisitId, '')}",
+            "detail": f"{pl.Quantity} × {pl.MaterialName}" + (f" ({pl.MaterialCode})" if pl.MaterialCode else "") + (f" · {pl.Location}" if pl.Location else ""),
+            "visitId": pl.VisitId,
         })
 
     # --- 8. Market News ---

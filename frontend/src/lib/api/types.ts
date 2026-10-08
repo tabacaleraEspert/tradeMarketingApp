@@ -169,7 +169,58 @@ export interface VisitPOPItem {
   Company: string | null;
   Present: boolean;
   HasPrice: boolean | null;
+  /** Código del artículo MKT del catálogo (null = genérico / censo viejo / competencia) */
+  MaterialCode?: string | null;
   CreatedAt: string;
+}
+
+// --- Catálogo de material POP (artículos MKT de Bejerman, sync vía mobiliza) ---
+export interface PopMaterial {
+  Code: string;
+  Description: string;
+  Line: string | null;
+  Type: string | null;
+  Year: string | number | null;
+  PhotoUrl: string | null;
+  Stock: number | null;
+  IsActive: boolean;
+}
+
+export interface PopMaterialSyncResult {
+  Created: number;
+  Updated: number;
+  Deactivated: number;
+  Total: number;
+}
+
+// --- Colocación de material POP (acción "pop") ---
+export interface VisitPOPPlacementInput {
+  MaterialCode: string | null;
+  MaterialName: string;
+  Quantity: number;
+  Location: string | null;
+}
+
+export interface VisitPOPPlacement extends VisitPOPPlacementInput {
+  VisitPOPPlacementId: number;
+  VisitId: number;
+  CreatedAt: string;
+}
+
+export interface PopPlacementReportRow {
+  VisitId: number;
+  Date: string;
+  UserId: number;
+  UserName: string;
+  PdvId: number;
+  PdvName: string;
+  ZoneName: string | null;
+  MaterialCode: string | null;
+  MaterialName: string;
+  Line: string | null;
+  Type: string | null;
+  Quantity: number;
+  Location: string | null;
 }
 
 // --- Visit Loose Survey (step 12) ---

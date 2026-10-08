@@ -66,23 +66,33 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 
 ---
 
-# TODO: Material POP genérico → artículos reales de Bejerman (anotado 2026-10-07, en análisis)
+# PLAN: Material POP real (censo + colocación) — 2026-10-08, APROBADO, en curso
 
-**Hoy**: censo POP (`VisitPOPItem`, `POPCensusPage.tsx`) usa lista fija genérica: primario (Cigarrera aérea/espalda, Pantalla/Display, Otro), secundario (Móvil/Colgante, Stopper, Escalerita, Exhibidor, Afiche, Otro). `MaterialName` texto libre 80 chars.
+**Fuente (relevada en comercial-nuevo-mobiliza)**: SDK Bejerman `TABLAS/ObtenerArticulos`, filtro código `MKT%` (185 arts, MKT-000xxx correlativos; viejos "(*)"/900+ afuera). Campos: código, descripción "MARCA - TIPO - AÑO", foto (`/imagenes/{nombre}` en espert-vm-1). Stock vía `STOCK/ObtenerStock`. Endpoint existente `/api/demo/catalogo` pide sesión vendedor → no sirve máquina a máquina.
 
-**Objetivo**: que el trade elija los artículos reales de material POP que manejamos en Bejerman (código + descripción), no un genérico.
+**Decidido (usuario)**: censo Y colocación · colocación con cantidad · KPI comunicación solo Espert · competencia sigue genérica.
 
-**Fuente ya resuelta en comercial-nuevo-mobiliza** (`/material` en ca-comercial-prod):
-- `MaestrosBejermanService.ObtenerCatalogoAsync`: SDK Bejerman `TABLAS/ObtenerArticulos` → filtra `EsMarketing` → rubro `MKT`.
-- Clave `Art_CodGenerico`, nombre `Art_DescripcionGeneral`; `ParsearDescripcionMkt()` saca **Línea** (Espert Box, King Size, Institucional…) × **TipoMaterial** (Afiche, Exhibidor, Calco, Señalética…).
-- Doc: `comercial-nuevo-mobiliza/docs/bejerman/analisis-npm-marketing.md`.
+**Pasos**
+1. **mobiliza**: `GET /api/public/material` con X-Api-Key (patrón `PatronesPublicController`) → MKT con código, descripción, línea, tipo (parseo corregido: medio unido " - "), año, foto URL, stock. Bejerman sigue en un solo lugar.
+2. **trade backend**: tabla `PopMaterial` (Code PK, Description, Line, Type, Year, PhotoUrl, Stock, IsActive, SyncedAt). `POST /admin/pop-materials/sync` (admin o CRON_SECRET) + cron GH diario (patrón `behavior-report.yml`). Artículo que desaparece → IsActive=false (no borrar: histórico). `GET /pop-materials` para el front.
+3. **Censo** (`VisitPOPItem`): + `MaterialCode` nullable. Sección Espert = buscador del catálogo (por línea/tipo, con foto) → agrego ítems presentes; competencia = lista genérica actual. Opción "Otro material Espert (viejo)" para piezas pre-MKT.
+4. **Colocación**: tabla nueva `VisitPOPPlacement` (VisitId, MaterialCode, MaterialName, Quantity, Location, CreatedAt). Form de acción pop: N renglones artículo + cantidad; foto sigue en VisitAction. Sigue escribiendo Description (compat).
+5. **KPI**: `kpi_engine` 481-510 + `tmr_dashboard` 355-364 → contar solo Company Espert.
+6. **Offline**: catálogo con `fetchWithCache`; colocación por la cola (`executeOrEnqueue`).
+7. **Prod DDL**: prod no está trackeado por Alembic → migración Alembic + script ALTER/CREATE quirúrgico, correr antes del deploy backend.
+8. **Reporte**: colocaciones por artículo / trade / PDV / fecha (admin), export Excel.
+9. Tests backend (sync, censo, colocación, KPI solo Espert) + E2E mobile local contra prod DB.
 
-**A pensar / decidir**:
-- [ ] Cómo traer el catálogo: ¿consumir API de comercial (endpoint catálogo MKT) o sync propio a tabla `PopMaterial` (código, desc, línea, tipo, activo)? Propuesta: sync diario a tabla local (censo es offline-first, no depender de otra API en campo).
-- [ ] Mapeo tipo Bejerman ↔ primario/secundario actual.
-- [ ] Material de la competencia (Massalin/BAT/TABSA): sigue genérico (no está en Bejerman). ¿Solo Espert pasa a catálogo?
-- [ ] `VisitPOPItem`: agregar `MaterialCode` (nullable) manteniendo `MaterialName` → histórico compatible; KPI/Inteligencia (`kpi_engine`, `tmr_dashboard`, `intelligence`) leen `MaterialName` — revisar.
-- [ ] ¿Cantidad por material? ¿cruzar con lo retirado por el vendedor (NPM) para ver dónde terminó el material?
+**Decisiones 08/10**: KPI solo Espert desde OCTUBRE · catálogo: todos (185) en censo y colocación · sync vía endpoint mobiliza · cruce colocado vs retirado → fase 2.
+
+**Estado 08/10**: implementado en las 3 partes, sin commit. Tests: trade back 661 · front 212 · mobiliza 276. Review independiente: 6 fixes aplicados (nombre >80, legado Espert ausente, borrar acción encolada, sync parcial, KPI4 foto solo Espert desde oct, key timing-safe). E2E local (SQLite + mobiliza fake): censo con código, colocación 2 artículos con cantidad, reporte admin, sync OK.
+
+**Deploy (orden)**
+- [ ] 1. mobiliza: commit+push main · secret `material-apikey` + env `Demo__MaterialApiKey` en ca-comercial-prod · probar `GET /api/public/material` con datos reales
+- [ ] 2. trade prod DB: `backend/scripts/ddl_pop_materials_20261008.py --dry-run` → real (ANTES del backend)
+- [ ] 3. trade App Service: `COMERCIAL_API_URL`, `COMERCIAL_MATERIAL_API_KEY`
+- [ ] 4. trade: commit+push main (backend + front)
+- [ ] 5. `POST /pop-materials/sync` (botón admin o workflow) → verificar 185 artículos
 
 ---
 

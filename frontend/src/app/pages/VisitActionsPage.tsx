@@ -7,15 +7,20 @@ import { Badge } from "../components/ui/badge";
 import {
   ArrowLeft, ArrowRight, Plus, Camera, Trash2, CheckCircle2,
   ChevronRight, ChevronDown, Repeat, Megaphone, Tag, Dice5, MoreHorizontal,
-  Pencil, Package, X, Sparkles, GraduationCap, ClipboardList, MessageSquareWarning, UserCheck,
+  Pencil, Package, X, Sparkles, Minus, MapPin, GraduationCap, ClipboardList, MessageSquareWarning, UserCheck,
 } from "lucide-react";
 import { pdvsApi, visitActionsApi, productsApi, visitPhotosApi } from "@/lib/api";
 import type { VisitAction, Product } from "@/lib/api";
-import { executeOrEnqueue, fetchWithCache, readCache, writeCache } from "@/lib/offline";
+import { executeOrEnqueue, queue, fetchWithCache, readCache, writeCache } from "@/lib/offline";
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import { VisitStepIndicator } from "../components/VisitStepIndicator";
+import { PopMaterialPicker } from "../components/PopMaterialPicker";
+import {
+  buildPlacementDescription, collectPlacementsFromActions, placementLabel, usePopMaterials,
+  validatePlacements, type PlacementRow,
+} from "@/lib/popMaterials";
 import { toast } from "sonner";
 
 // ── Constants ──
@@ -27,11 +32,6 @@ const CATEGORIES = [
   { id: "otra", label: "Otras Acciones", desc: "Capacitación, relevamiento, reclamos", icon: MoreHorizontal, accent: "bg-muted text-foreground" },
 ];
 
-const POP_MATERIALS = {
-  Primario: ["Cigarrera aérea", "Cigarrera de espalda", "Pantalla / Display", "Otro primario"],
-  Secundario: ["Móvil / Colgante", "Stopper", "Escalerita", "Exhibidor", "Afiche", "Otro secundario"],
-};
-const COMPANIES = ["Espert", "Massalin", "BAT", "TABSA", "Otra"];
 const PROMO_TABS = [
   { id: "prueba", label: "Prueba", desc: "Incentivar la prueba de un producto nuevo" },
   { id: "rotacion", label: "Rotación", desc: "Estimular la salida de un producto que no rota" },
@@ -90,6 +90,9 @@ export function VisitActionsPage() {
 
   // Form state (shared, reset per form)
   const [formData, setFormData] = useState<Record<string, unknown>>({});
+  // Colocación POP: catálogo MKT (offline vía cache) + picker
+  const [popPickerOpen, setPopPickerOpen] = useState(false);
+  const { materials: popMaterials, loading: popMaterialsLoading } = usePopMaterials();
 
   // Unified photo capture (deferred upload — photos upload when action is saved)
   const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto, sourceSheet: photoSourceSheet, photos: formPhotos, removePhoto, clearPhotos, hasPhotos: formHasPhotos } = usePhotoCapture({ uploadImmediately: false });
@@ -130,6 +133,29 @@ export function VisitActionsPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const resetForm = () => { setFormData({}); clearPhotos(); setActiveForm(null); };
+
+  /**
+   * PUT /visits/{id}/pop-placements REEMPLAZA las colocaciones de la visita, así
+   * que mandamos siempre el conjunto completo armado desde todas las acciones
+   * "pop" (cada una guarda sus renglones en DetailsJson.placements). Offline-safe.
+   */
+  const syncPlacements = async (allActions: Array<{ ActionType: string; DetailsJson?: string | null }>) => {
+    if (!visitId) return;
+    const items = collectPlacementsFromActions(allActions);
+    try {
+      await executeOrEnqueue({
+        kind: "visit_pop_placements",
+        method: "PUT",
+        url: `/visits/${visitId}/pop-placements`,
+        body: { items },
+        label: "Colocación POP",
+        _tempVisitId: visitId < 0 ? visitId : undefined,
+      });
+    } catch (err) {
+      console.warn("[VisitActions] pop-placements sync failed:", err);
+      toast.warning("La acción se guardó, pero no se pudo registrar el detalle de colocación");
+    }
+  };
 
   const handleSaveAction = async (type: string, description: string, details: Record<string, unknown>) => {
     if (!visitId) return;
@@ -197,11 +223,17 @@ export function VisitActionsPage() {
           }
         }
       }
+      // Colocación POP → detalle estructurado (catálogo MKT + cantidad)
+      if (type === "pop") {
+        await syncPlacements([...actions, actionBody]);
+      }
       // Add to local list
       if (!result.queued && result.data) {
         setActions((prev) => [...prev, result.data as VisitAction]);
       } else {
-        setActions((prev) => [...prev, { ...actionBody, VisitActionId: -Date.now(), VisitId: visitId } as VisitAction]);
+        // _queueId: para poder sacar el POST de la cola si se elimina antes de sincronizar.
+        const queueId = result.queued ? result.queueId : undefined;
+        setActions((prev) => [...prev, { ...actionBody, VisitActionId: -Date.now(), VisitId: visitId, _queueId: queueId } as VisitAction]);
       }
       resetForm();
       toast.success("Acción registrada");
@@ -210,10 +242,17 @@ export function VisitActionsPage() {
   };
 
   const handleDeleteAction = async (actionId: number) => {
+    const deleted = actions.find((a) => a.VisitActionId === actionId);
+    const remaining = actions.filter((a) => a.VisitActionId !== actionId);
+    const resyncPop = () => { if (deleted?.ActionType === "pop") void syncPlacements(remaining); };
     try {
       if (actionId < 0) {
-        // Local-only action (not synced yet) — just remove from UI
+        // Local-only action (not synced yet) — sacar su POST de la cola (si no, se crea igual
+        // en el server y queda desparejo con las colocaciones re-sincronizadas) y de la UI.
+        const queueId = (deleted as (VisitAction & { _queueId?: number }) | undefined)?._queueId;
+        if (queueId !== undefined) await queue.remove(queueId);
         setActions((prev) => prev.filter((a) => a.VisitActionId !== actionId));
+        resyncPop();
         toast.success("Acción eliminada");
         return;
       }
@@ -225,6 +264,7 @@ export function VisitActionsPage() {
         _tempVisitId: visitId && visitId < 0 ? visitId : undefined,
       });
       setActions((prev) => prev.filter((a) => a.VisitActionId !== actionId));
+      resyncPop();
       toast.success("Acción eliminada");
     } catch { toast.error("Error al eliminar"); }
   };
@@ -432,36 +472,75 @@ export function VisitActionsPage() {
     );
   };
 
-  // ── COLOCACIÓN POP ──
+  // ── COLOCACIÓN POP ── N renglones: artículo del catálogo MKT + cantidad + ubicación
   const renderPOPForm = () => {
-    const tipo = fd("tipo") || "Primario";
-    const materials = POP_MATERIALS[tipo as keyof typeof POP_MATERIALS] || [];
-    const selectedCompanies = (formData.companies as string[]) || [];
+    const placements = (formData.placements as PlacementRow[]) || [];
+    const setPlacements = (next: PlacementRow[]) => setFd("placements", next);
+    const update = (i: number, patch: Partial<PlacementRow>) =>
+      setPlacements(placements.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+    const addRow = (row: Omit<PlacementRow, "Quantity" | "Location">) => {
+      const i = placements.findIndex((p) =>
+        row.MaterialCode ? p.MaterialCode === row.MaterialCode : !p.MaterialCode && p.MaterialName.trim().toLowerCase() === row.MaterialName.trim().toLowerCase());
+      if (i >= 0) {
+        update(i, { Quantity: placements[i].Quantity + 1 });
+        toast.info("Ya estaba en la lista: sumamos 1");
+      } else {
+        setPlacements([...placements, { ...row, Quantity: 1, Location: "" }]);
+      }
+      setPopPickerOpen(false);
+    };
 
     return (
       <div className="space-y-4">
+        <PopMaterialPicker
+          open={popPickerOpen}
+          onClose={() => setPopPickerOpen(false)}
+          materials={popMaterials}
+          loading={popMaterialsLoading}
+          selectedCodes={placements.map((p) => p.MaterialCode).filter((c): c is string => !!c)}
+          allowRepeat
+          onSelect={(m) => addRow({ MaterialCode: m.Code, MaterialName: m.Description })}
+          otherLabel="Otro material (sin código)"
+          onOther={(name) => addRow({ MaterialCode: null, MaterialName: name })}
+          title="Material colocado"
+        />
         <div>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Tipo de material</p>
-          <div className="flex rounded-lg border border-border overflow-hidden">
-            {["Primario", "Secundario"].map((t) => (
-              <button key={t} onClick={() => setFd("tipo", t)} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${tipo === t ? "bg-[#A48242] text-white" : "bg-background text-muted-foreground"}`}>{t}</button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Material específico</p>
-          <div className="space-y-1.5">
-            {materials.map((m) => (
-              <button key={m} onClick={() => setFd("material", m)} className={`w-full bg-background rounded-xl border px-3.5 py-3 flex items-center justify-between ${fd("material") === m ? "border-[#A48242] ring-1 ring-[#A48242]/20" : "border-border"}`}>
-                <span className={`text-sm ${fd("material") === m ? "font-bold text-foreground" : "text-muted-foreground"}`}>{m}</span>
-                {fd("material") === m && <CheckCircle2 size={16} className="text-[#A48242]" />}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Ubicación en el PDV</p>
-          <Input value={fd("ubicacion")} onChange={(e) => setFd("ubicacion", e.target.value)} placeholder="Ej: Mostrador principal, Ventana lateral" />
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">Materiales colocados *</p>
+          {placements.length > 0 && (
+            <div className="space-y-2 mb-2">
+              {placements.map((p, i) => (
+                <div key={`${p.MaterialCode ?? p.MaterialName}-${i}`} className="bg-background rounded-xl border-l-[3px] border-l-[#A48242] border border-border p-3 space-y-2">
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-foreground leading-tight">{p.MaterialName}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{p.MaterialCode ?? "Sin código"}</p>
+                    </div>
+                    <button onClick={() => setPlacements(placements.filter((_, j) => j !== i))} aria-label={`Quitar ${placementLabel(p)}`} className="p-1 text-muted-foreground hover:text-red-500"><X size={15} /></button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center rounded-lg border border-border overflow-hidden shrink-0">
+                      <button type="button" onClick={() => update(i, { Quantity: Math.max(1, p.Quantity - 1) })} disabled={p.Quantity <= 1} aria-label="Restar uno" className="w-9 h-9 flex items-center justify-center text-muted-foreground disabled:opacity-40"><Minus size={14} /></button>
+                      <input
+                        type="number" inputMode="numeric" pattern="[0-9]*" min={1}
+                        value={p.Quantity}
+                        aria-label="Cantidad"
+                        onChange={(e) => update(i, { Quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                        className="w-11 h-9 text-center text-sm font-bold bg-background border-x border-border"
+                      />
+                      <button type="button" onClick={() => update(i, { Quantity: p.Quantity + 1 })} aria-label="Sumar uno" className="w-9 h-9 flex items-center justify-center text-[#A48242]"><Plus size={14} /></button>
+                    </div>
+                    <div className="relative flex-1 min-w-0">
+                      <MapPin size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <Input value={p.Location} onChange={(e) => update(i, { Location: e.target.value })} placeholder="Ubicación (opcional)" className="h-9 pl-7 text-sm" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <Button type="button" variant="outline" onClick={() => setPopPickerOpen(true)} className="w-full gap-1.5 border-dashed border-[#A48242]/50 text-[#A48242]">
+            <Plus size={15} /> Agregar material
+          </Button>
         </div>
         {renderPhotoSection("Foto del material colocado", "Mostrá el POP ya colocado en su ubicación final dentro del PDV.")}
       </div>
@@ -614,7 +693,10 @@ export function VisitActionsPage() {
       }
       desc = `Canje ${fd("modalidad") || "5+1"} · ${totalVacios} vacíos · ${totalEntregados} llenos`;
     } else if (type === "pop") {
-      desc = `${fd("material")} · ${((formData.companies as string[]) || []).join(", ")} · ${fd("ubicacion")}`;
+      const placements = (formData.placements as PlacementRow[]) || [];
+      const err = validatePlacements(placements);
+      if (err) { toast.error(err); return; }
+      desc = buildPlacementDescription(placements);
     } else if (type === "promo") {
       desc = `${PROMO_TABS.find((t) => t.id === fd("promoType"))?.label || "Promo"} · ${fd("producto")}`;
     } else if (type === "juego") {

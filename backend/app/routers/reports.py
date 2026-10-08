@@ -7,7 +7,7 @@ from sqlalchemy import func as sqlfunc
 from ..utils.ttl_cache import TTLCache
 
 from ..database import get_db
-from ..auth import get_current_user
+from ..auth import get_current_user, require_role
 from ..models import (
     Visit as VisitModel,
     User as UserModel,
@@ -1709,3 +1709,62 @@ def product_deliveries(
         })
 
     return result
+
+
+@router.get("/pop-placements")
+def pop_placements_report(
+    date_from: str | None = None,
+    date_to: str | None = None,
+    zone_id: int | None = None,
+    user_id: int | None = None,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(require_role("ejecutivo")),
+):
+    """Colocaciones de material POP (renglón por artículo colocado). Admin ve
+    todo; managers solo visitas de su sub-árbol (`visible_user_ids`). Una sola
+    query con joins (DB S0). `date_to` inclusive (día completo)."""
+    from ..models.pop_material import PopMaterial as PopMaterialModel, VisitPOPPlacement as PlacementModel
+
+    try:
+        dt_from = datetime.fromisoformat(date_from) if date_from else None
+        dt_to = datetime.fromisoformat(date_to) + timedelta(days=1) if date_to else None
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Fecha inválida (usar YYYY-MM-DD)")
+
+    q = (
+        db.query(
+            PlacementModel.VisitId, VisitModel.OpenedAt, VisitModel.UserId,
+            UserModel.DisplayName, VisitModel.PdvId, PDVModel.Name, ZoneModel.Name,
+            PlacementModel.MaterialCode, PlacementModel.MaterialName,
+            PopMaterialModel.Line, PopMaterialModel.Type,
+            PlacementModel.Quantity, PlacementModel.Location,
+        )
+        .join(VisitModel, VisitModel.VisitId == PlacementModel.VisitId)
+        .join(UserModel, UserModel.UserId == VisitModel.UserId)
+        .join(PDVModel, PDVModel.PdvId == VisitModel.PdvId)
+        .outerjoin(ZoneModel, ZoneModel.ZoneId == PDVModel.ZoneId)
+        .outerjoin(PopMaterialModel, PopMaterialModel.Code == PlacementModel.MaterialCode)
+    )
+    visible = visible_user_ids(db, current_user)
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
+    if user_id is not None:
+        q = q.filter(VisitModel.UserId == user_id)
+    if zone_id is not None:
+        q = q.filter(PDVModel.ZoneId == zone_id)
+    if dt_from:
+        q = q.filter(VisitModel.OpenedAt >= dt_from)
+    if dt_to:
+        q = q.filter(VisitModel.OpenedAt < dt_to)
+
+    rows = q.order_by(VisitModel.OpenedAt.desc(), PlacementModel.VisitPOPPlacementId).all()
+    return [
+        {
+            "VisitId": visit_id, "Date": opened_at.isoformat() if opened_at else None,
+            "UserId": uid, "UserName": user_name, "PdvId": pdv_id, "PdvName": pdv_name,
+            "ZoneName": zone_name or "", "MaterialCode": code, "MaterialName": name,
+            "Line": line, "Type": mtype, "Quantity": qty, "Location": location,
+        }
+        for (visit_id, opened_at, uid, user_name, pdv_id, pdv_name, zone_name,
+             code, name, line, mtype, qty, location) in rows
+    ]

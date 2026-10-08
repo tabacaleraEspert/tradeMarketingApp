@@ -18,6 +18,7 @@ from ..models.visit_action import VisitAction as VisitActionModel
 from ..models.visit_coverage import VisitCoverage as VisitCoverageModel
 from ..models.visit_loose import VisitLooseSurvey as VisitLooseModel
 from ..models.visit_pop import VisitPOPItem as VisitPOPModel
+from ..models.pop_material import VisitPOPPlacement as VisitPOPPlacementModel
 from ..models.visit_form_time import VisitFormTime as VisitFormTimeModel
 from ..models.market_news import MarketNews as MarketNewsModel
 from ..models.incident import Incident as IncidentModel
@@ -607,6 +608,7 @@ def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
         db.query(VisitCoverageModel).filter(VisitCoverageModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitLooseModel).filter(VisitLooseModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitPOPModel).filter(VisitPOPModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
+        db.query(VisitPOPPlacementModel).filter(VisitPOPPlacementModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         db.query(VisitFormTimeModel).filter(VisitFormTimeModel.VisitId.in_(visit_ids)).delete(synchronize_session=False)
         # Break external references to these visits (prod FKs are strict, not SET NULL)
         db.query(PdvNoteModel).filter(PdvNoteModel.VisitId.in_(visit_ids)).update(

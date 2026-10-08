@@ -28,6 +28,8 @@ const KIND_LABELS: Record<string, string> = {
   pdv_create: "Crear PDV",
   pdv_note_create: "Nota de PDV",
   pdv_supplier_link: "Proveedor de PDV",
+  visit_pop: "Censo POP",
+  visit_pop_placements: "Colocación POP",
 };
 
 function formatAge(timestamp: number): string {

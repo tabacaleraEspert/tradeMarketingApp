@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     # Header X-Cron-Key del disparador programado. Vacío = endpoint deshabilitado (503).
     cron_secret: str = ""
 
+    # --- Catálogo material POP (comercial-nuevo-mobiliza, artículos MKT de Bejerman) ---
+    # GET {COMERCIAL_API_URL}/api/public/material con header X-Api-Key.
+    # Cualquiera de los dos vacío = sync deshabilitado (503).
+    comercial_api_url: str = ""
+    comercial_material_api_key: str = ""
+
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:

@@ -59,6 +59,7 @@ const AuditTimeline = lazy(() => import("./pages/admin/AuditTimeline").then(m =>
 const SupplierConfig = lazy(() => import("./pages/admin/SupplierConfig").then(m => ({ default: m.SupplierConfig })));
 const SupplierManagement = lazy(() => import("./pages/admin/SupplierManagement").then(m => ({ default: m.SupplierManagement })));
 const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").then(m => ({ default: m.ProductDeliveries })));
+const PopPlacementsReport = lazy(() => import("./pages/admin/PopPlacementsReport").then(m => ({ default: m.PopPlacementsReport })));
 const TableroPage = lazy(() => import("./pages/tablero/TableroPage").then(m => ({ default: m.TableroPage })));
 const InteligenciaPage = lazy(() => import("./pages/inteligencia/InteligenciaPage").then(m => ({ default: m.InteligenciaPage })));
 
@@ -236,6 +237,7 @@ export const router = createBrowserRouter([
       { path: "users", element: <SuspenseWrap><UserManagement /></SuspenseWrap> },
       { path: "audit", element: <SuspenseWrap><AuditTimeline /></SuspenseWrap> },
       { path: "product-deliveries", element: <SuspenseWrap><ProductDeliveries /></SuspenseWrap> },
+      { path: "pop-placements", element: <SuspenseWrap><PopPlacementsReport /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },

@@ -20,6 +20,8 @@ const KIND_META: Partial<Record<QueuedKind, { label: string; icon: typeof Camera
   pdv_create: { label: "Alta de PDV", icon: FileText, color: "text-indigo-500" },
   pdv_note_create: { label: "Nota de PDV", icon: MessageSquare, color: "text-rose-500" },
   pdv_supplier_link: { label: "Proveedor de PDV", icon: FileText, color: "text-amber-600" },
+  visit_pop: { label: "Censo POP", icon: FileText, color: "text-amber-600" },
+  visit_pop_placements: { label: "Colocación POP", icon: CheckCircle2, color: "text-amber-600" },
 };
 
 export function PendingSyncSheet({ isOpen, onClose }: Props) {

@@ -152,6 +152,11 @@ import type {
   VisitCoverageItem,
   CoverageDiff,
   VisitPOPItem,
+  PopMaterial,
+  PopMaterialSyncResult,
+  VisitPOPPlacement,
+  VisitPOPPlacementInput,
+  PopPlacementReportRow,
   VisitLooseSurvey,
   VisitIndicators,
   SupplierType,
@@ -316,8 +321,28 @@ export const visitCoverageApi = {
 export const visitPOPApi = {
   list: (visitId: number) =>
     api.get<VisitPOPItem[]>(`/visits/${visitId}/pop`),
-  bulkSave: (visitId: number, items: Array<{ MaterialType: string; MaterialName: string; Company?: string; Present: boolean; HasPrice?: boolean }>) =>
+  bulkSave: (visitId: number, items: Array<{ MaterialType: string; MaterialName: string; Company?: string; Present: boolean; HasPrice?: boolean; MaterialCode?: string | null }>) =>
     api.put<VisitPOPItem[]>(`/visits/${visitId}/pop`, { items }),
+};
+
+// --- Catálogo material POP (artículos MKT) ---
+export const popMaterialsApi = {
+  list: () => api.get<PopMaterial[]>("/pop-materials"),
+  /** Solo admin: re-sincroniza el catálogo desde Bejerman (vía mobiliza). */
+  sync: () => api.post<PopMaterialSyncResult>("/pop-materials/sync", {}),
+};
+
+// --- Colocación de material POP (reemplaza todas las colocaciones de la visita) ---
+export const visitPOPPlacementsApi = {
+  list: (visitId: number) =>
+    api.get<VisitPOPPlacement[]>(`/visits/${visitId}/pop-placements`),
+  bulkSave: (visitId: number, items: VisitPOPPlacementInput[]) =>
+    api.put<VisitPOPPlacement[]>(`/visits/${visitId}/pop-placements`, { items }),
+};
+
+export const popPlacementsReportApi = {
+  list: (params: { date_from?: string; date_to?: string; zone_id?: number; user_id?: number }) =>
+    api.get<PopPlacementReportRow[]>("/reports/pop-placements", params),
 };
 
 // --- Visit Loose Survey ---

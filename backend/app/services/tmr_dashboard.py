@@ -56,6 +56,7 @@ from ..models import (
 from ..models.route import route_is_live
 from . import kpi_engine as E
 from .coverage_semantics import get_coverage_cutoff, row_is_known
+from .pop_materials import espert_only_applies, is_espert_pop
 
 # Etiquetas de nivel que espera la página (el motor usa snake_case internamente).
 LEVEL_LABEL = {
@@ -351,14 +352,19 @@ def load_context(
         if uid is not None:
             ctx.actions_by_pdv[(uid, pdv_of_visit[vid])].add(action_type)
 
-    for (vid,) in (
-        db.query(VisitPOPItem.VisitId)
+    # Desde oct-2026 "con material" = material Espert presente (catálogo o
+    # Company "Espert"); antes, cualquier material presente.
+    espert_only = espert_only_applies(year, month)
+    for vid, company, material_code in (
+        db.query(VisitPOPItem.VisitId, VisitPOPItem.Company, VisitPOPItem.MaterialCode)
         .filter(VisitPOPItem.VisitId.in_(visit_ids), VisitPOPItem.Present == True)  # noqa: E712
         .distinct()
         .all()
         if visit_ids
         else []
     ):
+        if espert_only and not is_espert_pop(company, material_code):
+            continue
         uid = user_of_visit.get(vid)
         if uid is not None:
             ctx.pdvs_with_material.add((uid, pdv_of_visit[vid]))

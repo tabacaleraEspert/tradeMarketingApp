@@ -25,6 +25,7 @@ import {
   Mail,
   Settings2,
   LogOut,
+  Megaphone,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
@@ -111,6 +112,7 @@ export function AdminLayout() {
     { path: "/admin/notifications", icon: Bell, label: "Notificaciones" },
     { path: "/admin/reports", icon: BarChart3, label: "Reportes" },
     { path: "/admin/product-deliveries", icon: Gift, label: "Entregas" },
+    ...(isAdmin ? [{ path: "/admin/pop-placements", icon: Megaphone, label: "Colocaciones POP" }] : []),
     { path: "/admin/visit-data", icon: Eye, label: "Censos y Respuestas" },
     { path: "/admin/users", icon: Users, label: "Usuarios" },
     { path: "/admin/audit", icon: Shield, label: "Auditoría" },

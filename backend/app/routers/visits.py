@@ -305,8 +305,23 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
 
     # POP
     pop = [
-        {"MaterialType": p.MaterialType, "MaterialName": p.MaterialName, "Company": p.Company, "Present": p.Present, "HasPrice": p.HasPrice}
+        {"MaterialType": p.MaterialType, "MaterialName": p.MaterialName, "Company": p.Company, "Present": p.Present, "HasPrice": p.HasPrice, "MaterialCode": p.MaterialCode}
         for p in db.query(POPModel).filter(POPModel.VisitId == visit_id).all()
+    ]
+
+    # Colocación de material POP (con datos del catálogo si hay código)
+    from ..models.pop_material import PopMaterial as PopMaterialModel, VisitPOPPlacement as PlacementModel
+    pop_placements = [
+        {"VisitPOPPlacementId": pl.VisitPOPPlacementId, "MaterialCode": pl.MaterialCode, "MaterialName": pl.MaterialName,
+         "Line": pm.Line if pm else None, "Type": pm.Type if pm else None, "PhotoUrl": pm.PhotoUrl if pm else None,
+         "Quantity": pl.Quantity, "Location": pl.Location}
+        for pl, pm in (
+            db.query(PlacementModel, PopMaterialModel)
+            .outerjoin(PopMaterialModel, PopMaterialModel.Code == PlacementModel.MaterialCode)
+            .filter(PlacementModel.VisitId == visit_id)
+            .order_by(PlacementModel.VisitPOPPlacementId)
+            .all()
+        )
     ]
 
     # Market news
@@ -369,6 +384,7 @@ def get_visit_full(visit_id: int, db: Session = Depends(get_db), current_user: U
         "answers": answers,
         "coverage": coverage,
         "pop": pop,
+        "popPlacements": pop_placements,
         "marketNews": news,
         "photos": photos,
         "suppliers": suppliers,
@@ -712,9 +728,10 @@ def delete_visit(
     from ..models.visit_loose import VisitLooseSurvey as LooseModel
     from ..models.market_news import MarketNews as MNModel
     from ..models.incident import Incident as IncidentModel
+    from ..models.pop_material import VisitPOPPlacement as PlacementModel
     for child in (VisitAnswerModel, VisitCheckModel, VisitActionModel,
                   CoverageModel, POPModel, VisitFormTimeModel,
-                  VisitPhotoModel, LooseModel):
+                  VisitPhotoModel, LooseModel, PlacementModel):
         db.query(child).filter(child.VisitId == visit_id).delete()
     # Nullificar FK opcionales
     db.query(MNModel).filter(MNModel.VisitId == visit_id).delete()

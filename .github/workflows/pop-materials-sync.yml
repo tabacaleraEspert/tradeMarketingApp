@@ -1,0 +1,23 @@
+name: Sync catálogo material POP
+
+# Diario 06:00 AR (09:00 UTC): trae los artículos MKT de Bejerman vía
+# comercial-nuevo-mobiliza (GET /api/public/material) y hace upsert en PopMaterial.
+# Idempotente: correrlo de más no duplica nada. Lo que desaparece del origen
+# queda IsActive=false (no se borra). Respuesta vacía del origen = error, no se toca nada.
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar sync
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          URL="https://espert-trade-api.azurewebsites.net/internal/pop-materials/sync"
+          curl --fail-with-body -sS -X POST "$URL" \
+            -H "X-Cron-Key: $CRON_SECRET" \
+            --max-time 180 --retry 2 --retry-delay 30 --retry-all-errors

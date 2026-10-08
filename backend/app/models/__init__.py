@@ -24,6 +24,7 @@ from .product import Product
 from .pdv_product_category import PdvProductCategory
 from .visit_coverage import VisitCoverage
 from .visit_pop import VisitPOPItem
+from .pop_material import PopMaterial, VisitPOPPlacement
 from .visit_loose import VisitLooseSurvey
 from .app_setting import AppSetting
 from .supplier_type import SupplierType
@@ -39,6 +40,8 @@ from .kpi_monthly_snapshot import KpiMonthlySnapshot
 from .behavior_report import BehaviorReport, BehaviorReportSubscription
 
 __all__ = [
+    "PopMaterial",
+    "VisitPOPPlacement",
     "Zone",
     "Channel",
     "SubChannel",

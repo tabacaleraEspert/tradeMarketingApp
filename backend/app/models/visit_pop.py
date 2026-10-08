@@ -23,4 +23,7 @@ class VisitPOPItem(Base):
     Present = Column(Boolean, nullable=False, default=False)
     # Con precio / Sin precio
     HasPrice = Column(Boolean, nullable=True)
+    # Artículo real del catálogo (PopMaterial.Code, MKT-xxxxxx). NULL = material
+    # genérico (competencia o censos previos al catálogo). Sin FK a propósito.
+    MaterialCode = Column(String(30), nullable=True)
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

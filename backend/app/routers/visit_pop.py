@@ -6,6 +6,7 @@ from ..models.visit_pop import VisitPOPItem as POPModel
 from ..models.visit import Visit as VisitModel
 from ..models.user import User as UserModel
 from ..schemas.visit_pop import VisitPOPItemRead, VisitPOPBulk
+from ..services.pop_materials import resolve_item_names
 from ._visit_auth import check_visit_ownership
 
 VALID_MATERIAL_TYPES = ["primario", "secundario"]
@@ -42,6 +43,10 @@ def bulk_save_pop(visit_id: int, data: VisitPOPBulk, current_user: UserModel = D
     for item in data.items:
         if item.MaterialType not in VALID_MATERIAL_TYPES:
             raise HTTPException(400, f"MaterialType inválido. Válidos: {VALID_MATERIAL_TYPES}")
+    try:
+        resolve_item_names(db, data.items, name_max_len=80)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
     db.query(POPModel).filter(POPModel.VisitId == visit_id).delete()
     for item in data.items:
@@ -52,6 +57,7 @@ def bulk_save_pop(visit_id: int, data: VisitPOPBulk, current_user: UserModel = D
             Company=item.Company,
             Present=item.Present,
             HasPrice=item.HasPrice,
+            MaterialCode=item.MaterialCode,
         ))
     db.commit()
     return (
