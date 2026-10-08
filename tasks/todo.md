@@ -66,7 +66,7 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 
 ---
 
-# PLAN: Material POP real (censo + colocación) — 2026-10-08, APROBADO, en curso
+# PLAN: Material POP real (censo + colocación) — 2026-10-08, DEPLOYADO
 
 **Fuente (relevada en comercial-nuevo-mobiliza)**: SDK Bejerman `TABLAS/ObtenerArticulos`, filtro código `MKT%` (185 arts, MKT-000xxx correlativos; viejos "(*)"/900+ afuera). Campos: código, descripción "MARCA - TIPO - AÑO", foto (`/imagenes/{nombre}` en espert-vm-1). Stock vía `STOCK/ObtenerStock`. Endpoint existente `/api/demo/catalogo` pide sesión vendedor → no sirve máquina a máquina.
 
@@ -88,11 +88,11 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 **Estado 08/10**: implementado en las 3 partes, sin commit. Tests: trade back 661 · front 212 · mobiliza 276. Review independiente: 6 fixes aplicados (nombre >80, legado Espert ausente, borrar acción encolada, sync parcial, KPI4 foto solo Espert desde oct, key timing-safe). E2E local (SQLite + mobiliza fake): censo con código, colocación 2 artículos con cantidad, reporte admin, sync OK.
 
 **Deploy (orden)**
-- [ ] 1. mobiliza: commit+push main · secret `material-apikey` + env `Demo__MaterialApiKey` en ca-comercial-prod · probar `GET /api/public/material` con datos reales
-- [ ] 2. trade prod DB: `backend/scripts/ddl_pop_materials_20261008.py --dry-run` → real (ANTES del backend)
-- [ ] 3. trade App Service: `COMERCIAL_API_URL`, `COMERCIAL_MATERIAL_API_KEY`
-- [ ] 4. trade: commit+push main (backend + front)
-- [ ] 5. `POST /pop-materials/sync` (botón admin o workflow) → verificar 185 artículos
+- [x] 1. mobiliza (c903c0f): commit+push main · secret `material-apikey` + env `Demo__MaterialApiKey` en ca-comercial-prod · probar `GET /api/public/material` con datos reales
+- [x] 2. trade prod DB: `backend/scripts/ddl_pop_materials_20261008.py --dry-run` → real (ANTES del backend)
+- [x] 3. trade App Service: `COMERCIAL_API_URL`, `COMERCIAL_MATERIAL_API_KEY`
+- [x] 4. trade: commit (34a2f38 + fix ed31d59: AuditEvent.EntityId es INT en prod)+push main (backend + front)
+- [x] 5. 185 artículos cargados 08/10 19:11 · `POST /pop-materials/sync` (botón admin o workflow) → verificar 185 artículos
 
 ---
 
