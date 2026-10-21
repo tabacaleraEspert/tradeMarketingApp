@@ -10,7 +10,7 @@ import {
   Camera, Zap, Newspaper, LogOut, ChevronRight, Clock, MapPin,
   Navigation, FileText, Megaphone, Package, Trash2,
 } from "lucide-react";
-import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi, pdvSuppliersApi } from "@/lib/api";
+import { pdvsApi, visitsApi, visitActionsApi, marketNewsApi, formsApi, routesApi, pdvNotesApi, visitPhotosApi, fetchRouteDayPdvsForDate, visitCoverageApi, visitPOPApi, productsApi, pdvSuppliersApi } from "@/lib/api";
 import { Truck } from "lucide-react";
 import { fetchWithCache, readCache } from "@/lib/offline";
 import type { VisitCoverageItem, VisitPOPItem, Product } from "@/lib/api/types";
@@ -19,9 +19,9 @@ import { PhotoLightbox } from "../components/PhotoLightbox";
 import type { VisitPhotoRead } from "@/lib/api";
 import { executeOrEnqueue, markVisitClosedLocally } from "@/lib/offline";
 import { useVisitStep, clearVisitContext } from "@/lib/useVisitAutoSave";
-import { getCurrentUser } from "../lib/auth";
+import { getCurrentUser, isShortVisitFlow } from "../lib/auth";
 import { formatTime24 } from "../lib/dateUtils";
-import type { Pdv, VisitAction, MarketNews, VisitAnswer } from "@/lib/api";
+import type { Pdv, VisitAction, MarketNews, VisitAnswer, Form } from "@/lib/api";
 import { toast } from "sonner";
 import { renderAnswerValue } from "../lib/answerFormatter";
 
@@ -90,6 +90,8 @@ export function VisitSummaryPage() {
   const [closing, setClosing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  // Visita corta (activadores): solo el paso "Formularios"; cobertura/POP/etc. no aplican.
+  const shortFlow = isShortVisitFlow();
 
   // Detail modal
   const closingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -155,9 +157,12 @@ export function VisitSummaryPage() {
         }).catch(() => {});
       }
 
-      // Load questions for answers (cached)
+      // Load questions for answers (cached). En visita corta los forms son los de
+      // las rutas del usuario (pueden no estar en el catálogo visible por jerarquía).
       if (ans.length > 0) {
-        const forms = await fetchWithCache("forms_active", () => formsApi.list()).catch(() => []);
+        const forms = shortFlow
+          ? await fetchWithCache("my_route_forms", () => routesApi.listMyForms()).catch(() => [] as Form[])
+          : await fetchWithCache("forms_active", () => formsApi.list()).catch(() => [] as Form[]);
         const allQ: FormQuestion[] = [];
         for (const f of forms) {
           const qs = await fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => []);
@@ -236,11 +241,13 @@ export function VisitSummaryPage() {
         detail: nws.length > 0 ? `${nws.length} novedades` : "Sin novedades (opcional)",
       });
 
-      setSteps(statusSteps);
-      if (!validation.valid) setValidationErrors(validation.missing.map((m) => m.label));
+      setSteps(shortFlow ? statusSteps.filter((s) => s.type === "relevamiento") : statusSteps);
+      // En visita corta solo avisamos por preguntas requeridas del formulario, no por pasos que no existen.
+      const relevantMissing = shortFlow ? validation.missing.filter((m) => m.questionId) : validation.missing;
+      if (relevantMissing.length > 0) setValidationErrors(relevantMissing.map((m) => m.label));
     } catch { toast.error("Error al cargar resumen"); }
     finally { setLoading(false); }
-  }, [id, visitIdFromState, navigate]);
+  }, [id, visitIdFromState, navigate, shortFlow]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -412,7 +419,8 @@ export function VisitSummaryPage() {
 
       <div className="p-4 space-y-3">
         {/* Indicators bar */}
-        {visitId && <VisitIndicatorsBar visitId={visitId} />}
+        {/* Efectividad/completitud se calcula sobre los 6 pasos del flujo completo: en el corto no aplica */}
+        {visitId && !shortFlow && <VisitIndicatorsBar visitId={visitId} />}
 
         {/* Visit info */}
         <div className="flex items-center gap-3 text-xs text-muted-foreground">

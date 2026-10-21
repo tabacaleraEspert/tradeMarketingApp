@@ -11,6 +11,8 @@ export interface StoredUser {
   zoneId?: number;
   managerId?: number;
   role: string;
+  /** "full" = visita de 7 pasos · "short" = check-in → formulario → resumen */
+  visitFlow?: "full" | "short";
 }
 
 const USER_KEY = "user";
@@ -61,9 +63,15 @@ export function persistSession(login: LoginResponse): void {
     zoneId: login.ZoneId ?? undefined,
     managerId: login.ManagerUserId ?? undefined,
     role: login.Role || "vendedor",
+    visitFlow: login.VisitFlow === "short" ? "short" : "full",
   };
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   localStorage.setItem("isAuthenticated", "true");
+}
+
+/** True si el usuario logueado usa la visita corta (check-in → formulario → resumen). */
+export function isShortVisitFlow(): boolean {
+  return getStoredUser()?.visitFlow === "short";
 }
 
 /** Refresca rol y zona del usuario desde el backend (silencioso, no bloquea).
@@ -92,6 +100,13 @@ export async function refreshUserRole(): Promise<void> {
       updated.zone = data.zoneName || `Zona #${data.zoneId}`;
       changed = true;
       console.info(`[auth] Zone updated: ${user.zoneId ?? "-"} → ${data.zoneId}`);
+    }
+    if (data.visitFlow === "short" || data.visitFlow === "full") {
+      if (data.visitFlow !== user.visitFlow) {
+        updated.visitFlow = data.visitFlow;
+        changed = true;
+        console.info(`[auth] VisitFlow updated: ${user.visitFlow ?? "-"} → ${data.visitFlow}`);
+      }
     }
     if (changed) localStorage.setItem(USER_KEY, JSON.stringify(updated));
   } catch { /* silent */ }

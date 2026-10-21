@@ -149,6 +149,7 @@ class LoginResponse(BaseModel):
     Role: str
     IsActive: bool
     MustChangePassword: bool = False
+    VisitFlow: str = "full"
     # JWT
     access_token: str
     refresh_token: str
@@ -201,6 +202,7 @@ def _build_login_response(
             if must_change_password is None
             else must_change_password
         ),
+        VisitFlow=getattr(user, "VisitFlow", None) or "full",
         access_token=access,
         refresh_token=refresh,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -322,6 +324,7 @@ def impersonate(
         Role=role_name,
         IsActive=target.IsActive,
         MustChangePassword=False,  # no forzar cambio de pass durante impersonation
+        VisitFlow=getattr(target, "VisitFlow", None) or "full",
         access_token=access,
         refresh_token=refresh,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -455,6 +458,7 @@ class MeResponse(BaseModel):
     Role: str
     IsActive: bool
     MustChangePassword: bool = False
+    VisitFlow: str = "full"
 
 
 def _must_change_password(user: UserModel) -> bool:
@@ -486,6 +490,7 @@ def me(
         Role=role_name,
         IsActive=current_user.IsActive,
         MustChangePassword=_must_change_password(current_user),
+        VisitFlow=getattr(current_user, "VisitFlow", None) or "full",
     )
 
 

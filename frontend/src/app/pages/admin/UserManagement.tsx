@@ -67,6 +67,7 @@ export function UserManagement() {
     RoleId: "" as number | "",
     ManagerUserId: "" as number | "",
     IsActive: true,
+    VisitFlow: "full" as "full" | "short",
   });
 
   const loadData = useCallback(async () => {
@@ -109,7 +110,7 @@ export function UserManagement() {
   });
 
   const resetForm = () => {
-    setForm({ Email: "", DisplayName: "", DNI: "", Password: "", ZoneId: "", RoleId: "", ManagerUserId: "", IsActive: true });
+    setForm({ Email: "", DisplayName: "", DNI: "", Password: "", ZoneId: "", RoleId: "", ManagerUserId: "", IsActive: true, VisitFlow: "full" });
     setEditingUser(null);
     setShowPassword(false);
   };
@@ -130,6 +131,7 @@ export function UserManagement() {
       RoleId: u.roleId ?? "",
       ManagerUserId: u.ManagerUserId ?? "",
       IsActive: u.IsActive,
+      VisitFlow: u.VisitFlow === "short" ? "short" : "full",
     });
     setShowPassword(false);
     setIsModalOpen(true);
@@ -183,6 +185,7 @@ export function UserManagement() {
           ZoneId: form.ZoneId || null,
           ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
+          VisitFlow: form.VisitFlow,
         };
         if (form.Password) updateData.Password = form.Password;
         await usersApi.update(editingUser.UserId, updateData as Parameters<typeof usersApi.update>[1]);
@@ -201,6 +204,7 @@ export function UserManagement() {
           ZoneId: form.ZoneId || null,
           ManagerUserId: form.ManagerUserId || null,
           IsActive: form.IsActive,
+          VisitFlow: form.VisitFlow,
         };
         if (form.Password) createData.Password = form.Password;
         const newUser = await usersApi.create(createData as Parameters<typeof usersApi.create>[0]);
@@ -678,6 +682,18 @@ export function UserManagement() {
                     } as Record<string, string>)[r.Name] || r.Name}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Flujo de visita</Label>
+              <select
+                className="w-full h-10 px-3 border border-border rounded-md text-sm bg-background"
+                value={form.VisitFlow}
+                onChange={(e) => setForm((f) => ({ ...f, VisitFlow: e.target.value === "short" ? "short" : "full" }))}
+              >
+                <option value="full">Completo (7 pasos)</option>
+                <option value="short">Corto (solo formulario)</option>
               </select>
             </div>
 

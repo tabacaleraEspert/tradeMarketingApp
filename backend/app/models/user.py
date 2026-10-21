@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from ..database import Base
@@ -20,6 +20,9 @@ class User(Base):
     # Avatar / foto de perfil (FK opcional a File)
     AvatarFileId = Column(Integer, ForeignKey("File.FileId"), nullable=True)
     IsActive = Column(Boolean, default=True, nullable=False)
+    # Flujo de visita en campo: "full" (7 pasos) | "short" (check-in → formulario → resumen).
+    # "short" es para activadores que solo relevan con el formulario de sus rutas.
+    VisitFlow = Column(String(20), nullable=False, server_default=text("'full'"))
     CreatedAt = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     UpdatedAt = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

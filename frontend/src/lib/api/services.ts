@@ -25,6 +25,7 @@ export interface LoginResponse {
   Role?: string;
   IsActive: boolean;
   MustChangePassword?: boolean;
+  VisitFlow?: string;
   access_token: string;
   refresh_token: string;
   token_type: string;
@@ -40,6 +41,7 @@ export interface MeResponse {
   Role: string;
   IsActive: boolean;
   MustChangePassword?: boolean;
+  VisitFlow?: string;
 }
 
 // `/auth/me` lo piden varios lugares en el mismo tick del arranque (App.tsx para
@@ -189,6 +191,7 @@ export const usersApi = {
     Password?: string;
     ZoneId?: number | null;
     IsActive?: boolean;
+    VisitFlow?: "full" | "short";
   }) => api.post<User>("/users", data),
   update: (
     id: number,
@@ -199,6 +202,7 @@ export const usersApi = {
       Password?: string;
       ZoneId?: number | null;
       IsActive?: boolean;
+      VisitFlow?: "full" | "short";
     }
   ) => api.patch<User>(`/users/${id}`, data),
   delete: (id: number) => api.delete(`/users/${id}`),
@@ -523,6 +527,8 @@ export const routesApi = {
     return all;
   },
   get: (id: number) => api.get<Route>(`/routes/${id}`),
+  /** Forms activos de las rutas vigentes asignadas al usuario actual (visita corta). */
+  listMyForms: () => api.get<Form[]>("/routes/my-forms"),
   /** Totales para las cards de admin (no requiere traer todas las rutas). */
   stats: () => api.get<RouteStats>("/routes/stats"),
   getBejermanZones: () => api.get<{ zones: string[] }>("/routes/bejerman-zones"),

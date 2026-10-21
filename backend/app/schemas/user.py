@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, field_validator
 
 
@@ -38,12 +39,15 @@ class UserBase(BaseModel):
     ZoneId: int | None = None
     ManagerUserId: int | None = None
     IsActive: bool = True
+    # "full" = visita de 7 pasos · "short" = check-in → formulario → resumen (activadores)
+    VisitFlow: Literal["full", "short"] = "full"
 
 
 class UserCreate(UserBase):
     Password: str | None = None
     RoleName: str | None = None  # admin, territory_manager, ejecutivo, vendedor
     MustChangePassword: bool = True
+    VisitFlow: Literal["full", "short"] | None = None
 
     @field_validator("Email")
     @classmethod
@@ -78,6 +82,7 @@ class UserUpdate(BaseModel):
     Password: str | None = None
     RoleName: str | None = None
     MustChangePassword: bool | None = None
+    VisitFlow: Literal["full", "short"] | None = None
 
     @field_validator("Email")
     @classmethod

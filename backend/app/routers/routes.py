@@ -22,6 +22,7 @@ from ..models.audit import AuditEvent as AuditEventModel
 from ..models.channel import Channel as ChannelModel
 from ..utils.pagination import Page, PageParams, make_page, paginate
 from ..utils.ttl_cache import TTLCache
+from ..schemas.form import Form as FormSchema
 from ..schemas.route import (
     Route,
     RouteCreate,
@@ -702,6 +703,39 @@ def admin_list_routes(
         ))
     items, total = paginate(q.order_by(RouteModel.RouteId), p)
     return make_page(_routes_to_response_batch(items, db), total, p)
+
+
+@router.get("/my-forms", response_model=list[FormSchema])
+def my_route_forms(db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    """Formularios activos de las rutas vigentes asignadas al usuario actual.
+
+    Es lo que ve un usuario con VisitFlow="short" en la visita: SOLO los forms de
+    SUS rutas (campaña o regular), no el catálogo nacional. Sin filtro por
+    CreatedByUserId a propósito: el vendedor ve forms creados por un admin.
+    Sin duplicados (un form en varias rutas aparece una vez), orden por
+    RouteForm.SortOrder y FormId."""
+    from ..models.form import Form as FormModel
+
+    rows = (
+        db.query(FormModel, RouteFormModel.SortOrder)
+        .join(RouteFormModel, RouteFormModel.FormId == FormModel.FormId)
+        .join(RouteModel, RouteModel.RouteId == RouteFormModel.RouteId)
+        .filter(
+            RouteModel.AssignedUserId == current_user.UserId,
+            route_is_live(),
+            FormModel.IsActive == True,  # noqa: E712
+        )
+        .order_by(RouteFormModel.SortOrder, FormModel.FormId)
+        .all()
+    )
+    seen: set[int] = set()
+    out: list[FormModel] = []
+    for form, _sort in rows:
+        if form.FormId in seen:
+            continue
+        seen.add(form.FormId)
+        out.append(form)
+    return out
 
 
 @router.get("/stats")

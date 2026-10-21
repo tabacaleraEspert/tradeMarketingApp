@@ -25,6 +25,8 @@ export interface User {
   ManagerUserId: number | null;
   IsActive: boolean;
   MustChangePassword?: boolean;
+  /** "full" = visita de 7 pasos · "short" = check-in → formulario → resumen */
+  VisitFlow?: "full" | "short";
   RoleName?: string | null;
   AvatarUrl?: string | null;
   CreatedAt: string;

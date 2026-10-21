@@ -1,3 +1,39 @@
+# PLAN: Activación La Plata — "Lo de Pucho" (2026-10-19) — EN CURSO
+
+**Pedido**: 2 activadores (Christian / Pablo; hasta tener mails: `activadorU`, `activadorD`) recorren 549 PDVs del distribuidor **Lo de Pucho** en Gran La Plata hasta el **23-dic-2026**. Puntos ya mapeados (Excel con lat/lng, 18 zonas + 43 "sin zona"). Supervisa el solicitante. Quieren "formulario con ruteo", sin la visita completa de 7 pasos.
+
+**Fuente**: `Puntos de venta por zona - La Plata_2 FINAL.xlsx` (hoja `Todos`: Zona, Punto de venta, Dirección (mapa), Dirección original, Barrio, Localidad, Observación, Estado, Zona más cercana, Lat, Lng). 549 filas, 100% con coords, 0 nombres repetidos, 1 fila basura ("ESTE NOOOO"). Activador por zona en el header de cada hoja de zona (CHRISTIAN: 01-07, 11, 19 · PABLO: 08, 10, 12, 13, 15-18, 20).
+
+## Diseño (reusa la app de trade, sin app nueva)
+- **Zona** `La Plata` (1 sola; las 18 "zonas" del Excel son **rutas**). OJO: `create_pdv` re-zonifica por coords (`geo_zones._BOXES` → "AMBA") → el script hace PATCH ZoneId después del POST.
+- **Distribuidor** `Lo de Pucho` (`Distributor`) → `PDV.DistributorId`.
+- **Usuarios** `activadoru@espert.com.ar` / `activadord@espert.com.ar`, rol `vendedor`, zona La Plata, manager = supervisor, pass inicial `Espert2026!` + MustChangePassword, **VisitFlow = short**.
+- **19 rutas de campaña** (`RouteType=campaign`, `EndDate=2026-12-23`, `IsFocus=false`): 18 zonas asignadas a su activador + "Fuera de ruta" (43 PDVs, sin asignar: la completa el supervisor). PDVs con `Code = LP-<zona>-<nnn>`. Sin RouteDays (los planifica el supervisor desde el editor o usan "cerca mío").
+- **Formulario** "Activación La Plata" vinculado a las 19 rutas (`RouteForm`), 11 preguntas (ajustado 16:24 por audio): 1 ¿Tiene productos Espert? (radio sí/no, req) · 2 ¿Qué cigarrillos Espert tiene? (checkbox showIf 1=si: catálogo `Product.IsOwn` + Cigarrillos, todas las versiones) · 3 ¿Tiene Van Kiff? (radio showIf 1=si) · 4 ¿Tiene Lebonn? (radio showIf 1=si) · 5 ¿Le pudieron vender? (radio sí/no, req) · 6 ¿Qué promo? (checkbox showIf 5=si: Promo Bold / Promo Milenio) · 7 Precio acordado (checkbox_price showIf 5=si: Bold / Milenio) · 8 Foto comunicación (photo) · 9 Nombre del encargado (text) · 10 Horario del encargado (text) · 11 Observación / ayuda memoria (textarea).
+- **Visita corta** (`User.VisitFlow` = `full`|`short`): check-in → formulario → resumen. En short, el formulario muestra SOLO los forms de las rutas vigentes asignadas al usuario (`GET /routes/my-forms`), no el catálogo nacional. Resumen muestra solo "Formularios". `showIf` se evalúa en `SurveyForm` (hoy solo existe en el editor).
+
+## Tareas
+- [x] A. Backend visita corta: `User.VisitFlow` (migración 0028 + DDL prod), schemas User/UserCreate/UserUpdate, `LoginResponse` + `/auth/me` + users list, `GET /routes/my-forms`. Tests.
+- [x] B. Frontend visita corta: `StoredUser.visitFlow` (persistSession + refreshUserRole), select en `UserManagement`, `SurveyForm` (forms de ruta en short, nav a `/summary`, evaluar `showIf`), `VisitSummaryPage` (solo Formularios en short). Tests.
+- [x] C. `backend/scripts/import_laplata_api.py`: Excel → API (zona, distribuidor, usuarios, rutas, PDVs + PATCH zona, RoutePdv, formulario + RouteForm). Dry-run, log JSON, resumable (dedup por Code).
+- [x] D. Verificación local: SQLite + seed → script contra localhost → login activadorU → visita corta en el celu/browser.
+- [ ] E. Deploy: DDL prod → commit+push (CI) → script contra prod con token admin → probar con activadorU.
+
+**Estado 19-oct 16:40**: A–D hechos, sin commit. pytest 672 ✓ · vitest 229 ✓ · build ✓. E2E local (SQLite limpia + Vite + Playwright/Chrome, celu 390px): import 548 PDVs / 19 rutas / form 11 preguntas en 4 s, re-ejecución idempotente (0 a crear); activadorU ve 236 PDVs, 9 rutas, solo el form "Activación La Plata"; check-in → formulario (condicionales OK: cigarrillos/Van Kiff/Lebonn al marcar Sí; promo/precio al marcar compró) → "Continuar a Resumen" → resumen solo "Formularios". Extra: barra "Visita Efectiva" oculta en short (mide los 6 pasos del flujo completo). Base dev local anterior en `backend/trade_marketing.db.bak-20261019`.
+
+**Deploy (orden)**
+1. Prod DDL (lo corrés vos con `!`, desde backend/): `python scripts/ddl_user_visit_flow_20261019.py --dry-run` → sin flag. ANTES del backend (el modelo hace SELECT de VisitFlow).
+2. Commit + push main (CI deploya backend y SWA).
+3. Import prod: `python scripts/import_laplata_api.py "<xlsx>" --api https://espert-trade-api.azurewebsites.net --email <admin> --password '<pass>' --users "CHRISTIAN=activadoru@espert.com.ar:Activador U,PABLO=activadord@espert.com.ar:Activador D" --manager-email <supervisor> --channel Quiosco` (dry-run) → `--commit`. Si el canal no existe, el script lista los de prod.
+4. Probar con activadoru@espert.com.ar / Espert2026! (cambia clave al entrar) en un celu.
+
+## Pendientes del solicitante
+- Mails reales de Christian y Pablo (reemplazan activadorU/D).
+- Confirmar lista de productos Espert del form (se toma del catálogo `Product.IsOwn` de prod).
+- Quién carga los "Fuera de ruta" (hoy: sin asignar).
+
+---
+
 # Rutas de campaña + fecha de fin de ruta
 
 > Plan anterior (reporte por mail, commits a878767…1c669d7) está en el historial de git.

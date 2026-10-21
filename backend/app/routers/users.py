@@ -61,6 +61,7 @@ def _serialize_users(users: list[UserModel], db: Session) -> list[User]:
             "ManagerUserId": getattr(user, "ManagerUserId", None),
             "IsActive": user.IsActive,
             "MustChangePassword": bool(getattr(user, "MustChangePassword", False)),
+            "VisitFlow": getattr(user, "VisitFlow", None) or "full",
             "RoleName": role_by_user.get(user.UserId),
             "AvatarUrl": avatar_url,
             "CreatedAt": user.CreatedAt,
@@ -226,6 +227,7 @@ def create_user(data: UserCreate, db: Session = Depends(get_db)):
         ZoneId=data.ZoneId,
         ManagerUserId=data.ManagerUserId,
         MustChangePassword=data.MustChangePassword,
+        VisitFlow=data.VisitFlow or "full",
         IsActive=data.IsActive,
         PasswordHash=password_hash,
     )
@@ -287,6 +289,8 @@ def update_user(user_id: int, data: UserUpdate, db: Session = Depends(get_db)):
         if pwd:
             user.PasswordHash = hash_password(pwd)
     role_name = dump.pop("RoleName", None)
+    if dump.get("VisitFlow", "full") is None:
+        dump.pop("VisitFlow")  # null explícito = no cambiar (columna NOT NULL)
     for k, v in dump.items():
         setattr(user, k, v)
     if role_name:
@@ -410,6 +414,7 @@ def get_user_role(user_id: int, db: Session = Depends(get_db)):
         "roleName": role.Name if role else None,
         "zoneId": user.ZoneId if user else None,
         "zoneName": zone_name,
+        "visitFlow": (getattr(user, "VisitFlow", None) or "full") if user else "full",
     }
 
 

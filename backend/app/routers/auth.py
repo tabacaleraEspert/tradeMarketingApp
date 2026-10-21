@@ -30,6 +30,7 @@ class LoginResponse(BaseModel):
     ZoneName: str | None
     Role: str
     IsActive: bool
+    VisitFlow: str = "full"
 
     class Config:
         from_attributes = True
@@ -83,4 +84,5 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
         ZoneName=zone_name,
         Role=role_name,
         IsActive=user.IsActive,
+        VisitFlow=getattr(user, "VisitFlow", None) or "full",
     )

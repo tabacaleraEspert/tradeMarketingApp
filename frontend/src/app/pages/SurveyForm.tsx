@@ -23,6 +23,8 @@ import { executeOrEnqueue, fetchWithCache, readCache, writeCache } from "@/lib/o
 import { useVisitStep } from "@/lib/useVisitAutoSave";
 import { useVisitFlow } from "@/lib/VisitFlowContext";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
+import { isQuestionVisible } from "@/lib/formRules";
+import { isShortVisitFlow } from "../lib/auth";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -52,6 +54,10 @@ export function SurveyForm() {
   const visitIdFromState = locState?.visitId ?? recovered.visitId;
 
   const flow = useVisitFlow();
+  // Visita corta (activadores): check-in → formulario → resumen, solo los forms de sus rutas.
+  const shortFlow = isShortVisitFlow();
+  const nextPath = shortFlow ? "summary" : "coverage";
+  const nextLabel = shortFlow ? "Resumen" : "Cobertura";
   const [pdv, setPdv] = useState<Awaited<ReturnType<typeof pdvsApi.get>> | null>(flow.pdv);
   const [visitId, setVisitId] = useState<number | null>(visitIdFromState ?? flow.visitId ?? null);
   const [forms, setForms] = useState<Form[]>([]);
@@ -111,8 +117,19 @@ export function SurveyForm() {
         setVisitId(effectiveVisitId);
       }
 
-      // Load ALL active forms (from context or cache)
-      const allForms = flow.forms.length > 0 ? flow.forms : await fetchWithCache("forms_active", () => formsApi.list({ limit: 200 }));
+      // Visita corta: SOLO los forms de las rutas vigentes asignadas al usuario
+      // (los vincula el admin, no pasan por el filtro de creador de /forms).
+      // Si no hay ninguno, cae al catálogo de siempre.
+      let allForms: Form[] = [];
+      if (shortFlow) {
+        try {
+          allForms = await fetchWithCache("my_route_forms", () => routesApi.listMyForms());
+        } catch { allForms = []; }
+      }
+      if (allForms.length === 0) {
+        // Load ALL active forms (from context or cache)
+        allForms = flow.forms.length > 0 ? flow.forms : await fetchWithCache("forms_active", () => formsApi.list({ limit: 200 }));
+      }
       const activeForms = allForms.filter((f) => f.IsActive);
       setForms(activeForms);
       if (activeForms.length > 0) setActiveTab((prev) => (prev ? prev : String(activeForms[0].FormId)));
@@ -172,7 +189,7 @@ export function SurveyForm() {
     } finally {
       setLoading(false);
     }
-  }, [id, routeDayId, visitIdFromState, navigate]);
+  }, [id, routeDayId, visitIdFromState, navigate, shortFlow]);
 
   useEffect(() => {
     loadData();
@@ -234,13 +251,18 @@ export function SurveyForm() {
     return true;
   };
 
-  const allQuestions = Object.values(formQuestions).flat();
+  // Preguntas visibles según `showIf` (RulesJson): una oculta no cuenta para el
+  // progreso, no es requerida y no se manda.
+  const visibleQuestions = (formId: number): QuestionWithOptions[] =>
+    (formQuestions[formId] || []).filter((q) => isQuestionVisible(q, answers));
+
+  const allQuestions = Object.keys(formQuestions).flatMap((fid) => visibleQuestions(Number(fid)));
   const completedCount = allQuestions.filter(isAnswered).length;
   const progressPercentage = allQuestions.length > 0 ? Math.round((completedCount / allQuestions.length) * 100) : 0;
 
   // Status per form: "pending" | "partial" | "complete"
   const getFormStatus = (formId: number): "pending" | "partial" | "complete" => {
-    const qs = formQuestions[formId] || [];
+    const qs = visibleQuestions(formId);
     if (qs.length === 0) return "pending";
     const answered = qs.filter(isAnswered).length;
     if (answered === 0) return "pending";
@@ -252,7 +274,7 @@ export function SurveyForm() {
   };
 
   const getFormProgress = (formId: number): number => {
-    const qs = formQuestions[formId] || [];
+    const qs = visibleQuestions(formId);
     if (qs.length === 0) return 0;
     return Math.round((qs.filter(isAnswered).length / qs.length) * 100);
   };
@@ -362,7 +384,7 @@ export function SurveyForm() {
         await flushFormTimes(vid);
         toast.success("Relevamiento completado");
       }
-      navigate(`/pos/${id}/coverage`, {
+      navigate(`/pos/${id}/${nextPath}`, {
         state: { routeDayId, visitId: vid },
       });
     } catch { toast.error("Error al guardar"); }
@@ -389,10 +411,10 @@ export function SurveyForm() {
       <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 gap-4">
         <p className="text-muted-foreground">No hay formularios activos disponibles</p>
         <button
-          onClick={() => navigate(`/pos/${id}/coverage`, { state: { routeDayId, visitId } })}
+          onClick={() => navigate(`/pos/${id}/${nextPath}`, { state: { routeDayId, visitId } })}
           className="px-6 py-3 bg-[#A48242] hover:bg-[#8B6E38] text-white rounded-lg font-medium transition-colors"
         >
-          Continuar a Cobertura
+          Continuar a {nextLabel}
         </button>
       </div>
     );
@@ -409,7 +431,7 @@ export function SurveyForm() {
             <h1 className="text-xl font-bold text-foreground">Formularios</h1>
             <p className="text-sm text-muted-foreground">{pdv.Name}</p>
           </div>
-          <VisitStepIndicator currentStep={1} />
+          {!shortFlow && <VisitStepIndicator currentStep={1} />}
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between text-sm">
@@ -471,7 +493,7 @@ export function SurveyForm() {
                     <h3 className="font-semibold text-foreground">{f.Name}</h3>
                     {focoFormIds.has(f.FormId) && <Badge className="bg-orange-500 hover:bg-orange-500">RUTA FOCO</Badge>}
                   </div>
-                  {(formQuestions[f.FormId] || []).map((q) => (
+                  {visibleQuestions(f.FormId).map((q) => (
                     <SurveyQuestionField
                       key={q.QuestionId}
                       question={q}
@@ -496,7 +518,7 @@ export function SurveyForm() {
         <div className="sticky bottom-0 bg-card border-t border-border p-3 pb-[env(safe-area-inset-bottom)] -mx-4 space-y-2">
           <Button className="w-full h-11 text-sm font-semibold bg-[#A48242] hover:bg-[#8B6E38] text-white" onClick={handleSubmit}>
             <ArrowRight className="mr-2" size={16} />
-            Continuar a Cobertura
+            Continuar a {nextLabel}
           </Button>
           <Button variant="outline" className="w-full h-9 text-xs border-muted-foreground/30 text-muted-foreground" onClick={handleSaveDraft}>
             <Save className="mr-1.5" size={14} />
