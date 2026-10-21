@@ -249,6 +249,7 @@ def main() -> int:
                     help='ACTIVADOR=email:Nombre,... (ACTIVADOR = como figura en el header de las hojas de zona)')
     ap.add_argument("--manager-email", required=True, help="Supervisor (ManagerUserId de los activadores)")
     ap.add_argument("--channel", default="Quiosco", help="Canal para los PDVs (nombre exacto)")
+    ap.add_argument("--subchannel", default=None, help="Subcanal del canal elegido (nombre exacto, opcional; ej. Kiosco)")
     ap.add_argument("--end-date", default="2026-12-23")
     ap.add_argument("--commit", action="store_true")
     ap.add_argument("--throttle-ms", type=int, default=40)
@@ -303,7 +304,17 @@ def main() -> int:
     if not manager:
         print(f"No existe el usuario manager {args.manager_email}")
         return 1
-    print(f"Canal: {ch['Name']} ({ch['ChannelId']}) · Manager: {manager['DisplayName']} ({manager['UserId']})")
+    sub_id = None
+    if args.subchannel:
+        subs = api.get("/subchannels?limit=500")
+        subs = subs.get("items", subs) if isinstance(subs, dict) else subs
+        sub = next((x for x in subs if x["ChannelId"] == ch["ChannelId"] and norm(x["Name"]) == norm(args.subchannel)), None)
+        if not sub:
+            print(f"No existe el subcanal '{args.subchannel}' en {ch['Name']}. Subcanales: "
+                  + ", ".join(x["Name"] for x in subs if x["ChannelId"] == ch["ChannelId"]))
+            return 1
+        sub_id = sub["SubChannelId"]
+    print(f"Canal: {ch['Name']} ({ch['ChannelId']}) · Subcanal: {args.subchannel or '-'} ({sub_id}) · Manager: {manager['DisplayName']} ({manager['UserId']})")
 
     # --- 1. Zona
     zones = api.get("/zones")
@@ -426,7 +437,7 @@ def main() -> int:
             p = existing_by_code.get(code)
             if not p:
                 p = api.post("/pdvs", {
-                    "Code": code, "Name": row["name"], "ChannelId": ch["ChannelId"],
+                    "Code": code, "Name": row["name"], "ChannelId": ch["ChannelId"], "SubChannelId": sub_id,
                     "Address": row["address"], "City": row["city"], "ZoneId": zone_id,
                     "DistributorId": dist_id, "Lat": row["lat"], "Lon": row["lon"], "IsActive": True,
                 })

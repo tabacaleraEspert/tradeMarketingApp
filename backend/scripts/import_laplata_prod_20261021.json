@@ -1,0 +1,2866 @@
+{
+  "started": "2026-10-21T15:42:07.167339+00:00",
+  "api": "https://espert-trade-api.azurewebsites.net",
+  "commit": true,
+  "users": [
+    {
+      "UserId": 144,
+      "Email": "activadoru@espert.com.ar",
+      "activador": "CHRISTIAN"
+    },
+    {
+      "UserId": 145,
+      "Email": "activadord@espert.com.ar",
+      "activador": "PABLO"
+    }
+  ],
+  "routes": [
+    {
+      "RouteId": 326,
+      "Name": "Zona 01 - Villa Elisa",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 327,
+      "Name": "Zona 02 - City Bell",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 328,
+      "Name": "Zona 03 - Gonnet Ringuelet",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 329,
+      "Name": "Zona 04 - Tolosa",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 330,
+      "Name": "Zona 05 - Lateral San Carlos",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 331,
+      "Name": "Zona 06 - Hipodromo",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 332,
+      "Name": "Zona 07 - Lateral Norte",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 333,
+      "Name": "Zona 08 - Lateral Centro Norte",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 334,
+      "Name": "Zona 10 - Noroeste",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 335,
+      "Name": "Zona 11 - Centro",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 336,
+      "Name": "Zona 12 - Centro 2",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 337,
+      "Name": "Zona 13 - Lateral Sureste",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 338,
+      "Name": "Zona 15 - Lateral Alto San Lorenzo",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 339,
+      "Name": "Zona 16 - Los Hornos",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 340,
+      "Name": "Zona 17 - Melchor Abasto",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 341,
+      "Name": "Zona 18 - Villa Elvira",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 342,
+      "Name": "Zona 19 - Ensenada",
+      "AssignedUserId": 144
+    },
+    {
+      "RouteId": 343,
+      "Name": "Zona 20 - Berisso",
+      "AssignedUserId": 145
+    },
+    {
+      "RouteId": 344,
+      "Name": "Fuera de ruta",
+      "AssignedUserId": null
+    }
+  ],
+  "pdvs": [
+    {
+      "PdvId": 8600,
+      "Code": "LP-01-001",
+      "Name": "CHEN JUN"
+    },
+    {
+      "PdvId": 8601,
+      "Code": "LP-01-002",
+      "Name": "KIOSCO AYTINA"
+    },
+    {
+      "PdvId": 8602,
+      "Code": "LP-01-003",
+      "Name": "PATRICIA TOLOSA MAXIKIOSCO MAR"
+    },
+    {
+      "PdvId": 8603,
+      "Code": "LP-01-004",
+      "Name": "RAQUEL ALMACEN MANU"
+    },
+    {
+      "PdvId": 8604,
+      "Code": "LP-01-005",
+      "Name": "ALE BODEGA EL REY"
+    },
+    {
+      "PdvId": 8605,
+      "Code": "LP-01-006",
+      "Name": "ALMACEN DON JOSE (ROBERTO)"
+    },
+    {
+      "PdvId": 8606,
+      "Code": "LP-01-007",
+      "Name": "ANDRÉS CONTI (SOLONESKI)"
+    },
+    {
+      "PdvId": 8607,
+      "Code": "LP-01-008",
+      "Name": "AUDA CHAMORRO"
+    },
+    {
+      "PdvId": 8608,
+      "Code": "LP-01-009",
+      "Name": "CAPORNIO CLAUDIO"
+    },
+    {
+      "PdvId": 8609,
+      "Code": "LP-01-010",
+      "Name": "CARLA AGUERO NUEVA DIRECCIÓN"
+    },
+    {
+      "PdvId": 8610,
+      "Code": "LP-01-011",
+      "Name": "COELHO RUBEN"
+    },
+    {
+      "PdvId": 8611,
+      "Code": "LP-01-012",
+      "Name": "EZEQUIEL CALFA SUPER MESSI"
+    },
+    {
+      "PdvId": 8612,
+      "Code": "LP-01-013",
+      "Name": "FEDERICO VALDEZ 428 26 Y 27"
+    },
+    {
+      "PdvId": 8613,
+      "Code": "LP-01-014",
+      "Name": "FEDERICO VALDEZ BELGRANO"
+    },
+    {
+      "PdvId": 8614,
+      "Code": "LP-01-015",
+      "Name": "FLORENCIA VALDEZ"
+    },
+    {
+      "PdvId": 8615,
+      "Code": "LP-01-016",
+      "Name": "GERMAN RODENAK EL KIOSKI"
+    },
+    {
+      "PdvId": 8616,
+      "Code": "LP-01-017",
+      "Name": "HUGO MALDONADO"
+    },
+    {
+      "PdvId": 8617,
+      "Code": "LP-01-018",
+      "Name": "KIOSCO MONIEL"
+    },
+    {
+      "PdvId": 8618,
+      "Code": "LP-01-019",
+      "Name": "MARIA DEL CARMEN LASAGNO - LA CARMELA"
+    },
+    {
+      "PdvId": 8619,
+      "Code": "LP-01-020",
+      "Name": "MAURICIO VALDEZ 428 ESQ 132"
+    },
+    {
+      "PdvId": 8620,
+      "Code": "LP-01-021",
+      "Name": "RAUL MAMANI ARMANDO"
+    },
+    {
+      "PdvId": 8621,
+      "Code": "LP-01-022",
+      "Name": "SUPER CALLE 5 Y ARANA"
+    },
+    {
+      "PdvId": 8622,
+      "Code": "LP-01-023",
+      "Name": "WALTER PÉREZ KIOSCO MENTHOPLUS"
+    },
+    {
+      "PdvId": 8623,
+      "Code": "LP-01-024",
+      "Name": "ZONA NORTE"
+    },
+    {
+      "PdvId": 8624,
+      "Code": "LP-02-001",
+      "Name": "ALEJANDRO MAXIKIOSCO PUNTO ROJO"
+    },
+    {
+      "PdvId": 8625,
+      "Code": "LP-02-002",
+      "Name": "ANGELA ROCIO ZALAZAR"
+    },
+    {
+      "PdvId": 8626,
+      "Code": "LP-02-003",
+      "Name": "AXION CITY BELL CENTENARIO"
+    },
+    {
+      "PdvId": 8627,
+      "Code": "LP-02-004",
+      "Name": "BODEGON FENIX CITY BELL"
+    },
+    {
+      "PdvId": 8628,
+      "Code": "LP-02-005",
+      "Name": "CANO PABLO"
+    },
+    {
+      "PdvId": 8629,
+      "Code": "LP-02-006",
+      "Name": "DANIELA SOSA"
+    },
+    {
+      "PdvId": 8630,
+      "Code": "LP-02-007",
+      "Name": "DIEGO ALVARO RAMIREZ"
+    },
+    {
+      "PdvId": 8631,
+      "Code": "LP-02-008",
+      "Name": "EPSTEIN (476 - EL ALM DE GUEMES)"
+    },
+    {
+      "PdvId": 8632,
+      "Code": "LP-02-009",
+      "Name": "FERNANDO - LA HORMIGA"
+    },
+    {
+      "PdvId": 8633,
+      "Code": "LP-02-010",
+      "Name": "FULL MIX CANTILO Y 14A"
+    },
+    {
+      "PdvId": 8634,
+      "Code": "LP-02-011",
+      "Name": "FULL MIX CANTILO Y CENTENARIO"
+    },
+    {
+      "PdvId": 8635,
+      "Code": "LP-02-012",
+      "Name": "GERARDO FIGUEROA HARO"
+    },
+    {
+      "PdvId": 8636,
+      "Code": "LP-02-013",
+      "Name": "KIOSCO GABY CB"
+    },
+    {
+      "PdvId": 8637,
+      "Code": "LP-02-014",
+      "Name": "LEANDRO HOFFMANN"
+    },
+    {
+      "PdvId": 8638,
+      "Code": "LP-02-015",
+      "Name": "MARIA ALEJANDRA GONZALEZ (EX MAYLEN FUNES)"
+    },
+    {
+      "PdvId": 8639,
+      "Code": "LP-02-016",
+      "Name": "MAURO LEÓN"
+    },
+    {
+      "PdvId": 8640,
+      "Code": "LP-02-017",
+      "Name": "NARDA FIGUEROA (KIOSCO AZUL)"
+    },
+    {
+      "PdvId": 8641,
+      "Code": "LP-02-018",
+      "Name": "NESTOR DANIEL SUAREZ"
+    },
+    {
+      "PdvId": 8642,
+      "Code": "LP-02-019",
+      "Name": "PABLO KIOSCO EL DOMO"
+    },
+    {
+      "PdvId": 8643,
+      "Code": "LP-02-020",
+      "Name": "PERICH GABRIELA - SUPER LUIS"
+    },
+    {
+      "PdvId": 8644,
+      "Code": "LP-02-021",
+      "Name": "RINCON ENCANTADO (JUAN)"
+    },
+    {
+      "PdvId": 8645,
+      "Code": "LP-02-022",
+      "Name": "RODOLFO GABRIEL BENITEZ"
+    },
+    {
+      "PdvId": 8646,
+      "Code": "LP-02-023",
+      "Name": "SPINSANTI CAMILA"
+    },
+    {
+      "PdvId": 8647,
+      "Code": "LP-02-024",
+      "Name": "SUPER 10GONZALO FOSCHINI"
+    },
+    {
+      "PdvId": 8648,
+      "Code": "LP-02-025",
+      "Name": "SUPER NANO"
+    },
+    {
+      "PdvId": 8649,
+      "Code": "LP-02-026",
+      "Name": "WANG JIANHONG (EX CHEN WENBING MINKAI)"
+    },
+    {
+      "PdvId": 8650,
+      "Code": "LP-03-001",
+      "Name": "PATRICIA ARIAS GALA"
+    },
+    {
+      "PdvId": 8651,
+      "Code": "LP-03-002",
+      "Name": "ALEJANDRO EPSTEIN (LA POSTA)"
+    },
+    {
+      "PdvId": 8652,
+      "Code": "LP-03-003",
+      "Name": "CESPEDES MIA AYLEN (ANA)"
+    },
+    {
+      "PdvId": 8653,
+      "Code": "LP-03-004",
+      "Name": "CHEN CHEN"
+    },
+    {
+      "PdvId": 8654,
+      "Code": "LP-03-005",
+      "Name": "CLAUDIO CORNO"
+    },
+    {
+      "PdvId": 8655,
+      "Code": "LP-03-006",
+      "Name": "FLORENCIA CRUZ - KIOSCO DE AME"
+    },
+    {
+      "PdvId": 8656,
+      "Code": "LP-03-007",
+      "Name": "GABRIELA PEREZ KIOSCO GABY GONNET"
+    },
+    {
+      "PdvId": 8657,
+      "Code": "LP-03-008",
+      "Name": "HECTOR MATIAS GIL"
+    },
+    {
+      "PdvId": 8658,
+      "Code": "LP-03-009",
+      "Name": "JUAN ALBERTO MARTIN"
+    },
+    {
+      "PdvId": 8659,
+      "Code": "LP-03-010",
+      "Name": "PUNTO ROJO 25"
+    },
+    {
+      "PdvId": 8660,
+      "Code": "LP-03-011",
+      "Name": "SUPER 7 LEE EXPRESS"
+    },
+    {
+      "PdvId": 8661,
+      "Code": "LP-03-012",
+      "Name": "VIDELA LIDIA LO DE PELU"
+    },
+    {
+      "PdvId": 8662,
+      "Code": "LP-03-013",
+      "Name": "VITA"
+    },
+    {
+      "PdvId": 8663,
+      "Code": "LP-03-014",
+      "Name": "WILLY CHEN SHAN 494"
+    },
+    {
+      "PdvId": 8664,
+      "Code": "LP-03-015",
+      "Name": "WILLY CHEN SHAN SUPER CRISOL"
+    },
+    {
+      "PdvId": 8665,
+      "Code": "LP-03-016",
+      "Name": "ZAGO CLAUDIA FULL MIX BELGRANO Y 493"
+    },
+    {
+      "PdvId": 8666,
+      "Code": "LP-03-017",
+      "Name": "CHEN MINGFANG"
+    },
+    {
+      "PdvId": 8667,
+      "Code": "LP-03-018",
+      "Name": "GUSTAVO AUTOSERVICIO"
+    },
+    {
+      "PdvId": 8668,
+      "Code": "LP-03-019",
+      "Name": "NICOLAS DE LUCA"
+    },
+    {
+      "PdvId": 8669,
+      "Code": "LP-03-020",
+      "Name": "RAMIREZ MARINA"
+    },
+    {
+      "PdvId": 8670,
+      "Code": "LP-03-021",
+      "Name": "SOLEDAD FLORES LO DE ARIEL"
+    },
+    {
+      "PdvId": 8671,
+      "Code": "LP-03-022",
+      "Name": "TOMAS LA FRAZIA"
+    },
+    {
+      "PdvId": 8672,
+      "Code": "LP-04-001",
+      "Name": "CRISTIAN DOMINGUEZ"
+    },
+    {
+      "PdvId": 8673,
+      "Code": "LP-04-002",
+      "Name": "CLAUDIA INES MARIÑO"
+    },
+    {
+      "PdvId": 8674,
+      "Code": "LP-04-003",
+      "Name": "FRANCO GUARIE AMADEO NUEVA DIRECCIÓN"
+    },
+    {
+      "PdvId": 8675,
+      "Code": "LP-04-004",
+      "Name": "LUISINA ROSSI"
+    },
+    {
+      "PdvId": 8676,
+      "Code": "LP-04-005",
+      "Name": "AGUSTINA CAMAÑO"
+    },
+    {
+      "PdvId": 8677,
+      "Code": "LP-04-006",
+      "Name": "ALAN SOLARI"
+    },
+    {
+      "PdvId": 8678,
+      "Code": "LP-04-007",
+      "Name": "ALEJANDRO MESCHINI"
+    },
+    {
+      "PdvId": 8679,
+      "Code": "LP-04-008",
+      "Name": "CARLOS TOLOMEO EL DUENDE"
+    },
+    {
+      "PdvId": 8680,
+      "Code": "LP-04-009",
+      "Name": "CHARUTO GROW SHOP"
+    },
+    {
+      "PdvId": 8681,
+      "Code": "LP-04-010",
+      "Name": "GONZALO NAHUEL FERNANDEZ (ALM LA RAMBLA)"
+    },
+    {
+      "PdvId": 8682,
+      "Code": "LP-04-011",
+      "Name": "JIANCHAO WU"
+    },
+    {
+      "PdvId": 8683,
+      "Code": "LP-04-012",
+      "Name": "JIMENEZ NESTOR"
+    },
+    {
+      "PdvId": 8684,
+      "Code": "LP-04-013",
+      "Name": "KAPRIDRUGSTORE Nº3"
+    },
+    {
+      "PdvId": 8685,
+      "Code": "LP-04-014",
+      "Name": "MICAELA ROJAS"
+    },
+    {
+      "PdvId": 8686,
+      "Code": "LP-04-015",
+      "Name": "MIGUEL ANGEL CABRERA"
+    },
+    {
+      "PdvId": 8687,
+      "Code": "LP-04-016",
+      "Name": "MIN KAI 520"
+    },
+    {
+      "PdvId": 8688,
+      "Code": "LP-04-017",
+      "Name": "NEGRI CONSTANZA"
+    },
+    {
+      "PdvId": 8689,
+      "Code": "LP-04-018",
+      "Name": "OMAR RODRIGUEZ (ALM Y KIOSCO LA ESQUINA)"
+    },
+    {
+      "PdvId": 8690,
+      "Code": "LP-04-019",
+      "Name": "PABLO FERNANDO MARTINEZ"
+    },
+    {
+      "PdvId": 8691,
+      "Code": "LP-04-020",
+      "Name": "PIERONI JORGE"
+    },
+    {
+      "PdvId": 8692,
+      "Code": "LP-04-021",
+      "Name": "PUMA NAHUEL FERNANDEZ"
+    },
+    {
+      "PdvId": 8693,
+      "Code": "LP-04-022",
+      "Name": "QIU SUPERMERCADO 530"
+    },
+    {
+      "PdvId": 8694,
+      "Code": "LP-04-023",
+      "Name": "RODY MOSTRADOR"
+    },
+    {
+      "PdvId": 8695,
+      "Code": "LP-04-024",
+      "Name": "ROXANA TORRA - EL KIOSCAZO"
+    },
+    {
+      "PdvId": 8696,
+      "Code": "LP-04-025",
+      "Name": "SARA CARBAJAL - ESTACIÓN DE SERVICIO"
+    },
+    {
+      "PdvId": 8697,
+      "Code": "LP-04-026",
+      "Name": "SILVANA RAMOS"
+    },
+    {
+      "PdvId": 8698,
+      "Code": "LP-04-027",
+      "Name": "TULIZ MARIO"
+    },
+    {
+      "PdvId": 8699,
+      "Code": "LP-05-001",
+      "Name": "COMBUSTIBLES IDELPLA S.A"
+    },
+    {
+      "PdvId": 8700,
+      "Code": "LP-05-002",
+      "Name": "JUAN RAUL"
+    },
+    {
+      "PdvId": 8701,
+      "Code": "LP-05-003",
+      "Name": "AGUEDA REY ESPARZA"
+    },
+    {
+      "PdvId": 8702,
+      "Code": "LP-05-004",
+      "Name": "ELISA ANDIA VALLEJOS"
+    },
+    {
+      "PdvId": 8703,
+      "Code": "LP-05-005",
+      "Name": "GASTON SMITH"
+    },
+    {
+      "PdvId": 8704,
+      "Code": "LP-05-006",
+      "Name": "GUILLERMO MORRIS (KIOSCO VERDE TOPLINE)"
+    },
+    {
+      "PdvId": 8705,
+      "Code": "LP-05-007",
+      "Name": "MARIA SOL AMANTE"
+    },
+    {
+      "PdvId": 8706,
+      "Code": "LP-05-008",
+      "Name": "SILVIO BONATTO"
+    },
+    {
+      "PdvId": 8707,
+      "Code": "LP-05-009",
+      "Name": "YANINA DA FONSECA - CATALEIA"
+    },
+    {
+      "PdvId": 8708,
+      "Code": "LP-05-010",
+      "Name": "ERIC FRANCO SANDI"
+    },
+    {
+      "PdvId": 8709,
+      "Code": "LP-05-011",
+      "Name": "CHEN TENGHUI COMPRA FÁCIL"
+    },
+    {
+      "PdvId": 8710,
+      "Code": "LP-05-012",
+      "Name": "DANIEL DIDEK"
+    },
+    {
+      "PdvId": 8711,
+      "Code": "LP-05-013",
+      "Name": "GOMEZ MAXIMILIANO - MAXIKIOSCO LALO"
+    },
+    {
+      "PdvId": 8712,
+      "Code": "LP-05-014",
+      "Name": "JULIA LONDAITZ - KIOSCO JULIA AMARILLO"
+    },
+    {
+      "PdvId": 8713,
+      "Code": "LP-05-015",
+      "Name": "LILIANA MARTA ALVAREZ"
+    },
+    {
+      "PdvId": 8714,
+      "Code": "LP-05-016",
+      "Name": "MICAELA ROJAS SAN CARLOS"
+    },
+    {
+      "PdvId": 8715,
+      "Code": "LP-05-017",
+      "Name": "MILAGROS GABAL NUEVA DIRECCIÓN"
+    },
+    {
+      "PdvId": 8716,
+      "Code": "LP-05-018",
+      "Name": "TEVEZ TERESA"
+    },
+    {
+      "PdvId": 8717,
+      "Code": "LP-05-019",
+      "Name": "ARIEL FERRUFINO"
+    },
+    {
+      "PdvId": 8718,
+      "Code": "LP-05-020",
+      "Name": "CELINA MUÑOZ"
+    },
+    {
+      "PdvId": 8719,
+      "Code": "LP-05-021",
+      "Name": "FLORENCIA AXION EST. SERVICIO"
+    },
+    {
+      "PdvId": 8720,
+      "Code": "LP-05-022",
+      "Name": "PABLO UYUNI"
+    },
+    {
+      "PdvId": 8721,
+      "Code": "LP-06-001",
+      "Name": "DIEGO HERRERA"
+    },
+    {
+      "PdvId": 8722,
+      "Code": "LP-06-002",
+      "Name": "ESTEBAN- LOS OLIVOS GAS S.A (AXION)"
+    },
+    {
+      "PdvId": 8723,
+      "Code": "LP-06-003",
+      "Name": "GARABANO FERNANDO - KIOSCO UNDER ENSENADA"
+    },
+    {
+      "PdvId": 8724,
+      "Code": "LP-06-004",
+      "Name": "JESSICA REYES CERNA"
+    },
+    {
+      "PdvId": 8725,
+      "Code": "LP-06-005",
+      "Name": "RODOLFO MARCELO MARTIN MOLINA (NANCY)"
+    },
+    {
+      "PdvId": 8726,
+      "Code": "LP-06-006",
+      "Name": "VALERIA JALDIN (126 DIQUE)"
+    },
+    {
+      "PdvId": 8727,
+      "Code": "LP-06-007",
+      "Name": "ANTOJOS KIOSCO AMARILLO"
+    },
+    {
+      "PdvId": 8728,
+      "Code": "LP-06-008",
+      "Name": "CARINA MORA LLANOS"
+    },
+    {
+      "PdvId": 8729,
+      "Code": "LP-06-009",
+      "Name": "DIEGO MIGUEL CERDA (KIOSCO 74 STOP)"
+    },
+    {
+      "PdvId": 8730,
+      "Code": "LP-06-010",
+      "Name": "DISTRI RAICES - COOP. SAN PEDRO"
+    },
+    {
+      "PdvId": 8731,
+      "Code": "LP-06-011",
+      "Name": "ENRIQUE GUILLERMO JONGEWAARD"
+    },
+    {
+      "PdvId": 8732,
+      "Code": "LP-06-012",
+      "Name": "ESTEFANIA ROJAS"
+    },
+    {
+      "PdvId": 8733,
+      "Code": "LP-06-013",
+      "Name": "GISELA SOLEDAD LLANOS"
+    },
+    {
+      "PdvId": 8734,
+      "Code": "LP-06-014",
+      "Name": "HORACIO STREMEL"
+    },
+    {
+      "PdvId": 8735,
+      "Code": "LP-06-015",
+      "Name": "LLAMAR ANTES - LUCIANO DIANA (KIOSCO PARADA 1)"
+    },
+    {
+      "PdvId": 8736,
+      "Code": "LP-06-016",
+      "Name": "MARIANA ESCRICH"
+    },
+    {
+      "PdvId": 8737,
+      "Code": "LP-06-017",
+      "Name": "MARTIN ARREGUI (RELOJES ARREGUI)"
+    },
+    {
+      "PdvId": 8738,
+      "Code": "LP-06-018",
+      "Name": "MAURO GONZALEZ"
+    },
+    {
+      "PdvId": 8739,
+      "Code": "LP-06-019",
+      "Name": "REAL IMPERIO LA REINA"
+    },
+    {
+      "PdvId": 8740,
+      "Code": "LP-06-020",
+      "Name": "ROXANA LUJAN"
+    },
+    {
+      "PdvId": 8741,
+      "Code": "LP-06-021",
+      "Name": "SANZ JAVIER"
+    },
+    {
+      "PdvId": 8742,
+      "Code": "LP-06-022",
+      "Name": "SARA VANESSA CARBAJAL"
+    },
+    {
+      "PdvId": 8743,
+      "Code": "LP-06-023",
+      "Name": "SILVIA PORCO"
+    },
+    {
+      "PdvId": 8744,
+      "Code": "LP-06-024",
+      "Name": "SOLEDAD CISNEROS"
+    },
+    {
+      "PdvId": 8745,
+      "Code": "LP-06-025",
+      "Name": "VIVIANA ERRAMOUSPE"
+    },
+    {
+      "PdvId": 8746,
+      "Code": "LP-07-001",
+      "Name": "ADRIANA LORENA LEDESMA LO DE ADRY"
+    },
+    {
+      "PdvId": 8747,
+      "Code": "LP-07-002",
+      "Name": "MATIAS RAMOS"
+    },
+    {
+      "PdvId": 8748,
+      "Code": "LP-07-003",
+      "Name": "BONTEMPO RAMIRO"
+    },
+    {
+      "PdvId": 8749,
+      "Code": "LP-07-004",
+      "Name": "DAMIAN ZLATAR - KIOSCO RUMBO"
+    },
+    {
+      "PdvId": 8750,
+      "Code": "LP-07-005",
+      "Name": "FEDERICO KOLENDER"
+    },
+    {
+      "PdvId": 8751,
+      "Code": "LP-07-006",
+      "Name": "FIAMMA MAZZEO"
+    },
+    {
+      "PdvId": 8752,
+      "Code": "LP-07-007",
+      "Name": "FLOR LIMA"
+    },
+    {
+      "PdvId": 8753,
+      "Code": "LP-07-008",
+      "Name": "GARABANO FERNANDO - KIOSCO UNDER"
+    },
+    {
+      "PdvId": 8754,
+      "Code": "LP-07-009",
+      "Name": "GENEIRO LILIANA"
+    },
+    {
+      "PdvId": 8755,
+      "Code": "LP-07-010",
+      "Name": "GRISELLA VILLIVA"
+    },
+    {
+      "PdvId": 8756,
+      "Code": "LP-07-011",
+      "Name": "HORACIO TILBE (JUAN) LP"
+    },
+    {
+      "PdvId": 8757,
+      "Code": "LP-07-012",
+      "Name": "JUAN PABLO BISOGNI"
+    },
+    {
+      "PdvId": 8758,
+      "Code": "LP-07-013",
+      "Name": "KAPRI ALONZO LUIS PLAZA N°41"
+    },
+    {
+      "PdvId": 8759,
+      "Code": "LP-07-014",
+      "Name": "LIN JIANLIN"
+    },
+    {
+      "PdvId": 8760,
+      "Code": "LP-07-015",
+      "Name": "LIU XIUYAN"
+    },
+    {
+      "PdvId": 8761,
+      "Code": "LP-07-016",
+      "Name": "LUCAS NUÑEZ"
+    },
+    {
+      "PdvId": 8762,
+      "Code": "LP-07-017",
+      "Name": "MARILIN ALEJANDRA BISIO"
+    },
+    {
+      "PdvId": 8763,
+      "Code": "LP-07-018",
+      "Name": "MAURICIO EZEQUIEL GONZÁLEZ"
+    },
+    {
+      "PdvId": 8764,
+      "Code": "LP-07-019",
+      "Name": "MAXIMILIANO DALLERA"
+    },
+    {
+      "PdvId": 8765,
+      "Code": "LP-07-020",
+      "Name": "MIA PECEROS"
+    },
+    {
+      "PdvId": 8766,
+      "Code": "LP-07-021",
+      "Name": "NOTO JAVIER ALEJANDRO"
+    },
+    {
+      "PdvId": 8767,
+      "Code": "LP-07-022",
+      "Name": "RAUL HERNÁN ANDIA VALLEJOS"
+    },
+    {
+      "PdvId": 8768,
+      "Code": "LP-07-023",
+      "Name": "SANTIAGO ARIAS LOS BÚHOS"
+    },
+    {
+      "PdvId": 8769,
+      "Code": "LP-07-024",
+      "Name": "SCHNEIDER DANIEL"
+    },
+    {
+      "PdvId": 8770,
+      "Code": "LP-07-025",
+      "Name": "SEBASTIAN DEL DAGO"
+    },
+    {
+      "PdvId": 8771,
+      "Code": "LP-07-026",
+      "Name": "SUPER SEBASTIAN"
+    },
+    {
+      "PdvId": 8772,
+      "Code": "LP-07-027",
+      "Name": "SUPERMERCADO LA LINDA"
+    },
+    {
+      "PdvId": 8773,
+      "Code": "LP-07-028",
+      "Name": "TERESA RAMONA GALARZA"
+    },
+    {
+      "PdvId": 8774,
+      "Code": "LP-07-029",
+      "Name": "TORRES MARTA ELENA"
+    },
+    {
+      "PdvId": 8775,
+      "Code": "LP-07-030",
+      "Name": "VICTORIA GOICOECHEA - KIOSCO PEPO"
+    },
+    {
+      "PdvId": 8776,
+      "Code": "LP-07-031",
+      "Name": "YE JIAFENG"
+    },
+    {
+      "PdvId": 8777,
+      "Code": "LP-07-032",
+      "Name": "CHI GUAQUAN (SUPER EL DRAGON)"
+    },
+    {
+      "PdvId": 8778,
+      "Code": "LP-08-001",
+      "Name": "BALDASSO NOELIA (EX FLAVIA GISELE MARINO)"
+    },
+    {
+      "PdvId": 8779,
+      "Code": "LP-08-002",
+      "Name": "BECERRA ZAFRA 47 Y 5 ALEIVIN"
+    },
+    {
+      "PdvId": 8780,
+      "Code": "LP-08-003",
+      "Name": "BITURON BLANCA CRISTINA (KATERINA)"
+    },
+    {
+      "PdvId": 8781,
+      "Code": "LP-08-004",
+      "Name": "CAMILA CAMAÑO"
+    },
+    {
+      "PdvId": 8782,
+      "Code": "LP-08-005",
+      "Name": "CARLA - FULL 365 (FRENTE TERMINAL)"
+    },
+    {
+      "PdvId": 8783,
+      "Code": "LP-08-006",
+      "Name": "CULTURA DE LONGSHAN"
+    },
+    {
+      "PdvId": 8784,
+      "Code": "LP-08-007",
+      "Name": "DANIEL SOLARI"
+    },
+    {
+      "PdvId": 8785,
+      "Code": "LP-08-008",
+      "Name": "DRUGSTORE 6Y43 - MATIAS PASCUAL"
+    },
+    {
+      "PdvId": 8786,
+      "Code": "LP-08-009",
+      "Name": "FACHAL SANTIAGO"
+    },
+    {
+      "PdvId": 8787,
+      "Code": "LP-08-010",
+      "Name": "GABRIEL RAMIREZ - MAXIKIOSCO 46"
+    },
+    {
+      "PdvId": 8788,
+      "Code": "LP-08-011",
+      "Name": "JUAN CARLOS CAMPOS"
+    },
+    {
+      "PdvId": 8789,
+      "Code": "LP-08-012",
+      "Name": "LEONARDO D'ALOISIO MAXIKIOSCO POP"
+    },
+    {
+      "PdvId": 8790,
+      "Code": "LP-08-013",
+      "Name": "LIU DONG"
+    },
+    {
+      "PdvId": 8791,
+      "Code": "LP-08-014",
+      "Name": "LUIS EZEQUIEL LUCE"
+    },
+    {
+      "PdvId": 8792,
+      "Code": "LP-08-015",
+      "Name": "MANUEL DIAZ"
+    },
+    {
+      "PdvId": 8793,
+      "Code": "LP-08-016",
+      "Name": "MARCELA Y HUGO"
+    },
+    {
+      "PdvId": 8794,
+      "Code": "LP-08-017",
+      "Name": "NEYRA JOAQUIN 49"
+    },
+    {
+      "PdvId": 8795,
+      "Code": "LP-08-018",
+      "Name": "NEYRA JOAQUIN DIAG 80"
+    },
+    {
+      "PdvId": 8796,
+      "Code": "LP-08-019",
+      "Name": "NO STOP 5 Y 42 JOAQUÍN CUERVO"
+    },
+    {
+      "PdvId": 8797,
+      "Code": "LP-08-020",
+      "Name": "NO STOP 7 N 566 JULIAN"
+    },
+    {
+      "PdvId": 8798,
+      "Code": "LP-08-021",
+      "Name": "PABLO CAVALLO"
+    },
+    {
+      "PdvId": 8799,
+      "Code": "LP-08-022",
+      "Name": "PAOLA MANSINO"
+    },
+    {
+      "PdvId": 8800,
+      "Code": "LP-08-023",
+      "Name": "ROBERTO ROJAS"
+    },
+    {
+      "PdvId": 8801,
+      "Code": "LP-08-024",
+      "Name": "VALLEJOS CARINA"
+    },
+    {
+      "PdvId": 8802,
+      "Code": "LP-08-025",
+      "Name": "YANI YUSSO"
+    },
+    {
+      "PdvId": 8803,
+      "Code": "LP-10-001",
+      "Name": "ASTROGROW (JOAQUIN)"
+    },
+    {
+      "PdvId": 8804,
+      "Code": "LP-10-002",
+      "Name": "JUAN (EX ROMINA GARRAFA KIOSCO)"
+    },
+    {
+      "PdvId": 8805,
+      "Code": "LP-10-003",
+      "Name": "KIOSCO PARADA ZERO (RUBEN COELHO)"
+    },
+    {
+      "PdvId": 8806,
+      "Code": "LP-10-004",
+      "Name": "LIN HANGWEI"
+    },
+    {
+      "PdvId": 8807,
+      "Code": "LP-10-005",
+      "Name": "LIN HANGWEI (SUPER EL DRAGON)"
+    },
+    {
+      "PdvId": 8808,
+      "Code": "LP-10-006",
+      "Name": "LIN XINYI"
+    },
+    {
+      "PdvId": 8809,
+      "Code": "LP-10-007",
+      "Name": "LIN XIUMEI"
+    },
+    {
+      "PdvId": 8810,
+      "Code": "LP-10-008",
+      "Name": "LORENA MARTINEZ"
+    },
+    {
+      "PdvId": 8811,
+      "Code": "LP-10-009",
+      "Name": "MARIELA NAQUED - NEIKY MARKET"
+    },
+    {
+      "PdvId": 8812,
+      "Code": "LP-10-010",
+      "Name": "MERIDA FERNANDO JOSE"
+    },
+    {
+      "PdvId": 8813,
+      "Code": "LP-10-011",
+      "Name": "NAHUEL DE LEO AUTOSERVICIO AMICCI"
+    },
+    {
+      "PdvId": 8814,
+      "Code": "LP-10-012",
+      "Name": "NICOLAS FEDERICO DEL CORAZON DE JESUS ESCUDIER"
+    },
+    {
+      "PdvId": 8815,
+      "Code": "LP-10-013",
+      "Name": "NICOLAS VALLEJOS (EX SUSANA VERDULERÍA)"
+    },
+    {
+      "PdvId": 8816,
+      "Code": "LP-10-014",
+      "Name": "PABLO COSTANTINO - DE TODO UN POCO"
+    },
+    {
+      "PdvId": 8817,
+      "Code": "LP-10-015",
+      "Name": "WALTER DANIEL INAMA"
+    },
+    {
+      "PdvId": 8818,
+      "Code": "LP-10-016",
+      "Name": "WALTER HUGO TOBARES"
+    },
+    {
+      "PdvId": 8819,
+      "Code": "LP-10-017",
+      "Name": "YRIS CARDOZO"
+    },
+    {
+      "PdvId": 8820,
+      "Code": "LP-10-018",
+      "Name": "ZHANG DONG"
+    },
+    {
+      "PdvId": 8821,
+      "Code": "LP-10-019",
+      "Name": "ZHENG AIFENG"
+    },
+    {
+      "PdvId": 8822,
+      "Code": "LP-10-020",
+      "Name": "KIOSCO EL DESPACHITO ARIEL"
+    },
+    {
+      "PdvId": 8823,
+      "Code": "LP-10-021",
+      "Name": "VANINA AUTOSERVICIO (AGUS Y TOMI)"
+    },
+    {
+      "PdvId": 8824,
+      "Code": "LP-10-022",
+      "Name": "GUSTAVO PASCUAL (POLIRRUBRO COLOR AMARILLO)"
+    },
+    {
+      "PdvId": 8825,
+      "Code": "LP-10-023",
+      "Name": "KIOSCO LA PLAZA (ZURITA)"
+    },
+    {
+      "PdvId": 8826,
+      "Code": "LP-11-001",
+      "Name": "24.7 - MARIA DEL CARMEN FERNANDEZ"
+    },
+    {
+      "PdvId": 8827,
+      "Code": "LP-11-002",
+      "Name": "ALVARADO PAULA"
+    },
+    {
+      "PdvId": 8828,
+      "Code": "LP-11-003",
+      "Name": "ANDRÉS EZEQUIEL NUÑEZ KIOSCO ASTRO"
+    },
+    {
+      "PdvId": 8829,
+      "Code": "LP-11-004",
+      "Name": "AXEL BARZABAL"
+    },
+    {
+      "PdvId": 8830,
+      "Code": "LP-11-005",
+      "Name": "BAUTISTA MASI"
+    },
+    {
+      "PdvId": 8831,
+      "Code": "LP-11-006",
+      "Name": "BRITEZ CARMELO"
+    },
+    {
+      "PdvId": 8832,
+      "Code": "LP-11-007",
+      "Name": "CARLA REYNAFE - KIOSCO"
+    },
+    {
+      "PdvId": 8833,
+      "Code": "LP-11-008",
+      "Name": "CHIAFFITELLI BRUNO FEDERICO"
+    },
+    {
+      "PdvId": 8834,
+      "Code": "LP-11-009",
+      "Name": "CLAUDIA - 24.7 COLAVECCHIA"
+    },
+    {
+      "PdvId": 8835,
+      "Code": "LP-11-010",
+      "Name": "DAVID VARGAS"
+    },
+    {
+      "PdvId": 8836,
+      "Code": "LP-11-011",
+      "Name": "DISTRIBUIDORA 33"
+    },
+    {
+      "PdvId": 8837,
+      "Code": "LP-11-012",
+      "Name": "FABIANA - 24.7 MARIA FERNANDEZ"
+    },
+    {
+      "PdvId": 8838,
+      "Code": "LP-11-013",
+      "Name": "FERNANDO GABRIEL DULIO"
+    },
+    {
+      "PdvId": 8839,
+      "Code": "LP-11-014",
+      "Name": "GIMENEZ FABIAN"
+    },
+    {
+      "PdvId": 8840,
+      "Code": "LP-11-015",
+      "Name": "HERNAN BALLERINI CALLE 50"
+    },
+    {
+      "PdvId": 8841,
+      "Code": "LP-11-016",
+      "Name": "IVAN PRESTES - FULL 365 KIOSCO ROJO"
+    },
+    {
+      "PdvId": 8842,
+      "Code": "LP-11-017",
+      "Name": "KAPRIDRUGSTORE 749 - LUIS ALONSO"
+    },
+    {
+      "PdvId": 8843,
+      "Code": "LP-11-018",
+      "Name": "KIOSCO 43 - CAMILA SOL SPINSANTI"
+    },
+    {
+      "PdvId": 8844,
+      "Code": "LP-11-019",
+      "Name": "MARCELO VILLORIA"
+    },
+    {
+      "PdvId": 8845,
+      "Code": "LP-11-020",
+      "Name": "MARINA - 24.7 SANCHEZ IVANA"
+    },
+    {
+      "PdvId": 8846,
+      "Code": "LP-11-021",
+      "Name": "MARINA GALERIA - FULL 365"
+    },
+    {
+      "PdvId": 8847,
+      "Code": "LP-11-022",
+      "Name": "MATIAS MOBILIO"
+    },
+    {
+      "PdvId": 8848,
+      "Code": "LP-11-023",
+      "Name": "NO STOP DIAG 74 (JULIAN NOCITO)"
+    },
+    {
+      "PdvId": 8849,
+      "Code": "LP-11-024",
+      "Name": "NO STOP ITALIA 100 (JULIAN NOCITO)"
+    },
+    {
+      "PdvId": 8850,
+      "Code": "LP-11-025",
+      "Name": "QIU PENG"
+    },
+    {
+      "PdvId": 8851,
+      "Code": "LP-11-026",
+      "Name": "ROSA HUAMAN MIZA 7 DRAGONES"
+    },
+    {
+      "PdvId": 8852,
+      "Code": "LP-11-027",
+      "Name": "VANESA - 24.7 FERNANDEZ MARIA"
+    },
+    {
+      "PdvId": 8853,
+      "Code": "LP-11-028",
+      "Name": "VANESA - 24.7 MARIANA LABURU"
+    },
+    {
+      "PdvId": 8854,
+      "Code": "LP-11-029",
+      "Name": "ZAPATA LUIS SEBASTIAN - BRUJITA 74"
+    },
+    {
+      "PdvId": 8855,
+      "Code": "LP-11-030",
+      "Name": "EDGAR JOEL OVIEDO LOPEZ"
+    },
+    {
+      "PdvId": 8856,
+      "Code": "LP-12-001",
+      "Name": "ALEJANDRO AGOSTINI (FERNANDA)"
+    },
+    {
+      "PdvId": 8857,
+      "Code": "LP-12-002",
+      "Name": "ANAHI NINNI SILVIO - ARG. CAMPEON"
+    },
+    {
+      "PdvId": 8858,
+      "Code": "LP-12-003",
+      "Name": "ARMENTI FABIO EST SERV YPF"
+    },
+    {
+      "PdvId": 8859,
+      "Code": "LP-12-004",
+      "Name": "BRUNO CASTRO"
+    },
+    {
+      "PdvId": 8860,
+      "Code": "LP-12-005",
+      "Name": "CRISTIAN BENITEZ"
+    },
+    {
+      "PdvId": 8861,
+      "Code": "LP-12-006",
+      "Name": "DIEZ PABLO (A)"
+    },
+    {
+      "PdvId": 8862,
+      "Code": "LP-12-007",
+      "Name": "EDIHT SUSANA PORRIS"
+    },
+    {
+      "PdvId": 8863,
+      "Code": "LP-12-008",
+      "Name": "FEDERICO TAVELLA BRUT"
+    },
+    {
+      "PdvId": 8864,
+      "Code": "LP-12-009",
+      "Name": "FERNANDO ROJO - SIX SEVEN"
+    },
+    {
+      "PdvId": 8865,
+      "Code": "LP-12-010",
+      "Name": "FLORENCIA LUCIANO (PZA ROCHA) GASTON"
+    },
+    {
+      "PdvId": 8866,
+      "Code": "LP-12-011",
+      "Name": "GEORGINA PICCIRILLI LA KIOSCA"
+    },
+    {
+      "PdvId": 8867,
+      "Code": "LP-12-012",
+      "Name": "GUAN MEI YU"
+    },
+    {
+      "PdvId": 8868,
+      "Code": "LP-12-013",
+      "Name": "HECTOR KIOSCO UNO"
+    },
+    {
+      "PdvId": 8869,
+      "Code": "LP-12-014",
+      "Name": "IBAÑEZ LEANDRO"
+    },
+    {
+      "PdvId": 8870,
+      "Code": "LP-12-015",
+      "Name": "JOSE (WOTAN TABACOS)"
+    },
+    {
+      "PdvId": 8871,
+      "Code": "LP-12-016",
+      "Name": "JUAN CARLOS BALDERRAMA"
+    },
+    {
+      "PdvId": 8872,
+      "Code": "LP-12-017",
+      "Name": "KAPRIDRUGSTORE 1057 - LUIS ALONSO"
+    },
+    {
+      "PdvId": 8873,
+      "Code": "LP-12-018",
+      "Name": "LUSDINA SANCHEZ DELGADO"
+    },
+    {
+      "PdvId": 8874,
+      "Code": "LP-12-019",
+      "Name": "MARCELO ALMASO"
+    },
+    {
+      "PdvId": 8875,
+      "Code": "LP-12-020",
+      "Name": "MARIA BELÉN CELENTANO - LA TERCERA"
+    },
+    {
+      "PdvId": 8876,
+      "Code": "LP-12-021",
+      "Name": "MARIELA DRUGSTORE - LA ESQUINA (KIOSCO ROJO)"
+    },
+    {
+      "PdvId": 8877,
+      "Code": "LP-12-022",
+      "Name": "MASTROIACOVO ENZO 555"
+    },
+    {
+      "PdvId": 8878,
+      "Code": "LP-12-023",
+      "Name": "NICOLAS JOSE D'ANGELO - KRUSTY"
+    },
+    {
+      "PdvId": 8879,
+      "Code": "LP-12-024",
+      "Name": "OCAÑA CLAUDIA NOEMÍ"
+    },
+    {
+      "PdvId": 8880,
+      "Code": "LP-12-025",
+      "Name": "ORNELLA VIRGINIO (RENZO)"
+    },
+    {
+      "PdvId": 8881,
+      "Code": "LP-12-026",
+      "Name": "PRISCILA SOSA (KIOSCO MEGA24)"
+    },
+    {
+      "PdvId": 8882,
+      "Code": "LP-12-027",
+      "Name": "RENZO VIRGINIO - EL BÚHO"
+    },
+    {
+      "PdvId": 8883,
+      "Code": "LP-12-028",
+      "Name": "SAIDA SUBELZA - AUTOSERVICIO ELI"
+    },
+    {
+      "PdvId": 8884,
+      "Code": "LP-12-029",
+      "Name": "SEPULVEDA SEBASTIAN"
+    },
+    {
+      "PdvId": 8885,
+      "Code": "LP-12-030",
+      "Name": "SERGIO BENEDICTO"
+    },
+    {
+      "PdvId": 8886,
+      "Code": "LP-12-031",
+      "Name": "SERGIO CUELLO ESQ. LIBERTAD"
+    },
+    {
+      "PdvId": 8887,
+      "Code": "LP-12-032",
+      "Name": "WILDER (LO DE BALDERRAMA)"
+    },
+    {
+      "PdvId": 8888,
+      "Code": "LP-12-033",
+      "Name": "YE GUOZEH"
+    },
+    {
+      "PdvId": 8889,
+      "Code": "LP-13-001",
+      "Name": "SHELL PETRÓLEO DE ARGENTINA"
+    },
+    {
+      "PdvId": 8890,
+      "Code": "LP-13-002",
+      "Name": "AFE MERCADO SA (ELETTO)"
+    },
+    {
+      "PdvId": 8891,
+      "Code": "LP-13-003",
+      "Name": "ALDO MOLIMAC"
+    },
+    {
+      "PdvId": 8892,
+      "Code": "LP-13-004",
+      "Name": "ALEJANDRO NAQUED"
+    },
+    {
+      "PdvId": 8893,
+      "Code": "LP-13-005",
+      "Name": "ALMACEN MARIO"
+    },
+    {
+      "PdvId": 8894,
+      "Code": "LP-13-006",
+      "Name": "APREA ROBERTO ALFONSO S.H"
+    },
+    {
+      "PdvId": 8895,
+      "Code": "LP-13-007",
+      "Name": "CECILIA SCHULER"
+    },
+    {
+      "PdvId": 8896,
+      "Code": "LP-13-008",
+      "Name": "CINTIA CAPPARELLI"
+    },
+    {
+      "PdvId": 8897,
+      "Code": "LP-13-009",
+      "Name": "CLARITA DE LA ASUNCION MIRANDA AZNARAN"
+    },
+    {
+      "PdvId": 8898,
+      "Code": "LP-13-010",
+      "Name": "DANIELA SABRINA ZELARAYAN"
+    },
+    {
+      "PdvId": 8899,
+      "Code": "LP-13-011",
+      "Name": "DARIO GONZALEZ"
+    },
+    {
+      "PdvId": 8900,
+      "Code": "LP-13-012",
+      "Name": "DELLEPIANE ANALIA"
+    },
+    {
+      "PdvId": 8901,
+      "Code": "LP-13-013",
+      "Name": "EL ALMACEN - ALVAREZ DANIEL"
+    },
+    {
+      "PdvId": 8902,
+      "Code": "LP-13-014",
+      "Name": "ENZO AGUSTIN LOPEZ"
+    },
+    {
+      "PdvId": 8903,
+      "Code": "LP-13-015",
+      "Name": "ERVIN SISNIEGUEZ"
+    },
+    {
+      "PdvId": 8904,
+      "Code": "LP-13-016",
+      "Name": "GABRIEL SOLANO"
+    },
+    {
+      "PdvId": 8905,
+      "Code": "LP-13-017",
+      "Name": "GABRIELA ELIZABETH ROSA"
+    },
+    {
+      "PdvId": 8906,
+      "Code": "LP-13-018",
+      "Name": "HUANG JIA"
+    },
+    {
+      "PdvId": 8907,
+      "Code": "LP-13-019",
+      "Name": "JOSÉ RODUANS"
+    },
+    {
+      "PdvId": 8908,
+      "Code": "LP-13-020",
+      "Name": "JUANPA BISOGNI"
+    },
+    {
+      "PdvId": 8909,
+      "Code": "LP-13-021",
+      "Name": "LEANDRO MARTÍN PEÑALBA"
+    },
+    {
+      "PdvId": 8910,
+      "Code": "LP-13-022",
+      "Name": "LUISE CRISTIAN"
+    },
+    {
+      "PdvId": 8911,
+      "Code": "LP-13-023",
+      "Name": "LUISE EVELYN KIOSCO TAYSON"
+    },
+    {
+      "PdvId": 8912,
+      "Code": "LP-13-024",
+      "Name": "MARIA VICTORIA DE LUCA"
+    },
+    {
+      "PdvId": 8913,
+      "Code": "LP-13-025",
+      "Name": "MAXIKIOSCO AS (ALE NAQUED)"
+    },
+    {
+      "PdvId": 8914,
+      "Code": "LP-13-026",
+      "Name": "MAXIMILIANO RODRIGUEZ"
+    },
+    {
+      "PdvId": 8915,
+      "Code": "LP-13-027",
+      "Name": "NICOLASA"
+    },
+    {
+      "PdvId": 8916,
+      "Code": "LP-13-028",
+      "Name": "NO STOP 1 ENTRE 69 Y 70 N 1839"
+    },
+    {
+      "PdvId": 8917,
+      "Code": "LP-13-029",
+      "Name": "SILVIA CARRIZO"
+    },
+    {
+      "PdvId": 8918,
+      "Code": "LP-13-030",
+      "Name": "SUAREZ ALEJO ESQ. 67"
+    },
+    {
+      "PdvId": 8919,
+      "Code": "LP-13-031",
+      "Name": "SUPER FULIAN (LI CHAO)"
+    },
+    {
+      "PdvId": 8920,
+      "Code": "LP-13-032",
+      "Name": "TYSON ROCK 3 - CRISTIAN LUISE"
+    },
+    {
+      "PdvId": 8921,
+      "Code": "LP-13-033",
+      "Name": "WALTER LECCE"
+    },
+    {
+      "PdvId": 8922,
+      "Code": "LP-13-034",
+      "Name": "YESICA RAMIREZ MAXIKIOSCO 24HS"
+    },
+    {
+      "PdvId": 8923,
+      "Code": "LP-13-035",
+      "Name": "LUCIANA POLITO"
+    },
+    {
+      "PdvId": 8924,
+      "Code": "LP-15-001",
+      "Name": "L.P GAS S.A - GASTON LOPEZ"
+    },
+    {
+      "PdvId": 8925,
+      "Code": "LP-15-002",
+      "Name": "ANDRADE WALTER (AUTOSERVICIO PAMELA)"
+    },
+    {
+      "PdvId": 8926,
+      "Code": "LP-15-003",
+      "Name": "ANGEL PEREZ (AGENCIA LOTERIA TITO)"
+    },
+    {
+      "PdvId": 8927,
+      "Code": "LP-15-004",
+      "Name": "AUGUSTO TUR"
+    },
+    {
+      "PdvId": 8928,
+      "Code": "LP-15-005",
+      "Name": "CECI ROBERTA GROWSHOP"
+    },
+    {
+      "PdvId": 8929,
+      "Code": "LP-15-006",
+      "Name": "DISTRIBUIDORA FAZIO"
+    },
+    {
+      "PdvId": 8930,
+      "Code": "LP-15-007",
+      "Name": "EMILIANO MAXIKIOSCO 1275"
+    },
+    {
+      "PdvId": 8931,
+      "Code": "LP-15-008",
+      "Name": "EVELYN LUISE"
+    },
+    {
+      "PdvId": 8932,
+      "Code": "LP-15-009",
+      "Name": "FEDERICO ALICE (FERRETERIA)"
+    },
+    {
+      "PdvId": 8933,
+      "Code": "LP-15-010",
+      "Name": "GAO XIUWEN"
+    },
+    {
+      "PdvId": 8934,
+      "Code": "LP-15-011",
+      "Name": "GONZALEZ PABLO"
+    },
+    {
+      "PdvId": 8935,
+      "Code": "LP-15-012",
+      "Name": "GUILLERMO JAVIER BISOGNI"
+    },
+    {
+      "PdvId": 8936,
+      "Code": "LP-15-013",
+      "Name": "ISAMAR CRISANTO"
+    },
+    {
+      "PdvId": 8937,
+      "Code": "LP-15-014",
+      "Name": "JULIETA ALMANDOZ 64 (LO DE TOTO)"
+    },
+    {
+      "PdvId": 8938,
+      "Code": "LP-15-015",
+      "Name": "KATHYA GARCIA - MAXIKANGURO 67"
+    },
+    {
+      "PdvId": 8939,
+      "Code": "LP-15-016",
+      "Name": "KIOSCO MIRTA FLOSI DIAG 75"
+    },
+    {
+      "PdvId": 8940,
+      "Code": "LP-15-017",
+      "Name": "LIN JIAN HUA"
+    },
+    {
+      "PdvId": 8941,
+      "Code": "LP-15-018",
+      "Name": "LUCAS CARMOSINO - PUESTO DIARIO"
+    },
+    {
+      "PdvId": 8942,
+      "Code": "LP-15-019",
+      "Name": "LUCIANO SANTOLERI"
+    },
+    {
+      "PdvId": 8943,
+      "Code": "LP-15-020",
+      "Name": "MARCIA DIAZ"
+    },
+    {
+      "PdvId": 8944,
+      "Code": "LP-15-021",
+      "Name": "MARIANO VIAGGI"
+    },
+    {
+      "PdvId": 8945,
+      "Code": "LP-15-022",
+      "Name": "MAURO MASSOL"
+    },
+    {
+      "PdvId": 8946,
+      "Code": "LP-15-023",
+      "Name": "OKEEFFE EZEQUIEL"
+    },
+    {
+      "PdvId": 8947,
+      "Code": "LP-15-024",
+      "Name": "OMAR LOPEZ"
+    },
+    {
+      "PdvId": 8948,
+      "Code": "LP-15-025",
+      "Name": "QUIROGA GRACIELA"
+    },
+    {
+      "PdvId": 8949,
+      "Code": "LP-15-026",
+      "Name": "RAÚL GABRIEL O'KEEFFE 22"
+    },
+    {
+      "PdvId": 8950,
+      "Code": "LP-15-027",
+      "Name": "JULIAN MOLINA"
+    },
+    {
+      "PdvId": 8951,
+      "Code": "LP-16-001",
+      "Name": "LAMAS GETRUDES"
+    },
+    {
+      "PdvId": 8952,
+      "Code": "LP-16-002",
+      "Name": "CELIA CONCEPCION RAMIREZ FERREIRA"
+    },
+    {
+      "PdvId": 8953,
+      "Code": "LP-16-003",
+      "Name": "CHEN WU"
+    },
+    {
+      "PdvId": 8954,
+      "Code": "LP-16-004",
+      "Name": "CLARA GONZALEZ"
+    },
+    {
+      "PdvId": 8955,
+      "Code": "LP-16-005",
+      "Name": "CLAUDIA TRAVERSARO"
+    },
+    {
+      "PdvId": 8956,
+      "Code": "LP-16-006",
+      "Name": "DANI RUBIO MINI MARKET 155"
+    },
+    {
+      "PdvId": 8957,
+      "Code": "LP-16-007",
+      "Name": "EMILIANO OLIDEN LOS HORNOS"
+    },
+    {
+      "PdvId": 8958,
+      "Code": "LP-16-008",
+      "Name": "FERNANDEZ JORGE LEONEL"
+    },
+    {
+      "PdvId": 8959,
+      "Code": "LP-16-009",
+      "Name": "FIRPO LUCA FACUNDO - SPACARSTEL"
+    },
+    {
+      "PdvId": 8960,
+      "Code": "LP-16-010",
+      "Name": "IVAN FLORES"
+    },
+    {
+      "PdvId": 8961,
+      "Code": "LP-16-011",
+      "Name": "JUAN DE ROSA VILLALBA"
+    },
+    {
+      "PdvId": 8962,
+      "Code": "LP-16-012",
+      "Name": "JULIO CESAR ITHURRART"
+    },
+    {
+      "PdvId": 8963,
+      "Code": "LP-16-013",
+      "Name": "JULIO SAN ESTEBAN"
+    },
+    {
+      "PdvId": 8964,
+      "Code": "LP-16-014",
+      "Name": "KAPRIDRUGSTORE 1400 - LUIS ALONSO"
+    },
+    {
+      "PdvId": 8965,
+      "Code": "LP-16-015",
+      "Name": "KAPRIDRUGSTORE LH 1350 - LUIS ALONSO ALBERTO"
+    },
+    {
+      "PdvId": 8966,
+      "Code": "LP-16-016",
+      "Name": "KIOSCO NEXO - MELISA ANGLADA"
+    },
+    {
+      "PdvId": 8967,
+      "Code": "LP-16-017",
+      "Name": "MACIEL SUSANA BEATRIZ"
+    },
+    {
+      "PdvId": 8968,
+      "Code": "LP-16-018",
+      "Name": "MARTÍN / FRANCO CATALAN KIOSCO MORE LUCA"
+    },
+    {
+      "PdvId": 8969,
+      "Code": "LP-16-019",
+      "Name": "NICOLAS GIRAT -A60-"
+    },
+    {
+      "PdvId": 8970,
+      "Code": "LP-16-020",
+      "Name": "PABLO URBINA"
+    },
+    {
+      "PdvId": 8971,
+      "Code": "LP-16-021",
+      "Name": "RODRIGUEZ ROMINA"
+    },
+    {
+      "PdvId": 8972,
+      "Code": "LP-16-022",
+      "Name": "SAMANTA LOS 4 ELEMENTOS"
+    },
+    {
+      "PdvId": 8973,
+      "Code": "LP-16-023",
+      "Name": "SERGIO MARCELO FERREYRA EL MARCELINO"
+    },
+    {
+      "PdvId": 8974,
+      "Code": "LP-16-024",
+      "Name": "SUSANA JUDITH LEÓN"
+    },
+    {
+      "PdvId": 8975,
+      "Code": "LP-16-025",
+      "Name": "TAMARA STREMEL (LA BOTICA)"
+    },
+    {
+      "PdvId": 8976,
+      "Code": "LP-16-026",
+      "Name": "DARIO CAMACHO"
+    },
+    {
+      "PdvId": 8977,
+      "Code": "LP-16-027",
+      "Name": "MANUEL BELTRAN QUIROGA"
+    },
+    {
+      "PdvId": 8978,
+      "Code": "LP-16-028",
+      "Name": "YU XIANGWEN"
+    },
+    {
+      "PdvId": 8979,
+      "Code": "LP-16-029",
+      "Name": "BRISA ARRECIGOR"
+    },
+    {
+      "PdvId": 8980,
+      "Code": "LP-16-030",
+      "Name": "DANIEL MARTINEZ - LA NENA"
+    },
+    {
+      "PdvId": 8981,
+      "Code": "LP-16-031",
+      "Name": "GUSTAVO HINCAPIE"
+    },
+    {
+      "PdvId": 8982,
+      "Code": "LP-16-032",
+      "Name": "JUAN IGNACIO MERCURI"
+    },
+    {
+      "PdvId": 8983,
+      "Code": "LP-16-033",
+      "Name": "ZULL CAZON - KIOSCO DARRELL"
+    },
+    {
+      "PdvId": 8984,
+      "Code": "LP-17-001",
+      "Name": "ACHAVAL DANIELA"
+    },
+    {
+      "PdvId": 8985,
+      "Code": "LP-17-002",
+      "Name": "ADRIANA NORIEGA"
+    },
+    {
+      "PdvId": 8986,
+      "Code": "LP-17-003",
+      "Name": "ALEJANDRA VICENTE"
+    },
+    {
+      "PdvId": 8987,
+      "Code": "LP-17-004",
+      "Name": "BLANCO GLADYS"
+    },
+    {
+      "PdvId": 8988,
+      "Code": "LP-17-005",
+      "Name": "CHEN BENGGUI AUTO. CHUKY CHUN"
+    },
+    {
+      "PdvId": 8989,
+      "Code": "LP-17-006",
+      "Name": "GUILLERMO DUVA"
+    },
+    {
+      "PdvId": 8990,
+      "Code": "LP-17-007",
+      "Name": "LOUBRE GABRIELA"
+    },
+    {
+      "PdvId": 8991,
+      "Code": "LP-17-008",
+      "Name": "MABEL SEGOVIA"
+    },
+    {
+      "PdvId": 8992,
+      "Code": "LP-17-009",
+      "Name": "MAXIMILIANO DIALOFF"
+    },
+    {
+      "PdvId": 8993,
+      "Code": "LP-17-010",
+      "Name": "NARIA LORENA GIUSTOZZI (AUTOSERVICIO NARGUS)"
+    },
+    {
+      "PdvId": 8994,
+      "Code": "LP-17-011",
+      "Name": "PALOMBA NATALIA"
+    },
+    {
+      "PdvId": 8995,
+      "Code": "LP-17-012",
+      "Name": "PAMELA CATTONI"
+    },
+    {
+      "PdvId": 8996,
+      "Code": "LP-17-013",
+      "Name": "ROJAS DELIA"
+    },
+    {
+      "PdvId": 8997,
+      "Code": "LP-17-014",
+      "Name": "DRUGSTORE AUGUSTO ANTONIETI"
+    },
+    {
+      "PdvId": 8998,
+      "Code": "LP-17-015",
+      "Name": "JORGE ABASTO (60)"
+    },
+    {
+      "PdvId": 8999,
+      "Code": "LP-17-016",
+      "Name": "MIRIAM/DANIEL BALDIVIESO (AUTOSERV KRB)"
+    },
+    {
+      "PdvId": 9000,
+      "Code": "LP-17-017",
+      "Name": "PUMA R. 36 Y AV. 44"
+    },
+    {
+      "PdvId": 9001,
+      "Code": "LP-17-018",
+      "Name": "WANG TINGCHUN"
+    },
+    {
+      "PdvId": 9002,
+      "Code": "LP-17-019",
+      "Name": "XU XIANGWEI SUPER 520"
+    },
+    {
+      "PdvId": 9003,
+      "Code": "LP-17-020",
+      "Name": "AYELEN PAVÓN - KIOSCO HOSPITAL AMARILLO Y GRIS"
+    },
+    {
+      "PdvId": 9004,
+      "Code": "LP-17-021",
+      "Name": "DARIO BRUNY"
+    },
+    {
+      "PdvId": 9005,
+      "Code": "LP-17-022",
+      "Name": "IAN PAUL PELLAT - LOS MOROCHOS"
+    },
+    {
+      "PdvId": 9006,
+      "Code": "LP-17-023",
+      "Name": "LUCY AMARANTO"
+    },
+    {
+      "PdvId": 9007,
+      "Code": "LP-17-024",
+      "Name": "MAYRA MONTES (DISTRI ANGEL-MAR)"
+    },
+    {
+      "PdvId": 9008,
+      "Code": "LP-17-025",
+      "Name": "OMAR MELCHOR ROMERO"
+    },
+    {
+      "PdvId": 9009,
+      "Code": "LP-17-026",
+      "Name": "PAVON AYELEN - BUFFET HOSPITAL"
+    },
+    {
+      "PdvId": 9010,
+      "Code": "LP-17-027",
+      "Name": "SUPER DIEGO"
+    },
+    {
+      "PdvId": 9011,
+      "Code": "LP-18-001",
+      "Name": "ANIBAL JESÚS BULHMANN"
+    },
+    {
+      "PdvId": 9012,
+      "Code": "LP-18-002",
+      "Name": "GERMAN GONZALEZ MOYANO"
+    },
+    {
+      "PdvId": 9013,
+      "Code": "LP-18-003",
+      "Name": "SEBASTIAN BRUJITA11"
+    },
+    {
+      "PdvId": 9014,
+      "Code": "LP-18-004",
+      "Name": "WEBER FERNANDA REVENTA"
+    },
+    {
+      "PdvId": 9015,
+      "Code": "LP-18-005",
+      "Name": "GARGIULO MARTIN"
+    },
+    {
+      "PdvId": 9016,
+      "Code": "LP-18-006",
+      "Name": "JOHANNA DESPOUX"
+    },
+    {
+      "PdvId": 9017,
+      "Code": "LP-18-007",
+      "Name": "MACIEL GABRIELA"
+    },
+    {
+      "PdvId": 9018,
+      "Code": "LP-18-008",
+      "Name": "MARCELLINI CHRISTIAN"
+    },
+    {
+      "PdvId": 9019,
+      "Code": "LP-18-009",
+      "Name": "MELINA GOMEZ (ALMACEN MELY)"
+    },
+    {
+      "PdvId": 9020,
+      "Code": "LP-18-010",
+      "Name": "ROCIO BRITEZ - MICAELA ALVARADO"
+    },
+    {
+      "PdvId": 9021,
+      "Code": "LP-18-011",
+      "Name": "ECHEVERRIA WILLIANS"
+    },
+    {
+      "PdvId": 9022,
+      "Code": "LP-18-012",
+      "Name": "KIOSCO LILIANA NELLI 1 Y 77"
+    },
+    {
+      "PdvId": 9023,
+      "Code": "LP-18-013",
+      "Name": "RUBEN SANCHEZ"
+    },
+    {
+      "PdvId": 9024,
+      "Code": "LP-18-014",
+      "Name": "SHUYUN QIU (SUPERMERCADO 22)"
+    },
+    {
+      "PdvId": 9025,
+      "Code": "LP-18-015",
+      "Name": "ABEL PUJOL DUPLEX PARED ROJA"
+    },
+    {
+      "PdvId": 9026,
+      "Code": "LP-18-016",
+      "Name": "ANDREA FRANCAS 80"
+    },
+    {
+      "PdvId": 9027,
+      "Code": "LP-18-017",
+      "Name": "CRISTINA BUBICO"
+    },
+    {
+      "PdvId": 9028,
+      "Code": "LP-18-018",
+      "Name": "EMILIANO OLIDEN"
+    },
+    {
+      "PdvId": 9029,
+      "Code": "LP-18-019",
+      "Name": "ESPINDOLA CLAUDIA ANDREA NUEVA DIRECCIÓN"
+    },
+    {
+      "PdvId": 9030,
+      "Code": "LP-18-020",
+      "Name": "GARIELA ROTELA (LENI ALMACEN)"
+    },
+    {
+      "PdvId": 9031,
+      "Code": "LP-18-021",
+      "Name": "JULIETA ALMANDOZ 85"
+    },
+    {
+      "PdvId": 9032,
+      "Code": "LP-18-022",
+      "Name": "LILIANA MALDONADO (ALM EL ÑATO)"
+    },
+    {
+      "PdvId": 9033,
+      "Code": "LP-18-023",
+      "Name": "LUCIANA DEL INTENTO"
+    },
+    {
+      "PdvId": 9034,
+      "Code": "LP-18-024",
+      "Name": "MARCOS ABREGU (KIOSCO CALABRESE)"
+    },
+    {
+      "PdvId": 9035,
+      "Code": "LP-18-025",
+      "Name": "MARY FOMIATTI AUTOSERVICIO"
+    },
+    {
+      "PdvId": 9036,
+      "Code": "LP-18-026",
+      "Name": "TOLEDO NATALIA"
+    },
+    {
+      "PdvId": 9037,
+      "Code": "LP-19-001",
+      "Name": "ABIGAIL JIMENEZ"
+    },
+    {
+      "PdvId": 9038,
+      "Code": "LP-19-002",
+      "Name": "ARRIETA IRENE"
+    },
+    {
+      "PdvId": 9039,
+      "Code": "LP-19-003",
+      "Name": "DAVID LOS ABUELOS"
+    },
+    {
+      "PdvId": 9040,
+      "Code": "LP-19-004",
+      "Name": "GOLOSWEET (PABLO)"
+    },
+    {
+      "PdvId": 9041,
+      "Code": "LP-19-005",
+      "Name": "GOMEZ JOSE"
+    },
+    {
+      "PdvId": 9042,
+      "Code": "LP-19-006",
+      "Name": "GUSTAVO GERARDO SOSA"
+    },
+    {
+      "PdvId": 9043,
+      "Code": "LP-19-007",
+      "Name": "KEOPS MARCHI PABLO"
+    },
+    {
+      "PdvId": 9044,
+      "Code": "LP-19-008",
+      "Name": "LEONARDO DALOISIO LA MERCED"
+    },
+    {
+      "PdvId": 9045,
+      "Code": "LP-19-009",
+      "Name": "LIN MEIYING (SE ENTREGA EN WU WEN CHEN)"
+    },
+    {
+      "PdvId": 9046,
+      "Code": "LP-19-010",
+      "Name": "MARIA LAURA TREMARI"
+    },
+    {
+      "PdvId": 9047,
+      "Code": "LP-19-011",
+      "Name": "MELINA MARCOS"
+    },
+    {
+      "PdvId": 9048,
+      "Code": "LP-19-012",
+      "Name": "NORMA NARVAY"
+    },
+    {
+      "PdvId": 9049,
+      "Code": "LP-19-013",
+      "Name": "NUCCITELLI MARIO KIOSCO"
+    },
+    {
+      "PdvId": 9050,
+      "Code": "LP-19-014",
+      "Name": "OSCAR NESTARES"
+    },
+    {
+      "PdvId": 9051,
+      "Code": "LP-19-015",
+      "Name": "PAOLA CARPINTINI"
+    },
+    {
+      "PdvId": 9052,
+      "Code": "LP-19-016",
+      "Name": "PAULA JIMENA ALVAREZ"
+    },
+    {
+      "PdvId": 9053,
+      "Code": "LP-19-017",
+      "Name": "REYES ROSALIA"
+    },
+    {
+      "PdvId": 9054,
+      "Code": "LP-19-018",
+      "Name": "ROXANA ETCHEBARNE"
+    },
+    {
+      "PdvId": 9055,
+      "Code": "LP-19-019",
+      "Name": "SANDRA GRISELDA MENDEZ"
+    },
+    {
+      "PdvId": 9056,
+      "Code": "LP-19-020",
+      "Name": "SANTIAGO LA COLMENITA (EX MARIA LUZ PEDROS)"
+    },
+    {
+      "PdvId": 9057,
+      "Code": "LP-19-021",
+      "Name": "SUPER ASIA 47 LIN QIURONG"
+    },
+    {
+      "PdvId": 9058,
+      "Code": "LP-19-022",
+      "Name": "TOBIAS PAGANO BUSSAIN LA CHINITA GROWSHOP"
+    },
+    {
+      "PdvId": 9059,
+      "Code": "LP-19-023",
+      "Name": "VALERIA JALDIN (CESTINO)"
+    },
+    {
+      "PdvId": 9060,
+      "Code": "LP-19-024",
+      "Name": "VARGAS JAIME OSCAR"
+    },
+    {
+      "PdvId": 9061,
+      "Code": "LP-19-025",
+      "Name": "VERON EMILSE"
+    },
+    {
+      "PdvId": 9062,
+      "Code": "LP-19-026",
+      "Name": "WANG QING"
+    },
+    {
+      "PdvId": 9063,
+      "Code": "LP-19-027",
+      "Name": "WU WEN CHEN SUPER"
+    },
+    {
+      "PdvId": 9064,
+      "Code": "LP-19-028",
+      "Name": "YANINA ROMERO - porton madera"
+    },
+    {
+      "PdvId": 9065,
+      "Code": "LP-20-001",
+      "Name": "ADRIAN KARAGOUNIS"
+    },
+    {
+      "PdvId": 9066,
+      "Code": "LP-20-002",
+      "Name": "ADRIANO NUMA"
+    },
+    {
+      "PdvId": 9067,
+      "Code": "LP-20-003",
+      "Name": "ANALÍA CHIODO"
+    },
+    {
+      "PdvId": 9068,
+      "Code": "LP-20-004",
+      "Name": "ANDREA ABRAHAM"
+    },
+    {
+      "PdvId": 9069,
+      "Code": "LP-20-005",
+      "Name": "ANDREA ROJAS"
+    },
+    {
+      "PdvId": 9070,
+      "Code": "LP-20-006",
+      "Name": "AQUILES MANUEL VITALE (KIOSCO 16)"
+    },
+    {
+      "PdvId": 9071,
+      "Code": "LP-20-007",
+      "Name": "AQUILES MANUEL VITALE (KIOSCO LA 35)"
+    },
+    {
+      "PdvId": 9072,
+      "Code": "LP-20-008",
+      "Name": "AQUILES VITALE (KIOSCO 145)"
+    },
+    {
+      "PdvId": 9073,
+      "Code": "LP-20-009",
+      "Name": "ARIEL RAINGENBONN"
+    },
+    {
+      "PdvId": 9074,
+      "Code": "LP-20-010",
+      "Name": "ARZEL JULIETA BERISSO"
+    },
+    {
+      "PdvId": 9075,
+      "Code": "LP-20-011",
+      "Name": "CINTIA PEREYRA"
+    },
+    {
+      "PdvId": 9076,
+      "Code": "LP-20-012",
+      "Name": "CORONEL MAURO"
+    },
+    {
+      "PdvId": 9077,
+      "Code": "LP-20-013",
+      "Name": "CRISTIAN GELLERT"
+    },
+    {
+      "PdvId": 9078,
+      "Code": "LP-20-014",
+      "Name": "CRISTIAN MILAT"
+    },
+    {
+      "PdvId": 9079,
+      "Code": "LP-20-015",
+      "Name": "DERIU MABEL"
+    },
+    {
+      "PdvId": 9080,
+      "Code": "LP-20-016",
+      "Name": "EMANUEL MARCELLI"
+    },
+    {
+      "PdvId": 9081,
+      "Code": "LP-20-017",
+      "Name": "FLORENCIA DOMINGUEZ 162 NORTE LOS CUÑADOS"
+    },
+    {
+      "PdvId": 9082,
+      "Code": "LP-20-018",
+      "Name": "FLORENCIA DOMINGUEZ LOS CUÑADOS (LUCIANO)"
+    },
+    {
+      "PdvId": 9083,
+      "Code": "LP-20-019",
+      "Name": "FRANCO GRECO - LOS CUÑADOS"
+    },
+    {
+      "PdvId": 9084,
+      "Code": "LP-20-020",
+      "Name": "GABRIEL VELEZ"
+    },
+    {
+      "PdvId": 9085,
+      "Code": "LP-20-021",
+      "Name": "GALA BELEN CORTESE"
+    },
+    {
+      "PdvId": 9086,
+      "Code": "LP-20-022",
+      "Name": "GERARDO ZAPATA"
+    },
+    {
+      "PdvId": 9087,
+      "Code": "LP-20-023",
+      "Name": "GINO ARMANDO BARTOLUCCI( EX LEO ZELENAY)"
+    },
+    {
+      "PdvId": 9088,
+      "Code": "LP-20-024",
+      "Name": "GISEL MALDONADO"
+    },
+    {
+      "PdvId": 9089,
+      "Code": "LP-20-025",
+      "Name": "HERNANDEZ LEONARDO"
+    },
+    {
+      "PdvId": 9090,
+      "Code": "LP-20-026",
+      "Name": "JULIO LLOYAIY (AUTOSERVICIO LOS HERMANOS)"
+    },
+    {
+      "PdvId": 9091,
+      "Code": "LP-20-027",
+      "Name": "KIOSCO ANAHI"
+    },
+    {
+      "PdvId": 9092,
+      "Code": "LP-20-028",
+      "Name": "KIOSCO EL PUESTO (EL RUSO)"
+    },
+    {
+      "PdvId": 9093,
+      "Code": "LP-20-029",
+      "Name": "KIOSCO NUEVO (ADRIANO)"
+    },
+    {
+      "PdvId": 9094,
+      "Code": "LP-20-030",
+      "Name": "LEONARDO PEREYRA"
+    },
+    {
+      "PdvId": 9095,
+      "Code": "LP-20-031",
+      "Name": "LUCAS DAMIÁN LUCERO"
+    },
+    {
+      "PdvId": 9096,
+      "Code": "LP-20-032",
+      "Name": "MAURO QUERINI - KIOSCO ALMACÉN"
+    },
+    {
+      "PdvId": 9097,
+      "Code": "LP-20-033",
+      "Name": "NICOLAS FRANCISCO RUZYCKYJ"
+    },
+    {
+      "PdvId": 9098,
+      "Code": "LP-20-034",
+      "Name": "NICOLETTI MARIANA"
+    },
+    {
+      "PdvId": 9099,
+      "Code": "LP-20-035",
+      "Name": "OMAR BULICH"
+    },
+    {
+      "PdvId": 9100,
+      "Code": "LP-20-036",
+      "Name": "PATRICIO RAMALLO FULL SERVICE SA AXION BERISSO"
+    },
+    {
+      "PdvId": 9101,
+      "Code": "LP-20-037",
+      "Name": "PERSICO ROBERTO ALMACEN"
+    },
+    {
+      "PdvId": 9102,
+      "Code": "LP-20-038",
+      "Name": "RENATO BANDILI"
+    },
+    {
+      "PdvId": 9103,
+      "Code": "LP-20-039",
+      "Name": "SANCHEZ GLADYS"
+    },
+    {
+      "PdvId": 9104,
+      "Code": "LP-20-040",
+      "Name": "SUPER TIAN"
+    },
+    {
+      "PdvId": 9105,
+      "Code": "LP-20-041",
+      "Name": "VALERIA JALDIN (153)"
+    },
+    {
+      "PdvId": 9106,
+      "Code": "LP-FR-001",
+      "Name": "ALMACEN DIA 13 ADRIAN PERATA"
+    },
+    {
+      "PdvId": 9107,
+      "Code": "LP-FR-002",
+      "Name": "SUPERMERCADO ASAHI"
+    },
+    {
+      "PdvId": 9108,
+      "Code": "LP-FR-003",
+      "Name": "ELSA LOPEZ"
+    },
+    {
+      "PdvId": 9109,
+      "Code": "LP-FR-004",
+      "Name": "COPPOLA SANDRA"
+    },
+    {
+      "PdvId": 9110,
+      "Code": "LP-FR-005",
+      "Name": "ANDREA FRANCAS RUTA 11 - FIAMBRERÍA"
+    },
+    {
+      "PdvId": 9111,
+      "Code": "LP-FR-006",
+      "Name": "DESIMONE AUTOSERVICIO BERAKA"
+    },
+    {
+      "PdvId": 9112,
+      "Code": "LP-FR-007",
+      "Name": "MACIEL VICTOR"
+    },
+    {
+      "PdvId": 9113,
+      "Code": "LP-FR-008",
+      "Name": "CISNEROS NADIA SOLEDAD LOS24"
+    },
+    {
+      "PdvId": 9114,
+      "Code": "LP-FR-009",
+      "Name": "JESUS NAZARENO VAZQUEZ (YAMILA)"
+    },
+    {
+      "PdvId": 9115,
+      "Code": "LP-FR-010",
+      "Name": "PATRICIA NOEMI (FRENTE A PLAZA EMILIA)"
+    },
+    {
+      "PdvId": 9116,
+      "Code": "LP-FR-011",
+      "Name": "PATRICIA PITTORI EL PORTEÑO MARGARITA"
+    },
+    {
+      "PdvId": 9117,
+      "Code": "LP-FR-012",
+      "Name": "JULIO FELIPE CEJAS"
+    },
+    {
+      "PdvId": 9118,
+      "Code": "LP-FR-013",
+      "Name": "CUPO SEBASTIAN EDUARDO"
+    },
+    {
+      "PdvId": 9119,
+      "Code": "LP-FR-014",
+      "Name": "GALARZA, DIEGO SEBASTIAN (EX NO STOP GORINA)"
+    },
+    {
+      "PdvId": 9120,
+      "Code": "LP-FR-015",
+      "Name": "MIRTA ALMAFUERTE"
+    },
+    {
+      "PdvId": 9121,
+      "Code": "LP-FR-016",
+      "Name": "SEBASTIAN GORINA EST. SERVICIO GULF"
+    },
+    {
+      "PdvId": 9122,
+      "Code": "LP-FR-017",
+      "Name": "ZHU ZHENHOU"
+    },
+    {
+      "PdvId": 9123,
+      "Code": "LP-FR-018",
+      "Name": "SANTIAGO ACHUCARRO - GULF"
+    },
+    {
+      "PdvId": 9124,
+      "Code": "LP-FR-019",
+      "Name": "BECERRA ZAFRA"
+    },
+    {
+      "PdvId": 9125,
+      "Code": "LP-FR-020",
+      "Name": "MARIA CELESTE MARCOS"
+    },
+    {
+      "PdvId": 9126,
+      "Code": "LP-FR-021",
+      "Name": "MARIANA PLAZA MORENO (COCA COLA)"
+    },
+    {
+      "PdvId": 9127,
+      "Code": "LP-FR-022",
+      "Name": "SANDRA KIOSCO LA ESQUINA"
+    },
+    {
+      "PdvId": 9128,
+      "Code": "LP-FR-023",
+      "Name": "JONATHAN CARDOZO"
+    },
+    {
+      "PdvId": 9129,
+      "Code": "LP-FR-024",
+      "Name": "VILMA FRANCO ALMACEN"
+    },
+    {
+      "PdvId": 9130,
+      "Code": "LP-FR-025",
+      "Name": "IZAGUIRRE RUBEN"
+    },
+    {
+      "PdvId": 9131,
+      "Code": "LP-FR-026",
+      "Name": "JURADO LEANDRO"
+    },
+    {
+      "PdvId": 9132,
+      "Code": "LP-FR-027",
+      "Name": "MAYRA MONTES (MERCADITO MALENA)"
+    },
+    {
+      "PdvId": 9133,
+      "Code": "LP-FR-028",
+      "Name": "LI ZHENSHU"
+    },
+    {
+      "PdvId": 9134,
+      "Code": "LP-FR-029",
+      "Name": "CLAUDIO MARCHETTI"
+    },
+    {
+      "PdvId": 9135,
+      "Code": "LP-FR-030",
+      "Name": "DORA CECILIA MAIDANA HERMANOS CURCIO"
+    },
+    {
+      "PdvId": 9136,
+      "Code": "LP-FR-031",
+      "Name": "FABIAN DELFIN DUARTE"
+    },
+    {
+      "PdvId": 9137,
+      "Code": "LP-FR-032",
+      "Name": "HUGO DANIEL TAU SUPERMERCADO EROS"
+    },
+    {
+      "PdvId": 9138,
+      "Code": "LP-FR-033",
+      "Name": "JULIETA ALMANDOZ 44"
+    },
+    {
+      "PdvId": 9139,
+      "Code": "LP-FR-034",
+      "Name": "ALAN SICARDI (SOL)"
+    },
+    {
+      "PdvId": 9140,
+      "Code": "LP-FR-035",
+      "Name": "ALAN SICARDI 659 Y 16"
+    },
+    {
+      "PdvId": 9141,
+      "Code": "LP-FR-036",
+      "Name": "JORGE CASTRO (LIBRERIA RIA LIBRE)"
+    },
+    {
+      "PdvId": 9142,
+      "Code": "LP-FR-037",
+      "Name": "NOELLA SANS GODOY - LIBRERIA"
+    },
+    {
+      "PdvId": 9143,
+      "Code": "LP-FR-038",
+      "Name": "JUAN CARLOS MOSCONI - PROVEEDURIA CAMPING"
+    },
+    {
+      "PdvId": 9144,
+      "Code": "LP-FR-039",
+      "Name": "MARIBEL MARTINEZ (KIOSCO ROJO)"
+    },
+    {
+      "PdvId": 9145,
+      "Code": "LP-FR-040",
+      "Name": "MARIO ZARATE"
+    },
+    {
+      "PdvId": 9146,
+      "Code": "LP-FR-041",
+      "Name": "MARTIN ARIEL GARAY"
+    },
+    {
+      "PdvId": 9147,
+      "Code": "LP-FR-042",
+      "Name": "ROJAS TERESA VIRGINIA"
+    }
+  ],
+  "errors": [],
+  "zone": {
+    "Name": "La Plata",
+    "ZoneId": 32
+  },
+  "form": {
+    "FormId": 22,
+    "Name": "Activación La Plata"
+  },
+  "updated": "2026-10-21T16:06:49.434434+00:00"
+}
