@@ -17,7 +17,8 @@
 - [x] B. Frontend visita corta: `StoredUser.visitFlow` (persistSession + refreshUserRole), select en `UserManagement`, `SurveyForm` (forms de ruta en short, nav a `/summary`, evaluar `showIf`), `VisitSummaryPage` (solo Formularios en short). Tests.
 - [x] C. `backend/scripts/import_laplata_api.py`: Excel → API (zona, distribuidor, usuarios, rutas, PDVs + PATCH zona, RoutePdv, formulario + RouteForm). Dry-run, log JSON, resumable (dedup por Code).
 - [x] D. Verificación local: SQLite + seed → script contra localhost → login activadorU → visita corta en el celu/browser.
-- [ ] E. Deploy: DDL prod → commit+push (CI) → script contra prod con token admin → probar con activadorU.
+- [x] E1. Deploy 21-oct: DDL prod aplicado (45 users full) · commit a423d82 push main · CI/Deploy Backend/Deploy Frontend verdes · prod responde.
+- [ ] E2. Import prod: falta Excel + mail supervisor + mails reales activadores → dry-run → --commit → probar con activadorU en celu.
 
 **Estado 19-oct 16:40**: A–D hechos, sin commit. pytest 672 ✓ · vitest 229 ✓ · build ✓. E2E local (SQLite limpia + Vite + Playwright/Chrome, celu 390px): import 548 PDVs / 19 rutas / form 11 preguntas en 4 s, re-ejecución idempotente (0 a crear); activadorU ve 236 PDVs, 9 rutas, solo el form "Activación La Plata"; check-in → formulario (condicionales OK: cigarrillos/Van Kiff/Lebonn al marcar Sí; promo/precio al marcar compró) → "Continuar a Resumen" → resumen solo "Formularios". Extra: barra "Visita Efectiva" oculta en short (mide los 6 pasos del flujo completo). Base dev local anterior en `backend/trade_marketing.db.bak-20261019`.
 
