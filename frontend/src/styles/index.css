@@ -41,3 +41,131 @@ html {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.3);
 }
+
+/* Splash de apertura (app/components/Splash.tsx). Fondo y color del logo van juntos según el
+   sistema: negro sobre blanco, blanco sobre gray-900 de la marca en modo oscuro.
+   Animación = la de design-system/components/splash-logo-INTEGRAR.md (keyframes con prefijo
+   es- para no pisar los de Tailwind, p. ej. "pulse"). */
+.espert-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #000;
+  opacity: 1;
+  transition: opacity 300ms ease;
+}
+.espert-splash[data-phase="fade"] {
+  opacity: 0;
+}
+@media (prefers-color-scheme: dark) {
+  .espert-splash {
+    background: #1a1b1c;
+    color: #fff;
+  }
+}
+.espert-splash svg {
+  width: min(60vw, 420px);
+}
+.espert-splash .ink {
+  fill: currentColor;
+}
+.espert-splash .ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.66;
+  stroke-dasharray: 282.6;
+  stroke-dashoffset: 282.6;
+  transform: rotate(-90deg);
+  transform-origin: 72.64px 72.51px;
+  animation: es-draw 0.95s cubic-bezier(0.65, 0, 0.25, 1) 0.1s forwards;
+}
+.espert-splash .arc {
+  opacity: 0;
+  animation: es-fadeIn 0.4s ease-out 0.75s forwards;
+}
+.espert-splash .leaf {
+  opacity: 0;
+  transform: translateY(6px) scale(0.72);
+  transform-origin: 72.64px 104.7px;
+  animation: es-grow 0.8s cubic-bezier(0.2, 0.9, 0.3, 1.15) 0.55s forwards;
+}
+.espert-splash .word {
+  opacity: 0;
+  transform: translateX(-10px);
+  animation: es-slide 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) 1.05s forwards;
+}
+.espert-splash .wipe {
+  transform: scaleX(0);
+  transform-origin: 140px 0;
+  animation: es-wipe 0.7s cubic-bezier(0.65, 0, 0.2, 1) 1.05s forwards;
+}
+.espert-splash .pulse {
+  fill: none;
+  stroke: #a48242;
+  stroke-width: 2;
+  opacity: 0;
+  transform-origin: 72.64px 72.51px;
+  animation: es-pulse 1s ease-out 1.55s forwards;
+}
+@keyframes es-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes es-fadeIn {
+  to {
+    opacity: 1;
+  }
+}
+@keyframes es-grow {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes es-slide {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes es-wipe {
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes es-pulse {
+  0% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .espert-splash .ring,
+  .espert-splash .arc,
+  .espert-splash .leaf,
+  .espert-splash .word,
+  .espert-splash .wipe,
+  .espert-splash .pulse {
+    animation: none;
+  }
+  .espert-splash .ring {
+    stroke-dashoffset: 0;
+  }
+  .espert-splash .arc,
+  .espert-splash .leaf,
+  .espert-splash .word {
+    opacity: 1;
+    transform: none;
+  }
+  .espert-splash .wipe {
+    transform: none;
+  }
+}
