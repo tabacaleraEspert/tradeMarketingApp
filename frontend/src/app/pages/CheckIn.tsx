@@ -13,7 +13,8 @@ import type { Incident, PdvNote } from "@/lib/api";
 import { executeOrEnqueue, markVisitClosedLocally, markVisitOpenLocally } from "@/lib/offline";
 import { saveVisitContext } from "@/lib/useVisitAutoSave";
 import { QuickContactsModal } from "../components/QuickContactsModal";
-import { getCurrentUser } from "../lib/auth";
+import { getCurrentUser, isShortVisitFlow } from "../lib/auth";
+import { api } from "@/lib/api/client";
 import { formatTime24, formatDateCompact } from "../lib/dateUtils";
 import { toast } from "sonner";
 
@@ -32,6 +33,11 @@ export function CheckIn() {
   const [gpsStatus, setGpsStatus] = useState<"checking" | "ok" | "out-of-range" | "no-pdv-coords" | "denied" | "unavailable">("checking");
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
   const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
+  // Activadores: corregir la ubicación del PDV con el GPS, parados en el local
+  // (coords importadas de Excel/Maps quedan a 100-150 m).
+  const shortFlow = isShortVisitFlow();
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [relocating, setRelocating] = useState(false);
   const GPS_PERIMETER_METERS = 200;
   const [pendingIncidents, setPendingIncidents] = useState<Incident[]>([]);
   const [openNotes, setOpenNotes] = useState<PdvNote[]>([]);
@@ -140,6 +146,7 @@ export function CheckIn() {
       (pos) => {
         const { latitude, longitude } = pos.coords;
         setUserCoords({ lat: latitude, lon: longitude });
+        setGpsAccuracy(pos.coords.accuracy ?? null);
         const d = distanceMetersBetween(latitude, longitude, pdv.Lat as number, pdv.Lon as number);
         setDistanceMeters(d);
         setGpsStatus(d <= GPS_PERIMETER_METERS ? "ok" : "out-of-range");
@@ -152,6 +159,23 @@ export function CheckIn() {
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, [pdv]);
+
+  const handleRelocate = async () => {
+    if (!id || !userCoords || relocating) return;
+    if (!window.confirm("¿Estás parado en el PDV? Se guarda tu ubicación actual como la del local.")) return;
+    setRelocating(true);
+    try {
+      const updated = await api.post<NonNullable<typeof pdv>>(`/pdvs/${id}/relocate`, {
+        Lat: userCoords.lat, Lon: userCoords.lon, AccuracyM: gpsAccuracy ?? undefined,
+      });
+      setPdv(updated);
+      toast.success("Ubicación del PDV corregida");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "No se pudo corregir la ubicación (¿sin conexión?)");
+    } finally {
+      setRelocating(false);
+    }
+  };
 
   // Genera un ID temporal negativo único para visitas offline
   const generateTempVisitId = () => -(Date.now() % 1000000);
@@ -574,6 +598,12 @@ export function CheckIn() {
                 </>
               )}
             </div>
+            {shortFlow && userCoords && distanceMeters !== null && distanceMeters > 30 && (
+              <Button variant="outline" size="sm" className="w-full mt-2" disabled={relocating} onClick={handleRelocate}>
+                <MapPin size={14} className="mr-1" />
+                {relocating ? "Guardando…" : `Corregir ubicación: estoy en el PDV${gpsAccuracy ? ` (GPS ±${Math.round(gpsAccuracy)} m)` : ""}`}
+              </Button>
+            )}
           </CardContent>
         </Card>
 

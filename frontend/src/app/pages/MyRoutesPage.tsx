@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api/client";
 import { fetchWithCache } from "@/lib/offline";
 import type { Pdv, RoutePdv } from "@/lib/api";
-import { getCurrentUser } from "../lib/auth";
+import { getCurrentUser, isShortVisitFlow } from "../lib/auth";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
@@ -89,6 +89,22 @@ export function MyRoutesPage() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
   const userId = Number(currentUser.id) || undefined;
+  // Activadores: tocar una campaña la arranca hoy (sin día planificado) y abre el recorrido.
+  const shortFlow = isShortVisitFlow();
+  const [starting, setStarting] = useState<number | null>(null);
+  const startToday = async (routeId: number, name: string) => {
+    if (starting) return;
+    setStarting(routeId);
+    try {
+      await routesApi.startToday(routeId);
+      toast.success(`Recorrido de hoy: ${name}`);
+      navigate("/route");
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo arrancar la ruta (¿sin conexión?)");
+    } finally {
+      setStarting(null);
+    }
+  };
 
   const { data: myRoutes, loading } = useMyRoutes(userId);
   const pendingRoutes = usePendingRoutes();
@@ -676,6 +692,10 @@ export function MyRoutesPage() {
                     toast.info("Esta ruta se sincronizará cuando vuelva la conexión.");
                     return;
                   }
+                  if (route.isCampaign && shortFlow) {
+                    startToday(route.routeId, route.name);
+                    return;
+                  }
                   if (route.isCampaign) {
                     toast.info("Ruta de campaña: la arma el equipo central. Sus PDVs te aparecen en los días programados.");
                     return;
@@ -726,7 +746,13 @@ export function MyRoutesPage() {
                         <p className="text-xs text-muted-foreground">Zona {route.bejermanZone}</p>
                       )}
                     </div>
-                    <ChevronRight size={20} className="text-muted-foreground shrink-0" />
+                    {route.isCampaign && shortFlow ? (
+                      <span className="text-xs font-semibold text-[#A48242] shrink-0">
+                        {starting === route.routeId ? "Abriendo…" : "Arrancar hoy"}
+                      </span>
+                    ) : (
+                      <ChevronRight size={20} className="text-muted-foreground shrink-0" />
+                    )}
                   </div>
 
                   {/* Stats grid */}

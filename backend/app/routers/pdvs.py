@@ -1,6 +1,7 @@
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func as sqlfunc, or_
 from sqlalchemy.orm import Session
 from ..database import get_db
@@ -634,3 +635,36 @@ def delete_pdv(pdv_id: int, db: Session = Depends(get_db)):
     db.query(RoutePdvModel).filter(RoutePdvModel.PdvId == pdv_id).delete()
     db.delete(pdv)
     db.commit()
+
+
+class PdvRelocate(BaseModel):
+    Lat: float
+    Lon: float
+    AccuracyM: float | None = None
+
+
+@router.post("/{pdv_id}/relocate", response_model=Pdv)
+def relocate_pdv(pdv_id: int, data: PdvRelocate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Activadores (VisitFlow short): parado en el PDV, fija su ubicación con el GPS del
+    celular (coords importadas del Excel/Maps quedan a 100-150 m). Auditado antes/después."""
+    from ..models.audit import AuditEvent as AuditEventModel
+    import json as _json
+
+    if current_user.VisitFlow != "short" and get_user_role(db, current_user.UserId) != "admin":
+        raise HTTPException(status_code=403, detail="Solo activadores")
+    if not (-90 <= data.Lat <= 90 and -180 <= data.Lon <= 180):
+        raise HTTPException(status_code=400, detail="Coordenadas inválidas")
+    if data.AccuracyM is not None and data.AccuracyM > 50:
+        raise HTTPException(status_code=400, detail=f"GPS impreciso ({round(data.AccuracyM)} m). Probá al aire libre y reintentá.")
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
+    if not pdv:
+        raise HTTPException(status_code=404, detail="PDV no encontrado")
+    before = {"Lat": pdv.Lat, "Lon": pdv.Lon}
+    pdv.Lat, pdv.Lon = data.Lat, data.Lon
+    db.add(AuditEventModel(
+        UserId=current_user.UserId, Entity="PDV", EntityId=str(pdv_id), Action="PDV_RELOCATE",
+        PayloadJson=_json.dumps({"before": before, "after": {"Lat": data.Lat, "Lon": data.Lon}, "accuracyM": data.AccuracyM}, default=str),
+    ))
+    db.commit()
+    db.refresh(pdv)
+    return _pdv_to_response(pdv, db)

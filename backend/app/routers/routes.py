@@ -237,6 +237,20 @@ def _assert_campaign_rules(
         raise HTTPException(400, "La fecha de fin no puede ser anterior a la fecha de inicio")
 
 
+def _is_field_campaign_runner(current_user: UserModel, route: RouteModel | None) -> bool:
+    """Excepción de activaciones (User.VisitFlow == "short", ej. La Plata): el activador
+    ejecuta por su cuenta las campañas vigentes de su zona — arrancar el día sin
+    planificación previa y sumar PDVs dados de alta en el recorrido. No aplica al
+    ciclo común de trade (VisitFlow "full"), que sigue con las reglas de campaña."""
+    if getattr(current_user, "VisitFlow", None) != "short" or not _is_campaign(route):
+        return False
+    if not route.IsActive or (route.EndDate is not None and route.EndDate < _today_ar()):
+        return False
+    return route.AssignedUserId == current_user.UserId or (
+        route.ZoneId is not None and route.ZoneId == current_user.ZoneId
+    )
+
+
 def _audit(db: Session, user: UserModel, action: str, route_id: int, payload: dict) -> None:
     """Rastro de cambios de rutas (quién, qué, antes/después) en AuditEvent.
     Va en la misma transacción que el cambio."""
@@ -581,10 +595,16 @@ def my_routes_detail(
     db: Session = Depends(get_db),
 ):
     """Returns all routes for a user with their PDVs embedded. Replaces N+1 pattern."""
+    owned = RouteModel.AssignedUserId == user_id
+    # Activadores (VisitFlow short): también las campañas vigentes de su zona, para
+    # salir varios a una misma zona (ver _is_field_campaign_runner / start-today).
+    u = db.query(UserModel).filter(UserModel.UserId == user_id).first()
+    if u is not None and u.VisitFlow == "short" and u.ZoneId is not None:
+        owned = or_(owned, (RouteModel.RouteType == ROUTE_CAMPAIGN) & (RouteModel.ZoneId == u.ZoneId) & (RouteModel.IsActive == True))  # noqa: E712
     routes = (
         db.query(RouteModel)
         .filter(
-            RouteModel.AssignedUserId == user_id,
+            owned,
             or_(RouteModel.EndDate.is_(None), RouteModel.EndDate >= _today_ar()),  # vencidas no se muestran
         )
         .order_by(RouteModel.RouteId)
@@ -633,6 +653,7 @@ def my_routes_detail(
                 })
         result.append({
             "RouteId": r.RouteId, "Name": r.Name, "PdvCount": len(rps),
+            "AssignedUserId": r.AssignedUserId,
             "BejermanZone": r.BejermanZone, "FrequencyType": r.FrequencyType,
             "EstimatedMinutes": r.EstimatedMinutes, "IsOptimized": r.IsOptimized,
             "RouteType": r.RouteType or ROUTE_REGULAR,
@@ -947,8 +968,9 @@ def add_route_pdv(route_id: int, data: RoutePdvCreate, current_user: UserModel =
     route = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not route:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    _assert_route_access(db, current_user, route)
-    _assert_campaign_rules(db, current_user, route)
+    if not _is_field_campaign_runner(current_user, route):
+        _assert_route_access(db, current_user, route)
+        _assert_campaign_rules(db, current_user, route)
 
     same = db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id, RoutePdvModel.PdvId == data.PdvId).first()
     if same:
@@ -1217,6 +1239,36 @@ def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserMode
             Priority=rp.Priority,
         )
         db.add(rdp)
+    db.commit()
+    db.refresh(rd)
+    return rd
+
+
+@router.post("/{route_id}/start-today", response_model=RouteDay)
+def start_route_today(route_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Activadores (VisitFlow short): entrar a una campaña de su zona sin día planificado.
+    Crea (o reusa) el RouteDay de hoy para el usuario que la arranca, con los PDVs de la
+    ruta — así Inicio, Ruta foco (mapa) y el avance funcionan igual que un día planificado."""
+    r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    if not _is_field_campaign_runner(current_user, r):
+        raise HTTPException(status_code=403, detail="Solo activadores, en campañas vigentes de su zona")
+    today = _today_ar()
+    rd = (
+        db.query(RouteDayModel)
+        .filter(RouteDayModel.RouteId == route_id, RouteDayModel.AssignedUserId == current_user.UserId,
+                RouteDayModel.WorkDate == today)
+        .first()
+    )
+    if rd:
+        return rd
+    rd = RouteDayModel(RouteId=route_id, WorkDate=today, AssignedUserId=current_user.UserId, Status="PLANNED")
+    db.add(rd)
+    db.flush()
+    for rp in db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == route_id).all():
+        db.add(RouteDayPdvModel(RouteDayId=rd.RouteDayId, PdvId=rp.PdvId, PlannedOrder=rp.SortOrder, Priority=rp.Priority))
+    _audit(db, current_user, "ROUTE_DAY_START", route_id, {"workDate": today.isoformat()})
     db.commit()
     db.refresh(rd)
     return rd

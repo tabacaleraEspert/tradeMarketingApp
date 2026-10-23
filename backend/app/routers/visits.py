@@ -655,14 +655,13 @@ def _resolve_route_day_id(user_id: int, pdv_id: int, db: Session):
     que llegaron sin RouteDayId (el front lo pasa por navigation state y se pierde
     fácil: buscar PDV, kiosco cercano, reload, sync offline). Devuelve el
     RouteDayId o None."""
-    from datetime import date
-    from ..models.route import RouteDayPdv as RouteDayPdvModel
+    from ..models.route import RouteDayPdv as RouteDayPdvModel, today_ar
     row = (
         db.query(RouteDayModel.RouteDayId)
         .join(RouteDayPdvModel, RouteDayPdvModel.RouteDayId == RouteDayModel.RouteDayId)
         .filter(
             RouteDayModel.AssignedUserId == user_id,
-            RouteDayModel.WorkDate == date.today(),
+            RouteDayModel.WorkDate == today_ar(),  # fecha AR (server en UTC: después de las 21 h era mañana)
             RouteDayPdvModel.PdvId == pdv_id,
         )
         .first()

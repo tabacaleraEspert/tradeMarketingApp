@@ -18,7 +18,9 @@ import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
 import type { Route } from "@/lib/api/types";
-import { getCurrentUser } from "../lib/auth";
+import { getCurrentUser, isShortVisitFlow } from "../lib/auth";
+import { api } from "@/lib/api/client";
+import { fetchWithCache } from "@/lib/offline";
 
 interface ContactForm {
   contactName: string;
@@ -98,7 +100,18 @@ export function NewPointOfSale() {
   const { inputRef: photoInputRef, inputProps: photoInputProps, takePhoto: handleTakePhoto, sourceSheet: photoSourceSheet, photos, hasPhotos } = usePhotoCapture({ uploadImmediately: false });
 
   const userId = Number(currentUser.id) || undefined;
-  const { data: myRoutes } = useMyRoutes(userId);
+  const { data: ownRoutes } = useMyRoutes(userId);
+  // Activadores: las rutas elegibles son las de "Mis rutas" (incluye campañas de su zona)
+  // y, dado de alta, el PDV se visita en el momento (check-in directo).
+  const shortFlow = isShortVisitFlow();
+  const [zoneRoutes, setZoneRoutes] = useState<{ RouteId: number; Name: string; PdvCount: number }[]>([]);
+  useEffect(() => {
+    if (!shortFlow || !userId) return;
+    fetchWithCache(`my_routes_detail_${userId}`, () => api.get<any[]>("/routes/my-routes-detail", { user_id: userId }))
+      .then((rs) => setZoneRoutes(rs.map((r) => ({ RouteId: r.RouteId, Name: r.Name, PdvCount: r.PdvCount }))))
+      .catch(() => {});
+  }, [shortFlow, userId]);
+  const myRoutes = shortFlow ? zoneRoutes : ownRoutes;
 
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
@@ -335,6 +348,10 @@ export function NewPointOfSale() {
         }
 
         toast.success("PDV creado correctamente");
+        if (shortFlow) {
+          navigate(`/pos/${newPdv.PdvId}/checkin`, { replace: true });
+          return;
+        }
       } else if (result.queued) {
         // Assign temp ID for dependent operations and visibility in search
         const tempPdvId = -(Date.now() % 1000000);

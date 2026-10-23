@@ -593,6 +593,9 @@ export const routesApi = {
     api.get<RouteDay[]>(`/routes/${routeId}/days`),
   createDay: (routeId: number, data: { WorkDate: string; AssignedUserId?: number; Status?: string }) =>
     api.post<RouteDay>(`/routes/${routeId}/days`, data),
+  /** Activadores (VisitFlow short): arranca hoy una campaña de su zona sin día planificado (idempotente). */
+  startToday: (routeId: number) =>
+    api.post<RouteDay>(`/routes/${routeId}/start-today`, {}),
   getDay: (routeDayId: number) =>
     api.get<RouteDay>(`/routes/days/${routeDayId}`),
   updateDay: (routeDayId: number, data: { Status?: string }) =>
