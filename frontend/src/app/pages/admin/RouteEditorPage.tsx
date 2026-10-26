@@ -175,7 +175,7 @@ export function RouteEditorPage() {
   const [pdvFilterCity, setPdvFilterCity] = useState<string>("all");
   const [pdvFilterZoneId, setPdvFilterZoneId] = useState<string>("all");
   const [selectedInfoPdv, setSelectedInfoPdv] = useState<number | null>(null);
-  const [showNearbyPdvs, setShowNearbyPdvs] = useState(false);
+  const [mapViewBox, setMapViewBox] = useState<ReturnType<typeof pointsBox>>(null);
   const pdvMapRef = useRef<google.maps.Map | null>(null);
 
   // All PDVs cache (loaded individually for route PDVs)
@@ -358,7 +358,8 @@ export function RouteEditorPage() {
     (pdvFilterCity !== "all" ? 1 : 0) +
     (pdvFilterZoneId !== "all" ? 1 : 0);
 
-  // Mapa: por defecto SOLO los PDVs de esta ruta (antes pintaba todos los del país).
+  // Mapa: la ruta + TODOS los demás PDVs (para sumarlos desde el mapa). Se encuadra
+  // en la ruta, no en el país.
   const routePdvsWithCoords = useMemo(
     () => orderedPdvs.filter((p) => p.Lat != null && p.Lon != null),
     [orderedPdvs]
@@ -368,30 +369,34 @@ export function RouteEditorPage() {
     [orderedPdvs]
   );
 
-  // "Cercanos" (para sumar PDVs desde el mapa): los del área de la ruta (+~3 km).
-  // Ruta vacía → lo que deje el buscador/filtros de la lista; sin filtro, nada.
-  const nearbyPdvs = useMemo(() => {
-    if (!showNearbyPdvs) return [];
-    const withCoords = (ps: Pdv[]) => ps.filter((p) => p.Lat != null && p.Lon != null);
-    const box = pointsBox(
-      routePdvsWithCoords.map((p) => ({ lat: Number(p.Lat), lng: Number(p.Lon) })),
-      0.03
+  // Los PDVs fuera de la ruta se dibujan solo si caen en la vista actual del mapa:
+  // miles de markers a nivel país trababan el mapa. Al mover/alejar aparecen los demás.
+  const otherPdvsInView = useMemo(() => {
+    if (!mapViewBox) return [];
+    return allPdvs.filter(
+      (p) =>
+        p.Lat != null && p.Lon != null && !routePdvIds.has(p.PdvId) &&
+        inBox({ lat: Number(p.Lat), lng: Number(p.Lon) }, mapViewBox)
     );
-    if (!box) {
-      return pdvSearch || activePdvFilterCount > 0 ? withCoords(filteredAvailablePdvs) : [];
-    }
-    return withCoords(allPdvs).filter(
-      (p) => !routePdvIds.has(p.PdvId) && inBox({ lat: Number(p.Lat), lng: Number(p.Lon) }, box)
-    );
-  }, [showNearbyPdvs, routePdvsWithCoords, allPdvs, routePdvIds, filteredAvailablePdvs, pdvSearch, activePdvFilterCount]);
+  }, [allPdvs, routePdvIds, mapViewBox]);
 
-  // Encuadrar en la ruta (o en los cercanos si la ruta no tiene PDVs) al abrir el
-  // mapa y cuando llegan los PDVs — no en cada alta/baja para no mover la vista.
-  const fitPts = useMemo(
-    () => (routePdvsWithCoords.length > 0 ? routePdvsWithCoords : nearbyPdvs)
-      .map((p) => ({ lat: Number(p.Lat), lng: Number(p.Lon) })),
-    [routePdvsWithCoords, nearbyPdvs]
-  );
+  const handleMapIdle = () => {
+    const b = pdvMapRef.current?.getBounds();
+    if (!b) return;
+    const ne = b.getNorthEast(), sw = b.getSouthWest();
+    setMapViewBox({ minLat: sw.lat(), maxLat: ne.lat(), minLng: sw.lng(), maxLng: ne.lng() });
+  };
+
+  // Encuadrar en la ruta (ruta vacía: en lo que deje el filtro de la lista) al abrir
+  // el mapa y cuando llegan los PDVs — no en cada alta/baja para no mover la vista.
+  const fitPts = useMemo(() => {
+    const base = routePdvsWithCoords.length > 0
+      ? routePdvsWithCoords
+      : pdvSearch || activePdvFilterCount > 0
+        ? filteredAvailablePdvs.filter((p) => p.Lat != null && p.Lon != null)
+        : [];
+    return base.map((p) => ({ lat: Number(p.Lat), lng: Number(p.Lon) }));
+  }, [routePdvsWithCoords, filteredAvailablePdvs, pdvSearch, activePdvFilterCount]);
   const hasFitPts = fitPts.length > 0;
   useEffect(() => {
     if (pdvMapRef.current && hasFitPts) fitMapToPoints(pdvMapRef.current, fitPts);
@@ -1549,6 +1554,7 @@ export function RouteEditorPage() {
                     fitMapToPoints(map, fitPts);
                   }}
                   onUnmount={() => { pdvMapRef.current = null; }}
+                  onIdle={handleMapIdle}
                   options={{
                     disableDefaultUI: false,
                     zoomControl: true,
@@ -1572,8 +1578,8 @@ export function RouteEditorPage() {
                     />
                   )}
 
-                  {/* PDVs de la ruta + cercanos (si se pidieron) */}
-                  {[...routePdvsWithCoords, ...nearbyPdvs].map((p) => {
+                  {/* PDVs de la ruta + el resto de los que están a la vista */}
+                  {[...routePdvsWithCoords, ...otherPdvsInView].map((p) => {
                     const inRoute = routePdvIds.has(p.PdvId);
                     const inOtherRoute = !inRoute && pdvIdsInOtherRoutes.has(p.PdvId);
                     const orderIdx = routePdvOrder.get(p.PdvId) ?? 0;
@@ -1668,15 +1674,6 @@ export function RouteEditorPage() {
 
               {/* Map legend */}
               <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-muted-foreground">
-                <label className="flex items-center gap-1.5 cursor-pointer font-medium text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={showNearbyPdvs}
-                    onChange={(e) => setShowNearbyPdvs(e.target.checked)}
-                    className="rounded"
-                  />
-                  Ver PDVs cercanos{showNearbyPdvs ? ` (${nearbyPdvs.length})` : ""}
-                </label>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-[#A48242] inline-block" />
                   En esta ruta
