@@ -39,11 +39,13 @@ import {
 import type { MandatoryActivity, PdvRouteAssignment, RouteOverlap, RouteType } from "@/lib/api";
 import type { Pdv } from "@/lib/api/types";
 import { useJsApiLoader, GoogleMap, MarkerF, PolylineF, InfoWindowF } from "@react-google-maps/api";
+import { fitMapToPoints, inBox, pointsBox } from "@/lib/mapFit";
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
 import { executeOrEnqueue, queue, writeCache, readCache, fetchWithCache } from "@/lib/offline";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const DEFAULT_MAP_CENTER = { lat: -34.6, lng: -58.45 };
 const LIBRARIES: ("places")[] = ["places"];
 
 // Haversine distance in km
@@ -173,6 +175,8 @@ export function RouteEditorPage() {
   const [pdvFilterCity, setPdvFilterCity] = useState<string>("all");
   const [pdvFilterZoneId, setPdvFilterZoneId] = useState<string>("all");
   const [selectedInfoPdv, setSelectedInfoPdv] = useState<number | null>(null);
+  const [showNearbyPdvs, setShowNearbyPdvs] = useState(false);
+  const pdvMapRef = useRef<google.maps.Map | null>(null);
 
   // All PDVs cache (loaded individually for route PDVs)
   const [pdvCache, setPdvCache] = useState<Map<number, Pdv>>(new Map());
@@ -354,27 +358,45 @@ export function RouteEditorPage() {
     (pdvFilterCity !== "all" ? 1 : 0) +
     (pdvFilterZoneId !== "all" ? 1 : 0);
 
-  // All PDVs with coords for map (both in route and not)
-  const allPdvsWithCoords = useMemo(
-    () => allPdvs.filter((p) => p.Lat != null && p.Lon != null),
-    [allPdvs]
+  // Mapa: por defecto SOLO los PDVs de esta ruta (antes pintaba todos los del país).
+  const routePdvsWithCoords = useMemo(
+    () => orderedPdvs.filter((p) => p.Lat != null && p.Lon != null),
+    [orderedPdvs]
+  );
+  const routePdvOrder = useMemo(
+    () => new Map(orderedPdvs.map((p, i) => [p.PdvId, i + 1])),
+    [orderedPdvs]
   );
 
-  // Map center
-  const mapCenter = useMemo(() => {
-    const withCoords = orderedPdvs.filter((p) => p.Lat != null);
-    if (withCoords.length > 0) {
-      const lat = withCoords.reduce((s, p) => s + Number(p.Lat), 0) / withCoords.length;
-      const lng = withCoords.reduce((s, p) => s + Number(p.Lon), 0) / withCoords.length;
-      return { lat, lng };
+  // "Cercanos" (para sumar PDVs desde el mapa): los del área de la ruta (+~3 km).
+  // Ruta vacía → lo que deje el buscador/filtros de la lista; sin filtro, nada.
+  const nearbyPdvs = useMemo(() => {
+    if (!showNearbyPdvs) return [];
+    const withCoords = (ps: Pdv[]) => ps.filter((p) => p.Lat != null && p.Lon != null);
+    const box = pointsBox(
+      routePdvsWithCoords.map((p) => ({ lat: Number(p.Lat), lng: Number(p.Lon) })),
+      0.03
+    );
+    if (!box) {
+      return pdvSearch || activePdvFilterCount > 0 ? withCoords(filteredAvailablePdvs) : [];
     }
-    if (allPdvsWithCoords.length > 0) {
-      const lat = allPdvsWithCoords.reduce((s, p) => s + Number(p.Lat), 0) / allPdvsWithCoords.length;
-      const lng = allPdvsWithCoords.reduce((s, p) => s + Number(p.Lon), 0) / allPdvsWithCoords.length;
-      return { lat, lng };
-    }
-    return { lat: -34.6, lng: -58.45 };
-  }, [orderedPdvs, allPdvsWithCoords]);
+    return withCoords(allPdvs).filter(
+      (p) => !routePdvIds.has(p.PdvId) && inBox({ lat: Number(p.Lat), lng: Number(p.Lon) }, box)
+    );
+  }, [showNearbyPdvs, routePdvsWithCoords, allPdvs, routePdvIds, filteredAvailablePdvs, pdvSearch, activePdvFilterCount]);
+
+  // Encuadrar en la ruta (o en los cercanos si la ruta no tiene PDVs) al abrir el
+  // mapa y cuando llegan los PDVs — no en cada alta/baja para no mover la vista.
+  const fitPts = useMemo(
+    () => (routePdvsWithCoords.length > 0 ? routePdvsWithCoords : nearbyPdvs)
+      .map((p) => ({ lat: Number(p.Lat), lng: Number(p.Lon) })),
+    [routePdvsWithCoords, nearbyPdvs]
+  );
+  const hasFitPts = fitPts.length > 0;
+  useEffect(() => {
+    if (pdvMapRef.current && hasFitPts) fitMapToPoints(pdvMapRef.current, fitPts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasFitPts]);
 
   // Route polyline path
   const polylinePath = useMemo(
@@ -1520,8 +1542,13 @@ export function RouteEditorPage() {
               ) : (
                 <GoogleMap
                   mapContainerStyle={{ width: "100%", height: "500px", borderRadius: "0.5rem" }}
-                  center={mapCenter}
-                  zoom={allPdvsWithCoords.length <= 1 ? 14 : 12}
+                  center={DEFAULT_MAP_CENTER}
+                  zoom={10}
+                  onLoad={(map) => {
+                    pdvMapRef.current = map;
+                    fitMapToPoints(map, fitPts);
+                  }}
+                  onUnmount={() => { pdvMapRef.current = null; }}
                   options={{
                     disableDefaultUI: false,
                     zoomControl: true,
@@ -1545,13 +1572,11 @@ export function RouteEditorPage() {
                     />
                   )}
 
-                  {/* All PDVs as markers */}
-                  {allPdvsWithCoords.map((p) => {
+                  {/* PDVs de la ruta + cercanos (si se pidieron) */}
+                  {[...routePdvsWithCoords, ...nearbyPdvs].map((p) => {
                     const inRoute = routePdvIds.has(p.PdvId);
                     const inOtherRoute = !inRoute && pdvIdsInOtherRoutes.has(p.PdvId);
-                    const orderIdx = inRoute
-                      ? routePdvs.findIndex((rp) => rp.PdvId === p.PdvId) + 1
-                      : 0;
+                    const orderIdx = routePdvOrder.get(p.PdvId) ?? 0;
 
                     return (
                       <MarkerF
@@ -1643,6 +1668,15 @@ export function RouteEditorPage() {
 
               {/* Map legend */}
               <div className="flex flex-wrap items-center gap-4 mt-3 text-xs text-muted-foreground">
+                <label className="flex items-center gap-1.5 cursor-pointer font-medium text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={showNearbyPdvs}
+                    onChange={(e) => setShowNearbyPdvs(e.target.checked)}
+                    className="rounded"
+                  />
+                  Ver PDVs cercanos{showNearbyPdvs ? ` (${nearbyPdvs.length})` : ""}
+                </label>
                 <span className="flex items-center gap-1.5">
                   <span className="w-3 h-3 rounded-full bg-[#A48242] inline-block" />
                   En esta ruta

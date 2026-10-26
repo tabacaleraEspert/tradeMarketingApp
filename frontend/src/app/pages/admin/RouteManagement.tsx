@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
@@ -36,8 +36,10 @@ import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
 import { todayAR } from "../../lib/dateUtils";
 import { describeOverlaps } from "@/lib/routeDays";
+import { fitMapToPoints, inBox, pointsBox } from "@/lib/mapFit";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
+const DEFAULT_MAP_CENTER = { lat: -34.6, lng: -58.45 };
 const LIBRARIES: ("places")[] = ["places"];
 
 // 12 distinct colors for routes
@@ -302,7 +304,8 @@ export function RouteManagement() {
   // Load map data
   useEffect(() => {
     if (viewMode === "map") {
-      setMapLoading(true);
+      // Spinner solo en la 1ª carga: los refetch (búsqueda, mutaciones) no desmontan el mapa
+      if (mapRoutes.length === 0) setMapLoading(true);
       api.get<{ routes: MapRoute[]; unroutedPdvs: MapRoutePdv[] }>("/routes/map-overview")
         .then((data) => {
           setMapRoutes(data.routes);
@@ -335,16 +338,23 @@ export function RouteManagement() {
     return Array.from(z).sort();
   }, [mapRoutes]);
 
-  // Filtered routes
-  const visibleRoutes = useMemo(() => {
+  // Rutas que pasan los filtros (incluida la búsqueda de la lista: si se buscó
+  // "Seba", el mapa muestra solo lo de Seba).
+  const filteredMapRoutes = useMemo(() => {
+    const q = searchQ.trim().toLowerCase();
     return mapRoutes.filter((r) => {
-      if (hiddenRoutes.has(r.routeId)) return false;
+      if (q && ![r.name, r.assignedUserName, r.bejermanZone].some((v) => v?.toLowerCase().includes(q))) return false;
       if (mapFilterTM !== "all" && r.assignedUserName !== mapFilterTM) return false;
       if (mapFilterZone !== "all" && r.bejermanZone !== mapFilterZone) return false;
       if (mapFilterFreq !== "all" && r.frequencyType !== mapFilterFreq) return false;
       return true;
     });
-  }, [mapRoutes, hiddenRoutes, mapFilterTM, mapFilterZone, mapFilterFreq]);
+  }, [mapRoutes, searchQ, mapFilterTM, mapFilterZone, mapFilterFreq]);
+
+  const visibleRoutes = useMemo(
+    () => filteredMapRoutes.filter((r) => !hiddenRoutes.has(r.routeId)),
+    [filteredMapRoutes, hiddenRoutes]
+  );
 
   const toggleRouteVisibility = (routeId: number) => {
     setHiddenRoutes((prev) => {
@@ -355,19 +365,27 @@ export function RouteManagement() {
     });
   };
 
-  // All PDVs with coords for map center
-  const allMapPdvs = useMemo(() => {
-    return mapRoutes.flatMap((r) =>
-      r.pdvs.filter((p) => p.lat != null && p.lon != null)
-    );
-  }, [mapRoutes]);
+  // Puntos de las rutas filtradas: el mapa se encuadra en ellos (antes centraba
+  // en el promedio del país a zoom 12 y quedaba en el medio de la nada).
+  const filteredMapPts = useMemo(
+    () =>
+      filteredMapRoutes.flatMap((r) =>
+        r.pdvs.filter((p) => p.lat != null && p.lon != null).map((p) => ({ lat: p.lat!, lng: p.lon! }))
+      ),
+    [filteredMapRoutes]
+  );
 
-  const mapCenter = useMemo(() => {
-    if (allMapPdvs.length === 0) return { lat: -34.6, lng: -58.45 };
-    const lat = allMapPdvs.reduce((s, p) => s + p.lat!, 0) / allMapPdvs.length;
-    const lng = allMapPdvs.reduce((s, p) => s + p.lon!, 0) / allMapPdvs.length;
-    return { lat, lng };
-  }, [allMapPdvs]);
+  // PDVs sin ruta: solo los del área de las rutas filtradas (+~3 km), no el país.
+  const visibleUnrouted = useMemo(() => {
+    const box = pointsBox(filteredMapPts, 0.03);
+    if (!box) return unroutedPdvs;
+    return unroutedPdvs.filter((p) => inBox({ lat: p.lat!, lng: p.lon! }, box));
+  }, [unroutedPdvs, filteredMapPts]);
+
+  const overviewMapRef = useRef<google.maps.Map | null>(null);
+  useEffect(() => {
+    if (overviewMapRef.current) fitMapToPoints(overviewMapRef.current, filteredMapPts);
+  }, [filteredMapPts]);
 
   return (
     <div className="space-y-6">
@@ -500,7 +518,11 @@ export function RouteManagement() {
           {/* Map Filters */}
           <Card>
             <CardContent className="p-4">
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+              <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+                <div className="col-span-2 md:col-span-1">
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">Buscar</label>
+                  <SearchInput value={searchQ} onChange={setSearchQ} placeholder="Ruta, trade o zona..." />
+                </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">Trade Marketer</label>
                   <select
@@ -556,7 +578,7 @@ export function RouteManagement() {
                 <div className="flex flex-col gap-1.5">
                   <label className="flex items-center gap-2 text-xs cursor-pointer">
                     <input type="checkbox" checked={showUnrouted} onChange={(e) => setShowUnrouted(e.target.checked)} className="rounded" />
-                    PDVs sin ruta ({unroutedPdvs.length})
+                    PDVs sin ruta ({visibleUnrouted.length})
                   </label>
                   <span className="text-xs text-muted-foreground">
                     {visibleRoutes.length} de {mapRoutes.length} rutas
@@ -577,8 +599,13 @@ export function RouteManagement() {
                 ) : (
                   <GoogleMap
                     mapContainerStyle={{ width: "100%", height: "600px", borderRadius: "0.5rem" }}
-                    center={mapCenter}
-                    zoom={12}
+                    center={DEFAULT_MAP_CENTER}
+                    zoom={10}
+                    onLoad={(map) => {
+                      overviewMapRef.current = map;
+                      fitMapToPoints(map, filteredMapPts);
+                    }}
+                    onUnmount={() => { overviewMapRef.current = null; }}
                     options={{
                       disableDefaultUI: false,
                       zoomControl: true,
@@ -591,7 +618,7 @@ export function RouteManagement() {
                     }}
                   >
                     {/* Unrouted PDVs */}
-                    {showUnrouted && unroutedPdvs.map((p) => (
+                    {showUnrouted && visibleUnrouted.map((p) => (
                       <MarkerF
                         key={`unrouted-${p.pdvId}`}
                         position={{ lat: p.lat!, lng: p.lon! }}
@@ -672,7 +699,7 @@ export function RouteManagement() {
               <CardContent className="p-4">
                 <h4 className="text-sm font-semibold text-foreground mb-3">Rutas ({visibleRoutes.length})</h4>
                 <div className="space-y-1 max-h-[520px] overflow-y-auto">
-                  {mapRoutes.map((route) => {
+                  {filteredMapRoutes.map((route) => {
                     const color = routeColorMap.get(route.routeId) || "#A48242";
                     const pdvCount = route.pdvs.filter((p) => p.lat != null).length;
                     const isVisible = visibleRoutes.some((r) => r.routeId === route.routeId);
