@@ -433,3 +433,59 @@ class TestValidateClose:
     def test_validate_close_for_nonexistent_visit(self, client):
         resp = client.post("/visits/999999/validate-close")
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Reabrir visita del día
+# ---------------------------------------------------------------------------
+
+class TestReopenVisit:
+    def _closed(self, client, pdv, vendedor, reason=None):
+        v = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"]).json()
+        body = {"Status": "CLOSED", **({"CloseReason": reason} if reason else {})}
+        assert client.patch(f"/visits/{v['VisitId']}", json=body).status_code == 200
+        return v
+
+    def test_owner_reabre_y_limpia_pdv_cerrado(self, client, pdv, vendedor):
+        v = self._closed(client, pdv, vendedor, "PDV_CERRADO: No atiende hoy")
+        r = client.post(f"/visits/{v['VisitId']}/reopen", headers=_auth(vendedor["token"]))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["Status"] == "OPEN" and body["ClosedAt"] is None and body["CloseReason"] is None
+        # se puede volver a cerrar normalmente
+        assert client.patch(f"/visits/{v['VisitId']}", json={"Status": "CLOSED"}).json()["ClosedAt"] is not None
+
+    def test_mantiene_close_reason_normal(self, client, pdv, vendedor):
+        v = self._closed(client, pdv, vendedor, "Volver el lunes")
+        assert client.post(f"/visits/{v['VisitId']}/reopen").json()["CloseReason"] == "Volver el lunes"
+
+    def test_visita_abierta_409(self, client, open_visit):
+        assert client.post(f"/visits/{open_visit['VisitId']}/reopen").status_code == 409
+
+    def test_no_dueno_403(self, client, pdv, vendedor):
+        v = self._closed(client, pdv, vendedor)
+        intruder = _make_user(client)
+        tok = _login(client, intruder["Email"])["access_token"]
+        assert client.post(f"/visits/{v['VisitId']}/reopen", headers=_auth(tok)).status_code == 403
+
+    def test_visita_de_otro_dia_409(self, client, pdv, vendedor):
+        from datetime import datetime, timedelta
+        from sqlalchemy.orm import sessionmaker
+        from app.database import engine
+        from app.models import Visit as VisitModel
+        v = self._closed(client, pdv, vendedor)
+        db = sessionmaker(bind=engine)()
+        try:
+            row = db.query(VisitModel).filter(VisitModel.VisitId == v["VisitId"]).one()
+            row.OpenedAt = datetime.utcnow() - timedelta(days=2)
+            db.commit()
+        finally:
+            db.close()
+        r = client.post(f"/visits/{v['VisitId']}/reopen")
+        assert r.status_code == 409 and "del día" in r.json()["detail"]
+
+    def test_con_otra_visita_abierta_409(self, client, channel, pdv, vendedor):
+        v = self._closed(client, pdv, vendedor)
+        other = _make_pdv(client, channel["ChannelId"])
+        assert _make_visit(client, other["PdvId"], vendedor["user"]["UserId"]).status_code == 201
+        assert client.post(f"/visits/{v['VisitId']}/reopen").status_code == 409

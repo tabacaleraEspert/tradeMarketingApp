@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -707,6 +707,63 @@ def _mark_backlog(visit_id: int, db: Session):
         a.Status = "BACKLOG"
     if pending:
         db.commit()
+
+
+@router.post("/{visit_id}/reopen", response_model=Visit)
+def reopen_visit(
+    visit_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Reabre una visita cerrada HOY (fecha AR) para corregirla: cargar una foto
+    que faltó, o deshacer un "PDV cerrado" marcado en el kiosco equivocado.
+    Solo el dueño (o admin), y solo si no tiene otra visita abierta. Al volver a
+    cerrarla corre de nuevo el cierre normal (backlog + RouteDayPdv DONE)."""
+    from ..models.audit import AuditEvent as AuditEventModel
+    from ..models.route import RouteDayPdv as RouteDayPdvModel, today_ar
+    import json as _json
+
+    v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()
+    if not v:
+        raise HTTPException(status_code=404, detail="Visita no encontrada")
+    _check_visit_ownership(v, current_user, db)
+    if v.Status not in _TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail="La visita no está cerrada")
+    opened = v.OpenedAt if v.OpenedAt.tzinfo else v.OpenedAt.replace(tzinfo=timezone.utc)
+    if (opened - timedelta(hours=3)).date() != today_ar():
+        raise HTTPException(status_code=409, detail="Solo se pueden reabrir visitas del día")
+    other_open = (
+        db.query(VisitModel)
+        .filter(
+            VisitModel.UserId == v.UserId,
+            VisitModel.VisitId != v.VisitId,
+            VisitModel.Status.in_(["OPEN", "IN_PROGRESS"]),
+        )
+        .first()
+    )
+    if other_open:
+        raise HTTPException(status_code=409, detail="Tenés otra visita abierta. Cerrala antes de reabrir esta.")
+
+    before = {"Status": v.Status, "ClosedAt": v.ClosedAt, "CloseReason": v.CloseReason}
+    v.Status = "OPEN"
+    v.ClosedAt = None
+    if (v.CloseReason or "").startswith("PDV_CERRADO"):
+        v.CloseReason = None  # el PDV no estaba cerrado: se carga la gestión
+    if v.RouteDayId:
+        rdp = (
+            db.query(RouteDayPdvModel)
+            .filter(RouteDayPdvModel.RouteDayId == v.RouteDayId, RouteDayPdvModel.PdvId == v.PdvId)
+            .first()
+        )
+        if rdp and rdp.ExecutionStatus == "DONE":
+            rdp.ExecutionStatus = "IN_PROGRESS"
+    db.add(AuditEventModel(
+        UserId=current_user.UserId, Entity="Visit", EntityId=str(v.VisitId), Action="VISIT_REOPEN",
+        PayloadJson=_json.dumps({"antes": before, "despues": {"Status": "OPEN"}}, default=str, ensure_ascii=False),
+    ))
+    db.commit()
+    db.refresh(v)
+    return v
 
 
 @router.delete("/{visit_id}", status_code=204)

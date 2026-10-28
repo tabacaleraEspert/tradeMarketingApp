@@ -741,6 +741,8 @@ export const visitsApi = {
   update: (id: number, data: Partial<Visit>) =>
     api.patch<Visit>(`/visits/${id}`, data),
   delete: (id: number) => api.delete(`/visits/${id}`),
+  /** Reabre una visita cerrada hoy (dueño o admin) para corregirla. */
+  reopen: (id: number) => api.post<Visit>(`/visits/${id}/reopen`, {}),
 
   // Answers
   listAnswers: (visitId: number) =>

@@ -36,6 +36,7 @@ import {
   ChevronDown,
   ChevronUp,
   ImageIcon,
+  RotateCcw,
 } from "lucide-react";
 import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
 import { fetchWithCache, executeOrEnqueue, queue } from "@/lib/offline";
@@ -90,6 +91,8 @@ export function PointOfSaleDetail() {
   const [deleteNoteId, setDeleteNoteId] = useState<number | null>(null);
   const [showClosedModal, setShowClosedModal] = useState(false);
   const [closedReason, setClosedReason] = useState("");
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [globalOpenVisit, setGlobalOpenVisit] = useState<{ VisitId: number; PdvId: number; PdvName?: string } | null>(null);
   const [showContactModal, setShowContactModal] = useState(false);
   const [editContacts, setEditContacts] = useState<typeof formData.contacts>([]);
@@ -348,6 +351,22 @@ export function PointOfSaleDetail() {
         setNextPdvName(null);
       });
   }, [id, currentUser.id]);
+
+  const handleReopen = async () => {
+    if (!todayClosedVisit) return;
+    if (!navigator.onLine) { toast.error("Necesitás conexión para reabrir la visita"); return; }
+    setReopening(true);
+    try {
+      const v = await visitsApi.reopen(todayClosedVisit.VisitId);
+      setVisits((prev) => prev.map((x) => (x.VisitId === v.VisitId ? v : x)));
+      setGlobalOpenVisit({ VisitId: v.VisitId, PdvId: v.PdvId, PdvName: pos?.Name });
+      toast.success("Visita reabierta. Cuando termines, cerrala de nuevo.");
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : "No se pudo reabrir la visita");
+    } finally {
+      setReopening(false);
+    }
+  };
 
   const handlePdvCerrado = async () => {
     if (!closedReason.trim()) {
@@ -710,15 +729,19 @@ export function PointOfSaleDetail() {
 
   // Check if TODAY's visit for this routeDay is already completed
   const todayStr = todayAR();
-  const isTodayCompleted = effectiveRouteDayId
-    ? posVisits.some((v) =>
+  const todayClosedVisit = effectiveRouteDayId
+    ? posVisits.find((v) =>
         v.RouteDayId === effectiveRouteDayId &&
         (v.Status === "CLOSED" || v.Status === "COMPLETED")
       )
-    : posVisits.some((v) =>
+    : posVisits.find((v) =>
         v.OpenedAt.startsWith(todayStr) &&
         (v.Status === "CLOSED" || v.Status === "COMPLETED")
       );
+  const isTodayCompleted = !!todayClosedVisit;
+  // Reabrir: solo la visita propia de hoy (el server valida fecha AR y dueño)
+  const canReopen = !!todayClosedVisit && todayClosedVisit.VisitId > 0 &&
+    Number(todayClosedVisit.UserId) === Number(currentUser.id) && !globalOpenVisit;
 
   // Show check-in button when: no open visit here, not completed today, AND no open visit in another PDV
   const canCheckIn = !isVisitInProgress && !isTodayCompleted && !globalOpenVisit;
@@ -1451,10 +1474,17 @@ export function PointOfSaleDetail() {
                 <div className="bg-green-600 text-white p-1.5 rounded-full">
                   <TrendingUp size={16} />
                 </div>
-                <div>
+                <div className="flex-1">
                   <p className="text-sm font-semibold text-green-900">Visita de hoy completada</p>
-                  <p className="text-xs text-green-700">Relevamiento enviado</p>
+                  <p className="text-xs text-green-700">
+                    {todayClosedVisit?.CloseReason?.startsWith("PDV_CERRADO") ? "Marcado como cerrado" : "Relevamiento enviado"}
+                  </p>
                 </div>
+                {canReopen && (
+                  <Button variant="outline" size="sm" className="h-8 text-xs border-green-300 text-green-800" disabled={reopening} onClick={() => setReopenOpen(true)}>
+                    <RotateCcw size={13} className="mr-1" />{reopening ? "Reabriendo..." : "Reabrir"}
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -1939,6 +1969,17 @@ export function PointOfSaleDetail() {
       </Modal>
 
       {/* Delete Confirmation */}
+      <ConfirmModal
+        isOpen={reopenOpen}
+        onClose={() => setReopenOpen(false)}
+        onConfirm={handleReopen}
+        title="Reabrir visita"
+        message={todayClosedVisit?.CloseReason?.startsWith("PDV_CERRADO")
+          ? "La visita se reabre y se quita la marca de PDV cerrado, para que puedas cargar la gestión. Al terminar, cerrala de nuevo."
+          : "La visita vuelve a quedar en curso para que corrijas o agregues fotos y datos. Al terminar, cerrala de nuevo."}
+        confirmText="Reabrir"
+      />
+
       <ConfirmModal
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
