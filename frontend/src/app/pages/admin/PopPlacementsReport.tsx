@@ -3,7 +3,9 @@ import { useNavigate } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Badge } from "../../components/ui/badge";
-import { ArrowLeft, Download, Filter, Megaphone, Package, Store, RefreshCw } from "lucide-react";
+import { ArrowLeft, Camera, Download, Filter, Megaphone, Package, Store, RefreshCw } from "lucide-react";
+import { SearchInput } from "../../components/ui/search-input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { popPlacementsReportApi, popMaterialsApi, zonesApi, usersApi, ApiError } from "@/lib/api";
 import type { PopPlacementReportRow, Zone, User } from "@/lib/api/types";
 import { exportToExcel } from "@/lib/exportExcel";
@@ -14,6 +16,20 @@ import { toast } from "sonner";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+const norm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+
+/** Filtro por artículo: línea exacta + texto libre sobre código/nombre/línea/tipo
+ *  (todas las palabras, sin acentos; "van kiff" matchea "Van Kiff_Totem"). */
+export function filterByMaterial(rows: PopPlacementReportRow[], line: string, q: string) {
+  const words = norm(q).replace(/[_-]/g, " ").split(/\s+/).filter(Boolean);
+  return rows.filter((r) => {
+    if (line && (r.Line ?? "") !== line) return false;
+    if (words.length === 0) return true;
+    const hay = norm([r.MaterialCode, r.MaterialName, r.Line, r.Type].filter(Boolean).join(" ")).replace(/[_-]/g, " ");
+    return words.every((w) => hay.includes(w));
+  });
 }
 
 /** Resumen por artículo (para la 2da hoja del Excel y el top de la pantalla). */
@@ -46,6 +62,9 @@ export function PopPlacementsReport() {
   const [dateTo, setDateTo] = useState(today);
   const [zoneId, setZoneId] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
+  const [line, setLine] = useState<string>("");
+  const [materialQ, setMaterialQ] = useState("");
+  const [photoRow, setPhotoRow] = useState<PopPlacementReportRow | null>(null);
 
   useEffect(() => {
     zonesApi.list().then(setZones).catch(() => setZones([]));
@@ -73,9 +92,14 @@ export function PopPlacementsReport() {
     [users, zoneId],
   );
 
-  const totalUnits = useMemo(() => data.reduce((s, r) => s + (r.Quantity || 0), 0), [data]);
-  const pdvCount = useMemo(() => new Set(data.map((r) => r.PdvId)).size, [data]);
-  const byMaterial = useMemo(() => summarizeByMaterial(data), [data]);
+  const lines = useMemo(
+    () => [...new Set(data.map((r) => r.Line).filter((l): l is string => !!l))].sort((a, b) => a.localeCompare(b, "es")),
+    [data],
+  );
+  const rows = useMemo(() => filterByMaterial(data, line, materialQ), [data, line, materialQ]);
+  const totalUnits = useMemo(() => rows.reduce((s, r) => s + (r.Quantity || 0), 0), [rows]);
+  const pdvCount = useMemo(() => new Set(rows.map((r) => r.PdvId)).size, [rows]);
+  const byMaterial = useMemo(() => summarizeByMaterial(rows), [rows]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -92,8 +116,8 @@ export function PopPlacementsReport() {
   };
 
   const handleExport = () => {
-    if (data.length === 0) { toast.error("No hay datos para exportar"); return; }
-    const detail = data.map((r) => ({
+    if (rows.length === 0) { toast.error("No hay datos para exportar"); return; }
+    const detail = rows.map((r) => ({
       Fecha: formatDate(r.Date),
       Usuario: r.UserName,
       PDV: r.PdvName,
@@ -104,6 +128,7 @@ export function PopPlacementsReport() {
       Tipo: r.Type ?? "",
       Cantidad: r.Quantity,
       Ubicacion: r.Location ?? "",
+      Fotos: (r.Photos ?? []).length,
       VisitaId: r.VisitId,
     }));
     exportToExcel(`Colocaciones_POP_${dateFrom}_${dateTo}`, [
@@ -130,7 +155,7 @@ export function PopPlacementsReport() {
             <RefreshCw size={14} className={syncing ? "animate-spin" : ""} /> {syncing ? "Sincronizando..." : "Sincronizar catálogo"}
           </Button>
         )}
-        <Button variant="outline" size="sm" onClick={handleExport} disabled={data.length === 0} className="gap-1.5">
+        <Button variant="outline" size="sm" onClick={handleExport} disabled={rows.length === 0} className="gap-1.5">
           <Download size={14} /> Excel
         </Button>
       </div>
@@ -150,6 +175,11 @@ export function PopPlacementsReport() {
               <option value="">Todos los usuarios</option>
               {visibleUsers.map((u) => <option key={u.UserId} value={u.UserId}>{u.DisplayName}</option>)}
             </select>
+            <select value={line} onChange={(e) => setLine(e.target.value)} aria-label="Línea" className={selectCls}>
+              <option value="">Todas las líneas</option>
+              {lines.map((l) => <option key={l} value={l}>{l}</option>)}
+            </select>
+            <SearchInput value={materialQ} onChange={setMaterialQ} placeholder="Buscar artículo (ej: van kiff, MKT-000008)" className="w-full sm:w-72" />
           </div>
         </CardContent>
       </Card>
@@ -157,7 +187,7 @@ export function PopPlacementsReport() {
       <div className="grid grid-cols-3 gap-2">
         <Card><CardContent className="p-3 text-center">
           <Megaphone size={16} className="mx-auto text-[#A48242] mb-1" />
-          <p className="text-2xl font-bold tabular-nums">{data.length}</p>
+          <p className="text-2xl font-bold tabular-nums">{rows.length}</p>
           <p className="text-[10px] text-muted-foreground">Colocaciones</p>
         </CardContent></Card>
         <Card><CardContent className="p-3 text-center">
@@ -176,11 +206,11 @@ export function PopPlacementsReport() {
         <div className="flex justify-center py-12">
           <div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : data.length === 0 ? (
+      ) : rows.length === 0 ? (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground">
             <Megaphone size={32} className="mx-auto mb-2 opacity-30" />
-            <p className="text-sm">No hay colocaciones en este periodo</p>
+            <p className="text-sm">{data.length === 0 ? "No hay colocaciones en este periodo" : "Ningún artículo coincide con el filtro"}</p>
           </CardContent>
         </Card>
       ) : (
@@ -191,7 +221,10 @@ export function PopPlacementsReport() {
                 <p className="text-[10px] font-bold text-[#A48242] uppercase tracking-wider mb-2">Top artículos</p>
                 <div className="flex gap-1.5 flex-wrap">
                   {byMaterial.slice(0, 8).map((m) => (
-                    <Badge key={m.Codigo || m.Material} variant="outline" className="text-[11px] font-normal">
+                    <Badge
+                      key={m.Codigo || m.Material} variant="outline" className="text-[11px] font-normal cursor-pointer hover:bg-muted"
+                      onClick={() => setMaterialQ(m.Codigo || m.Material)} title="Filtrar por este artículo"
+                    >
                       {m.Codigo || "s/código"} · {m.Material} <span className="font-bold ml-1">x{m.Cantidad}</span>
                     </Badge>
                   ))}
@@ -212,10 +245,11 @@ export function PopPlacementsReport() {
                       <th className="text-left p-3 font-medium">Material</th>
                       <th className="text-left p-3 font-medium">Ubicación</th>
                       <th className="text-right p-3 font-medium">Cant.</th>
+                      <th className="text-center p-3 font-medium">Foto</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {data.map((r, i) => (
+                    {rows.map((r, i) => (
                       <tr key={`${r.VisitId}-${r.MaterialCode ?? r.MaterialName}-${i}`} className="hover:bg-muted/30">
                         <td className="p-3 whitespace-nowrap">{formatDate(r.Date)}</td>
                         <td className="p-3"><p className="truncate max-w-[140px]">{r.UserName}</p></td>
@@ -227,6 +261,13 @@ export function PopPlacementsReport() {
                         </td>
                         <td className="p-3"><p className="text-xs truncate max-w-[140px]">{r.Location || "-"}</p></td>
                         <td className="p-3 text-right font-bold tabular-nums">{r.Quantity}</td>
+                        <td className="p-3 text-center">
+                          {(r.Photos?.length ?? 0) > 0 ? (
+                            <button onClick={() => setPhotoRow(r)} className="inline-flex items-center gap-1 text-xs text-[#A48242] hover:underline" aria-label="Ver fotos">
+                              <Camera size={14} />{r.Photos!.length > 1 && r.Photos!.length}
+                            </button>
+                          ) : <span className="text-xs text-muted-foreground">-</span>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -236,6 +277,24 @@ export function PopPlacementsReport() {
           </Card>
         </>
       )}
+
+      <Dialog open={!!photoRow} onOpenChange={(o) => !o && setPhotoRow(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-base">{photoRow?.PdvName}</DialogTitle>
+            <p className="text-xs text-muted-foreground">
+              {photoRow && formatDate(photoRow.Date)} · {photoRow?.UserName} · fotos de la colocación de la visita
+            </p>
+          </DialogHeader>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {photoRow?.Photos?.map((url) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer">
+                <img src={url} alt="Colocación POP" loading="lazy" className="w-full rounded-lg border border-border object-cover" />
+              </a>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

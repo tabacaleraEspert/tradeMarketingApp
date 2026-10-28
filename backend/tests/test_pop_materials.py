@@ -456,7 +456,7 @@ class TestReport:
             "VisitId": v1.VisitId, "Date": row["Date"], "UserId": sub.UserId, "UserName": sub.DisplayName,
             "PdvId": p1.PdvId, "PdvName": p1.Name, "ZoneName": zone.Name, "MaterialCode": code,
             "MaterialName": "ESPERT - STOPPER - 2026", "Line": "ESPERT", "Type": "STOPPER",
-            "Quantity": 2, "Location": "Vidriera",
+            "Quantity": 2, "Location": "Vidriera", "Photos": [],
         }
         ids = {x["VisitId"] for x in client.get("/reports/pop-placements", params={"user_id": outsider.UserId}).json()}
         assert ids == {v2.VisitId}
@@ -464,6 +464,20 @@ class TestReport:
             "/reports/pop-placements", params={"date_from": "2026-10-06", "date_to": "2026-10-06"}).json()}
         assert v2.VisitId in ids and v1.VisitId not in ids
         assert client.get("/reports/pop-placements", params={"date_from": "nope"}).status_code == 422
+
+    def test_fotos_de_la_accion_pop(self, client, db):
+        from app.models.file import File as FileModel
+        from app.models.visit import VisitPhoto as VisitPhotoModel
+        zone, manager, sub, outsider, code, p1, v1, v2 = self._seed(client, db)
+        for i, ptype in enumerate(["action_pop_123", "pop", "fachada"]):
+            f = FileModel(BlobKey=f"t/{_uid()}.jpg", Url=f"https://x/{ptype}.jpg")
+            db.add(f)
+            db.flush()
+            db.add(VisitPhotoModel(VisitId=v1.VisitId, FileId=f.FileId, PhotoType=ptype, Url="", SortOrder=i))
+        db.commit()
+        rows = {r["VisitId"]: r for r in client.get("/reports/pop-placements").json()}
+        assert len(rows[v1.VisitId]["Photos"]) == 2  # fachada excluida
+        assert rows[v2.VisitId]["Photos"] == []
 
     def test_manager_ve_solo_su_subarbol(self, client, db):
         zone, manager, sub, outsider, code, p1, v1, v2 = self._seed(client, db)

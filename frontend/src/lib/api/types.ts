@@ -223,6 +223,8 @@ export interface PopPlacementReportRow {
   Type: string | null;
   Quantity: number;
   Location: string | null;
+  /** URLs de las fotos de la acción "pop" de la visita (no por renglón). */
+  Photos?: string[];
 }
 
 // --- Visit Loose Survey (step 12) ---

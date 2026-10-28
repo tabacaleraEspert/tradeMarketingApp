@@ -1758,12 +1758,35 @@ def pop_placements_report(
         q = q.filter(VisitModel.OpenedAt < dt_to)
 
     rows = q.order_by(VisitModel.OpenedAt.desc(), PlacementModel.VisitPOPPlacementId).all()
+
+    # Fotos de la acción "pop" (se suben por visita con PhotoType action_pop_<id>, o "pop"
+    # desde la pantalla de fotos). Chunks por el límite de 2100 parámetros de SQL Server.
+    from ..models.file import File as FileModel
+    from ..storage import storage
+    photos: dict[int, list[str]] = {}
+    visit_ids = list({r[0] for r in rows})
+    for i in range(0, len(visit_ids), 1000):
+        for vp, f in (
+            db.query(VisitPhotoModel, FileModel)
+            .join(FileModel, FileModel.FileId == VisitPhotoModel.FileId)
+            .filter(
+                VisitPhotoModel.VisitId.in_(visit_ids[i:i + 1000]),
+                (VisitPhotoModel.PhotoType == "pop") | VisitPhotoModel.PhotoType.like("action_pop_%"),
+            )
+            .order_by(VisitPhotoModel.VisitId, VisitPhotoModel.SortOrder)
+            .all()
+        ):
+            url = storage.get_url(f.BlobKey) if f.BlobKey else (f.Url or "")
+            if url:
+                photos.setdefault(vp.VisitId, []).append(url)
+
     return [
         {
             "VisitId": visit_id, "Date": opened_at.isoformat() if opened_at else None,
             "UserId": uid, "UserName": user_name, "PdvId": pdv_id, "PdvName": pdv_name,
             "ZoneName": zone_name or "", "MaterialCode": code, "MaterialName": name,
             "Line": line, "Type": mtype, "Quantity": qty, "Location": location,
+            "Photos": photos.get(visit_id, []),
         }
         for (visit_id, opened_at, uid, user_name, pdv_id, pdv_name, zone_name,
              code, name, line, mtype, qty, location) in rows
