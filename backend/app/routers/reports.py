@@ -48,9 +48,11 @@ def cached_report(*param_names: str):
     def deco(fn):
         @functools.wraps(fn)
         def wrapper(**kwargs):
-            key = (fn.__name__, kwargs["current_user"].UserId) + tuple(
-                kwargs.get(p) for p in param_names
-            )
+            # Los admin ven todo (sin filtro jerárquico) → comparten entrada: que Rodri y
+            # Davor abran el dashboard no dispare dos veces los reportes pesados (S0 al 100%).
+            uid = kwargs["current_user"].UserId
+            scope = "admin" if get_user_role(kwargs["db"], uid) == "admin" else uid
+            key = (fn.__name__, scope) + tuple(kwargs.get(p) for p in param_names)
             return _REPORTS_CACHE.get_or_build(key, lambda: fn(**kwargs))
         return wrapper
     return deco

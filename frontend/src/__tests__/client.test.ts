@@ -261,15 +261,23 @@ describe("ApiError", () => {
 // ---------------------------------------------------------------------------
 
 describe("network errors", () => {
-  it("should wrap fetch throw in ApiError with status 0", async () => {
+  it("should wrap fetch throw in ApiError with status 0 (after one GET retry)", async () => {
     mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
-    try {
-      await api.get("/health");
-    } catch (e) {
-      expect(e).toBeInstanceOf(ApiError);
-      expect((e as ApiError).status).toBe(0);
-      expect((e as ApiError).message).toMatch(/conexión/i);
-    }
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(api.get("/health")).rejects.toMatchObject({ status: 0, message: expect.stringMatching(/conexión/i) });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("GET se recupera si el reintento anda", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Load failed"));
+    mockFetch.mockResolvedValueOnce(makeResponse({ ok: true }));
+    await expect(api.get("/health")).resolves.toEqual({ ok: true });
+  });
+
+  it("POST no reintenta", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await expect(api.post("/visits", {})).rejects.toBeInstanceOf(ApiError);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
 

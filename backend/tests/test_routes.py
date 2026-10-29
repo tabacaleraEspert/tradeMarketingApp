@@ -373,3 +373,37 @@ class TestRouteDays:
         data = resp.json()
         assert "routes" in data
         assert "unroutedPdvs" in data
+
+
+class TestRouteDaysWithVisits:
+    """29/10 prod: cambiar frecuencia con el día de hoy ya empezado → 500 (FK Visit.RouteDayId)."""
+
+    def _setup(self, client, user, pdv):
+        from app.models.route import today_ar
+        route = _make_route(client, assigned_user_id=user["UserId"])
+        client.post(f"/routes/{route['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 0, "Priority": 3})
+        today = today_ar().isoformat()
+        day = client.post(f"/routes/{route['RouteId']}/days", json={"WorkDate": today, "AssignedUserId": user["UserId"]}).json()
+        empty = client.post(f"/routes/{route['RouteId']}/days", json={"WorkDate": "2099-01-05", "AssignedUserId": user["UserId"]}).json()
+        v = client.post("/visits", json={"PdvId": pdv["PdvId"], "UserId": user["UserId"], "RouteDayId": day["RouteDayId"]})
+        assert v.status_code == 201, v.text
+        return route, day, empty
+
+    def test_cambio_frecuencia_conserva_dia_con_visitas(self, client, user, pdv):
+        route, day, empty = self._setup(client, user, pdv)
+        r = client.patch(f"/routes/{route['RouteId']}", json={"FrequencyType": "daily"})
+        assert r.status_code == 200, r.text
+        ids = {d["RouteDayId"] for d in client.get(f"/routes/{route['RouteId']}/days").json()}
+        assert day["RouteDayId"] in ids and empty["RouteDayId"] not in ids
+
+    def test_fecha_fin_conserva_dia_con_visitas(self, client, user, pdv):
+        route, day, empty = self._setup(client, user, pdv)
+        r = client.patch(f"/routes/{route['RouteId']}", json={"EndDate": "2026-01-01"})
+        assert r.status_code == 200, r.text
+        ids = {d["RouteDayId"] for d in client.get(f"/routes/{route['RouteId']}/days").json()}
+        assert empty["RouteDayId"] not in ids
+
+    def test_borrar_dia_con_visitas_409(self, client, user, pdv):
+        route, day, empty = self._setup(client, user, pdv)
+        assert client.delete(f"/routes/days/{day['RouteDayId']}").status_code == 409
+        assert client.delete(f"/routes/days/{empty['RouteDayId']}").status_code == 204

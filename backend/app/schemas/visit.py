@@ -1,5 +1,13 @@
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+CLOSE_REASON_MAX = 200  # Visit.CloseReason String(200)
+
+
+def _clip_close_reason(v: str | None) -> str | None:
+    """Recorta en vez de reventar con 500 (truncation de SQL Server). El texto completo
+    del recordatorio ya se guarda como nota del PDV (VisitSummaryPage)."""
+    return v[:CLOSE_REASON_MAX] if isinstance(v, str) else v
 
 
 class VisitBase(BaseModel):
@@ -12,6 +20,8 @@ class VisitBase(BaseModel):
     FormStatus: str = "DRAFT"
     MaterialExternalId: str | None = None
     CloseReason: str | None = None
+
+    _clip = field_validator("CloseReason")(_clip_close_reason)
 
 
 class VisitCreate(VisitBase):
@@ -26,6 +36,8 @@ class VisitUpdate(BaseModel):
     MaterialExternalId: str | None = None
     CloseReason: str | None = None  # Recordatorio próxima visita
     ClosedAt: datetime | None = None
+
+    _clip = field_validator("CloseReason")(_clip_close_reason)
 
 
 class Visit(VisitBase):

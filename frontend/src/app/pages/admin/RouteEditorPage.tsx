@@ -610,17 +610,18 @@ export function RouteEditorPage() {
       const futurePlanned = freshDays.filter((d) =>
         d.WorkDate.split("T")[0] >= todayStr && d.Status === "PLANNED"
       );
+      const deletedIds = new Set<number>();
       for (const fd of futurePlanned) {
-        try { await routesApi.deleteDay(fd.RouteDayId); } catch { /* skip */ }
+        // Un día con visitas (p.ej. hoy, ya empezado) no se borra (409) y se conserva
+        try { await routesApi.deleteDay(fd.RouteDayId); deletedIds.add(fd.RouteDayId); } catch { /* keep */ }
       }
       // Update local state after deletion
-      const deletedIds = new Set(futurePlanned.map((d) => d.RouteDayId));
       setRouteDays((prev) => prev.filter((d) => !deletedIds.has(d.RouteDayId)));
 
-      // Existing dates = only past/non-planned (not deleted)
+      // Existing dates = todo lo que quedó (pasados, no planificados y los que no se pudieron borrar)
       const existingDates = new Set(
         freshDays
-          .filter((d) => d.Status !== "PLANNED" || d.WorkDate.split("T")[0] < todayStr)
+          .filter((d) => !deletedIds.has(d.RouteDayId))
           .map((d) => d.WorkDate.split("T")[0])
       );
 

@@ -142,7 +142,13 @@ async function handleResponse<T>(res: Response): Promise<T> {
     return undefined as T;
   }
 
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    // Respuesta cortada a mitad de camino (4G inestable, server lento): tratarla como
+    // falla de red y no como error desconocido ("No se pudo cargar el PDV").
+    throw new ApiError(friendlyErrorMessage(0, null), 0, { cause: String(e) }, requestId);
+  }
 }
 
 type RequestOptions = RequestInit & { params?: Record<string, string | number | boolean | undefined> };
@@ -199,7 +205,22 @@ export async function apiRequest<T>(
     await tryRefreshAccessToken();
   }
 
-  let res = await doFetch(url, init, needsAuth);
+  // GET idempotente: un reintento ante falla de red/respuesta cortada (los picos de la
+  // DB S0 dejan requests de 5-8 s y en 4G se cortan). Mutaciones no: van por la cola
+  // offline. Sin conexión no reintenta (el caller cae al cache de inmediato).
+  const isGet = (init.method || "GET").toUpperCase() === "GET";
+  const retryable = (e: unknown) =>
+    isGet && e instanceof ApiError && e.status === 0 && navigator.onLine;
+  const pause = () => new Promise((r) => setTimeout(r, 800));
+
+  let res: Response;
+  try {
+    res = await doFetch(url, init, needsAuth);
+  } catch (e) {
+    if (!retryable(e)) throw e;
+    await pause();
+    res = await doFetch(url, init, needsAuth);
+  }
 
   // Si el backend rechaza por 401 y es una ruta autenticada, intentamos refresh y reintentamos UNA vez.
   if (res.status === 401 && needsAuth) {
@@ -215,7 +236,13 @@ export async function apiRequest<T>(
     }
   }
 
-  return handleResponse<T>(res);
+  try {
+    return await handleResponse<T>(res);
+  } catch (e) {
+    if (!retryable(e)) throw e;
+    await pause();
+    return handleResponse<T>(await doFetch(url, init, needsAuth));
+  }
 }
 
 export const api = {

@@ -260,6 +260,25 @@ def _audit(db: Session, user: UserModel, action: str, route_id: int, payload: di
     ))
 
 
+def _without_visits(db: Session, day_ids: list[int]) -> list[int]:
+    """Días planificados que se pueden borrar: los que ya tienen visitas (p.ej. el de
+    hoy, empezado) quedan — borrarlos rompe el FK Visit.RouteDayId (500 al cambiar
+    frecuencia con la ruta en curso, 29/10)."""
+    if not day_ids:
+        return []
+    from ..models.visit import Visit as VisitModel
+    with_visits = {
+        row[0] for row in db.query(VisitModel.RouteDayId).filter(VisitModel.RouteDayId.in_(day_ids)).distinct()
+    }
+    return [d for d in day_ids if d not in with_visits]
+
+
+def _delete_planned_days(db: Session, day_ids: list[int]) -> None:
+    if day_ids:
+        db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
+        db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
+
+
 def _route_snapshot(r: RouteModel) -> dict:
     return {k: getattr(r, k, None) for k in (
         "Name", "RouteType", "IsActive", "IsFocus", "AssignedUserId", "FrequencyType",
@@ -873,11 +892,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
         ).all()
         if new_assigned_user is None:
             # Desasignar: borrar días futuros planificados (hijos primero por FK)
-            day_ids = [fd.RouteDayId for fd in future_days]
-            if day_ids:
-                db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).delete(synchronize_session=False)
-            for fd in future_days:
-                db.delete(fd)
+            _delete_planned_days(db, _without_visits(db, [fd.RouteDayId for fd in future_days]))
         else:
             # Reasignar: actualizar AssignedUserId en días futuros
             for fd in future_days:
@@ -892,9 +907,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
                 RouteDayModel.Status == "PLANNED",
             ).all()
         ]
-        if future_planned_ids:
-            db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
-            db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(future_planned_ids)).delete(synchronize_session=False)
+        _delete_planned_days(db, _without_visits(db, future_planned_ids))
 
     # Fecha de fin: los días planificados posteriores sobran.
     if r.EndDate is not None and r.EndDate != before["EndDate"]:
@@ -906,9 +919,7 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
                 RouteDayModel.Status == "PLANNED",
             ).all()
         ]
-        if beyond_ids:
-            db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(beyond_ids)).delete(synchronize_session=False)
-            db.query(RouteDayModel).filter(RouteDayModel.RouteDayId.in_(beyond_ids)).delete(synchronize_session=False)
+        _delete_planned_days(db, _without_visits(db, beyond_ids))
 
     after = _route_snapshot(r)
     diff = [k for k in after if after[k] != before[k]]
@@ -1282,6 +1293,8 @@ def delete_route_day(route_day_id: int, current_user: UserModel = Depends(get_cu
     route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
     if route:
         _assert_route_access(db, current_user, route)
+    if not _without_visits(db, [route_day_id]):
+        raise HTTPException(status_code=409, detail="El día ya tiene visitas cargadas, no se puede borrar")
     db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId == route_day_id).delete()
     db.delete(rd)
     db.commit()

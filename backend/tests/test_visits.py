@@ -489,3 +489,11 @@ class TestReopenVisit:
         other = _make_pdv(client, channel["ChannelId"])
         assert _make_visit(client, other["PdvId"], vendedor["user"]["UserId"]).status_code == 201
         assert client.post(f"/visits/{v['VisitId']}/reopen").status_code == 409
+
+
+def test_close_reason_largo_se_recorta(client, pdv, vendedor):
+    """29/10 prod: recordatorio de >200 chars → 500 (truncation SQL Server) y la cola reintentaba."""
+    v = _make_visit(client, pdv["PdvId"], vendedor["user"]["UserId"]).json()
+    r = client.patch(f"/visits/{v['VisitId']}", json={"Status": "CLOSED", "CloseReason": "x" * 450})
+    assert r.status_code == 200, r.text
+    assert len(r.json()["CloseReason"]) == 200
