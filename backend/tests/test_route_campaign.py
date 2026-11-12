@@ -141,16 +141,17 @@ def test_campana_vencida_deja_de_dar_visibilidad(client):
 # Permisos y validaciones
 # ---------------------------------------------------------------------------
 
-def test_solo_admin_crea_y_edita_campanas(client):
-    rm = _user(client, "regional_manager")
+def test_solo_admin_crea_y_borra_campanas_y_manager_ajeno_no_edita(client):
+    rm, outsider = _user(client, "regional_manager"), _user(client, "regional_manager")
     trade = _user(client, "vendedor", manager_id=rm["UserId"])
-    h = _login(client, rm["Email"])
+    h, ho = _login(client, rm["Email"]), _login(client, outsider["Email"])
     _route(client, trade["UserId"], "campaign", end=IN_A_MONTH, headers=h, expect=403)
     camp = _route(client, trade["UserId"], "campaign", end=IN_A_MONTH)
-    assert client.patch(f"/routes/{camp['RouteId']}", json={"Name": "x"}, headers=h).status_code == 403
     assert client.delete(f"/routes/{camp['RouteId']}", headers=h).status_code == 403
+    # Un manager que no tiene al asignado en su equipo no la edita ni le toca PDVs.
+    assert client.patch(f"/routes/{camp['RouteId']}", json={"Name": "x"}, headers=ho).status_code == 403
     pdv = _pdv(client)
-    assert client.post(f"/routes/{camp['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 1}, headers=h).status_code == 403
+    assert client.post(f"/routes/{camp['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 1}, headers=ho).status_code == 403
     # Pero el manager sigue creando regulares como siempre.
     _route(client, trade["UserId"], headers=h)
 
@@ -249,3 +250,22 @@ def test_trade_ejecuta_su_campana_pero_no_la_edita(client):
     r = client.patch(f"/routes/days/{day['RouteDayId']}/pdvs/{pdv['PdvId']}", json={"ExecutionStatus": "DONE"}, headers=h)
     assert r.status_code == 200, r.text
     assert client.patch(f"/routes/{camp['RouteId']}", json={"Name": "mía"}, headers=h).status_code == 403
+
+
+def test_manager_edita_campana_de_su_equipo_pero_no_crea_ni_borra(client):
+    """12/11: el territory manager gestiona las campañas de sus subordinados (caso cadenas)."""
+    tm, other_tm = _user(client, "territory_manager"), _user(client, "territory_manager")
+    trade = _user(client, "vendedor", manager_id=tm["UserId"])
+    camp = _route(client, trade["UserId"], "campaign", end=IN_A_MONTH)
+    pdv = _pdv(client)
+    h, ho = _login(client, tm["Email"]), _login(client, other_tm["Email"])
+
+    assert client.patch(f"/routes/{camp['RouteId']}", json={"Name": "Cadenas X"}, headers=h).status_code == 200
+    assert client.post(f"/routes/{camp['RouteId']}/pdvs", json={"PdvId": pdv["PdvId"], "SortOrder": 1}, headers=h).status_code == 201
+    day = client.post(f"/routes/{camp['RouteId']}/days", json={"WorkDate": TODAY.isoformat(), "AssignedUserId": trade["UserId"]}, headers=h)
+    assert day.status_code == 201, day.text
+    assert client.delete(f"/routes/{camp['RouteId']}/pdvs/{pdv['PdvId']}", headers=h).status_code == 204
+    # crear y borrar siguen siendo de admin; otro manager no toca nada
+    _route(client, trade["UserId"], "campaign", end=IN_A_MONTH, headers=h, expect=403)
+    assert client.delete(f"/routes/{camp['RouteId']}", headers=h).status_code == 403
+    assert client.patch(f"/routes/{camp['RouteId']}", json={"Name": "y"}, headers=ho).status_code == 403

@@ -210,12 +210,15 @@ def _assert_campaign_rules(
     current_user: UserModel,
     route: RouteModel | None,
     data: "RouteCreate | RouteUpdate | None" = None,
+    allow_manager: bool = True,
 ) -> None:
     """Reglas de rutas de campaña y fecha de fin (se suman a `_assert_route_access`).
 
     - El tipo (regular/campaña) se elige al crear y no cambia.
-    - Crear/editar/borrar una campaña, o tocar sus PDVs y días: solo admin. El trade
-      asignado igual la ejecuta (visitas, estados del día) — esos endpoints no llaman acá.
+    - Crear o borrar una campaña: solo admin. Editarla y tocar sus PDVs y días: admin, o el
+      manager que tiene al asignado en su sub-árbol (12/11: Santiago gestiona las de cadenas
+      de Martín sin ser admin). El trade asignado igual la ejecuta (visitas, estados del
+      día) — esos endpoints no llaman acá — pero no la edita.
     - Campaña: nunca foco (fuera de KPI/TMR) y con fecha de fin obligatoria.
     - Fecha de fin >= fecha de inicio (`FrequencyConfig.startDate`) si hay inicio.
     """
@@ -224,7 +227,12 @@ def _assert_campaign_rules(
         raise HTTPException(400, "El tipo de ruta (regular / campaña) no se puede cambiar")
     campaign = _is_campaign(route) or (route is None and getattr(data, "RouteType", None) == ROUTE_CAMPAIGN)
     if campaign and get_user_role(db, current_user.UserId) != "admin":
-        raise HTTPException(403, "Solo un admin puede crear o modificar rutas de campaña")
+        manages = (
+            allow_manager and route is not None and route.AssignedUserId is not None
+            and route.AssignedUserId in get_all_subordinate_ids(db, current_user.UserId)
+        )
+        if not manages:
+            raise HTTPException(403, "Solo un admin o el responsable del equipo puede modificar rutas de campaña")
     if data is None:
         return
     if campaign and getattr(data, "IsFocus", None):
@@ -938,7 +946,7 @@ def delete_route(route_id: int, db: Session = Depends(get_db), current_user: Use
     r = db.query(RouteModel).filter(RouteModel.RouteId == route_id).first()
     if not r:
         raise HTTPException(status_code=404, detail="Ruta no encontrada")
-    _assert_campaign_rules(db, current_user, r)
+    _assert_campaign_rules(db, current_user, r, allow_manager=False)
     _audit(db, current_user, "ROUTE_DELETE", route_id, {"antes": _route_snapshot(r)})
 
     # PDVs keep their AssignedUserId — deleting a route does NOT unassign the TM.
