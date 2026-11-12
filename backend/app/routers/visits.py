@@ -233,6 +233,111 @@ def admin_list_visits(
     return make_page(items, total, p)
 
 
+EXPORT_MAX_VISITS = 5000
+
+
+@router.get("/answers-export")
+def export_visit_answers(
+    status: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Consolidado de respuestas de formularios para Excel (Censos y Respuestas).
+
+    Mismos filtros y visibilidad que GET /visits. Una columna por pregunta
+    (FormId + KeyName, así las versiones de un mismo formulario comparten columna).
+    """
+    from ..hierarchy import visible_user_ids
+    from ..models.form import Form as FormModel
+
+    def _day(value: str | None, name: str):
+        if not value:
+            return None
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{name} inválido: {value}")
+
+    start, end = _day(date_from, "date_from"), _day(date_to, "date_to")
+    visible = visible_user_ids(db, current_user)
+    q = (
+        db.query(VisitModel, PDVModel.Name, PDVModel.Address, UserModel.DisplayName)
+        .outerjoin(PDVModel, VisitModel.PdvId == PDVModel.PdvId)
+        .outerjoin(UserModel, VisitModel.UserId == UserModel.UserId)
+    )
+    if visible is not None:
+        q = q.filter(VisitModel.UserId.in_(visible))
+    if status:
+        q = q.filter(VisitModel.Status == status)
+    if start:
+        q = q.filter(VisitModel.OpenedAt >= start)
+    if end:
+        q = q.filter(VisitModel.OpenedAt < end + timedelta(days=1))
+    rows = q.order_by(VisitModel.OpenedAt.desc()).limit(EXPORT_MAX_VISITS + 1).all()
+    truncated = len(rows) > EXPORT_MAX_VISITS
+    rows = rows[:EXPORT_MAX_VISITS]
+
+    ids = [v.VisitId for v, *_ in rows]
+    answers: dict[int, list] = {}
+    for i in range(0, len(ids), 900):  # SQL Server: tope ~2100 parámetros
+        for a in db.query(VisitAnswerModel).filter(VisitAnswerModel.VisitId.in_(ids[i:i + 900])).all():
+            answers.setdefault(a.VisitId, []).append(a)
+
+    q_ids = list({a.QuestionId for lst in answers.values() for a in lst})
+    questions: dict[int, FormQuestionModel] = {}
+    for i in range(0, len(q_ids), 900):
+        for fq in db.query(FormQuestionModel).filter(FormQuestionModel.QuestionId.in_(q_ids[i:i + 900])).all():
+            questions[fq.QuestionId] = fq
+    form_ids = {fq.FormId for fq in questions.values()}
+    forms = {f.FormId: f.Name for f in db.query(FormModel).filter(FormModel.FormId.in_(form_ids)).all()} if form_ids else {}
+
+    from ..models.form import FormOption as FormOptionModel
+    options: dict[int, dict[str, str]] = {}
+    for i in range(0, len(q_ids), 900):
+        for o in db.query(FormOptionModel).filter(FormOptionModel.QuestionId.in_(q_ids[i:i + 900])).order_by(FormOptionModel.SortOrder).all():
+            options.setdefault(o.QuestionId, {})[o.Value] = o.Label
+
+    # Columna por (FormId, KeyName); etiqueta, orden y opciones de la versión más nueva.
+    columns: dict[str, dict] = {}
+    col_of: dict[int, str] = {}
+    for fq in sorted(questions.values(), key=lambda x: x.FormVersion):
+        key = f"{fq.FormId}:{fq.KeyName}"
+        col_of[fq.QuestionId] = key
+        columns[key] = {
+            "key": key, "FormId": fq.FormId, "FormName": forms.get(fq.FormId, f"Formulario #{fq.FormId}"),
+            "Label": fq.Label, "QType": fq.QType, "SortOrder": fq.SortOrder,
+            # valor → etiqueta; las versiones viejas aportan opciones que ya no existen
+            "Options": {**columns.get(key, {}).get("Options", {}), **options.get(fq.QuestionId, {})},
+        }
+
+    out = []
+    for v, pdv_name, pdv_address, user_name in rows:
+        vals = {}
+        for a in answers.get(v.VisitId, []):
+            key = col_of.get(a.QuestionId)
+            if key:
+                vals[key] = {
+                    "QType": columns[key]["QType"], "ValueText": a.ValueText,
+                    "ValueNumber": float(a.ValueNumber) if a.ValueNumber is not None else None,
+                    "ValueBool": a.ValueBool, "ValueJson": a.ValueJson,
+                }
+        out.append({
+            "VisitId": v.VisitId, "UserId": v.UserId, "Status": v.Status,
+            "OpenedAt": v.OpenedAt.isoformat() if v.OpenedAt else None,
+            "ClosedAt": v.ClosedAt.isoformat() if v.ClosedAt else None,
+            "PdvName": pdv_name or f"PDV #{v.PdvId}", "PdvAddress": pdv_address,
+            "UserName": user_name or f"Usuario #{v.UserId}",
+            "answers": vals,
+        })
+    return {
+        "questions": sorted(columns.values(), key=lambda c: (c["FormName"], c["FormId"], c["SortOrder"])),
+        "visits": out,
+        "truncated": truncated,
+    }
+
+
 @router.get("/{visit_id}", response_model=Visit)
 def get_visit(visit_id: int, db: Session = Depends(get_db)):
     v = db.query(VisitModel).filter(VisitModel.VisitId == visit_id).first()

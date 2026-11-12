@@ -1,4 +1,4 @@
-# Traspaso masivo de cartera entre trades (2026-11-12) — IMPLEMENTADO, sin commitear ni deployar
+# Traspaso masivo de cartera entre trades (2026-11-12) — DEPLOYADO (26c76fe + b410f6c)
 
 Pedido (audio 12/11): migrar cartera completa o parcial de un trade a otro sin armar rutas foco ni ir PDV por PDV. Solo admin.
 
@@ -6,7 +6,17 @@ Pedido (audio 12/11): migrar cartera completa o parcial de un trade a otro sin a
 - [x] Backend `GET /pdvs/admin-ids` (admin): ids de todos los PDVs filtrados (tope 5000); filtros de Gestión factorizados en `AdminPdvFilters` / `_admin_pdv_query`.
 - [x] Front Gestión PDV (solo admin): checkbox por PDV, "Esta página" / "Los N filtrados", "Pasar a otro trade", botón "Traspasar cartera"; `PortfolioTransferModal.tsx` con resumen previo.
 - [x] Tests `tests/test_transfer_portfolio.py` (5) · suite 693 ok · front 234 ok + build · E2E Playwright local SQLite (parcial, todos los filtrados, completa) · dry-run contra DB prod (Trica 140: 807 PDVs, 11 rutas, 20 días; 2 s).
-- [ ] Commit + deploy (backend antes que front).
+- [x] Commit + deploy (push lo hace Davor con `! git push origin main`; a Claude se lo bloquea el classifier).
+- [ ] Primer traspaso real en prod (Rodri): hacerlo chico.
+
+# Cambios 12/11 (tarde) — DEPLOYADOS
+- [x] 767bb31: manager del equipo edita rutas de campaña de sus subordinados (`_assert_campaign_rules`); crear/borrar sigue solo admin. Afecta también a Nahuel (La Plata). Sin verificar en prod con usuario de Santiago.
+- [x] 1fa3149: Gestión PDV › celda "Ruta" → `PdvRouteModal` → `POST /routes/move-pdv` (TM+): cambia de ruta regular, toma el trade de la ruta, re-optimiza origen y destino (`_optimize_route_order`, pisa orden manual; días ya iniciados no). Auto-optimizar NO corre en editor de rutas ni en traspaso masivo.
+
+# Excel consolidado en Censos y Respuestas (2026-11-12, pedido Nahuel) — commiteado, falta push
+- [x] `GET /visits/answers-export` (mismos filtros/jerarquía que `/visits`, tope 5000 visitas, columna por FormId+KeyName, opciones valor→etiqueta).
+- [x] Front: botón "Descargar Excel" en `VisitDataExplorer` → `lib/visitAnswersExport.ts`: hojas Visitas / Por vendedor / Por vendedor y día (suma numéricas, cuenta "Sí", cuenta por opción).
+- [x] Tests back + front, build, lectura contra prod como Nahuel (415 visitas nov, 10 s). Sin probar el click en navegador.
 
 # PLAN: Ruteo cadenas 24h AMBA (2026-10-30 → 2026-11-11) — CARGADO EN PROD 11/11
 

@@ -14,6 +14,7 @@ import { API_BASE_URL } from "@/lib/api/config";
 import { getAccessToken } from "@/lib/api/auth-storage";
 import { toast } from "sonner";
 import { exportToExcel } from "@/lib/exportExcel";
+import { buildAnswerSheets, renderAnswerValue, type AnswersExport } from "@/lib/visitAnswersExport";
 
 interface EnrichedVisit {
   VisitId: number;
@@ -103,26 +104,6 @@ function formatDuration(openedAt: string | null, closedAt: string | null): strin
   return m === 0 ? `${h} h` : `${h} h ${m} min`;
 }
 
-function renderAnswerValue(a: { QType: string; ValueText: string | null; ValueNumber: number | null; ValueBool: boolean | null; ValueJson: string | null }) {
-  if (a.ValueJson) {
-    try {
-      const parsed = JSON.parse(a.ValueJson);
-      if (typeof parsed === "object" && !Array.isArray(parsed)) {
-        // checkbox_price: { brand: price }
-        return Object.entries(parsed)
-          .filter(([, v]) => v !== null && v !== false)
-          .map(([k, v]) => `${k}: ${v === true ? "Si" : `$${v}`}`)
-          .join(", ") || "-";
-      }
-      if (Array.isArray(parsed)) return parsed.join(", ");
-      return String(parsed);
-    } catch { return a.ValueJson; }
-  }
-  if (a.ValueBool !== null) return a.ValueBool ? "Si" : "No";
-  if (a.ValueNumber !== null) return String(a.ValueNumber);
-  return a.ValueText || "-";
-}
-
 export function VisitDataExplorer() {
   const [visits, setVisits] = useState<EnrichedVisit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,6 +112,7 @@ export function VisitDataExplorer() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [page, setPage] = useState(0);
+  const [exporting, setExporting] = useState(false);
   const PAGE_SIZE = 50;
 
   // Detail modal
@@ -187,6 +169,31 @@ export function VisitDataExplorer() {
     return acc;
   }, {} as Record<string, EnrichedVisit[]>);
   const sortedGroups = Object.entries(groupedByUser).sort(([a], [b]) => a.localeCompare(b));
+
+  // Consolidado: todas las visitas del filtro (no solo la página) con sus respuestas.
+  const handleExportAll = async () => {
+    setExporting(true);
+    try {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      if (dateFrom) qs.set("date_from", dateFrom);
+      if (dateTo) qs.set("date_to", dateTo);
+      const res = await fetch(`${API_BASE_URL}/visits/answers-export?${qs}`, {
+        headers: { Authorization: `Bearer ${getAccessToken()}` },
+      });
+      if (!res.ok) throw new Error();
+      const data: AnswersExport = await res.json();
+      const sheets = buildAnswerSheets(data, search);
+      if (sheets.length === 0) { toast.warning("Sin visitas para exportar"); return; }
+      exportToExcel(`Respuestas_${dateFrom || "inicio"}_${dateTo || "hoy"}`, sheets);
+      if (data.truncated) toast.warning("Son demasiadas visitas: se exportaron las 5000 más recientes. Acotá las fechas.");
+      else toast.success(`${sheets[0].data.length} visitas exportadas`);
+    } catch {
+      toast.error("No se pudo generar el Excel");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const handleExport = () => {
     if (!selectedVisit) return;
@@ -302,6 +309,10 @@ export function VisitDataExplorer() {
             </button>
           )}
         </div>
+        <Button variant="outline" size="sm" onClick={handleExportAll} disabled={exporting}>
+          <Download size={14} className="mr-1.5" />
+          {exporting ? "Generando..." : "Descargar Excel"}
+        </Button>
       </div>
 
       {/* Visit list */}
