@@ -234,34 +234,56 @@ def _tri_state_filter(query, column, value: str | None):
     return query
 
 
-@router.get("/admin-list")
-def admin_list_pdvs(
-    p: PageParams = Depends(),
-    zone_id: int | None = None,
-    channel_id: int | None = None,
-    is_active: bool | None = None,
-    assigned_user_id: int | None = None,
-    unassigned: bool = False,
-    distributor_id: int | None = None,
-    no_distributor: bool = False,
-    has_coords: bool | None = None,
-    has_route: bool | None = None,
-    days_since_visit: str | None = Query(None, pattern="^(7|14|30|60|60plus|never)$"),
-    visit_freq: str | None = Query(None, pattern="^(0|1-5|6-20|20plus)$"),
-    works_espert: str | None = Query(None, pattern="^(si|no|nd)$"),
-    sells_loose: str | None = Query(None, pattern="^(si|no|nd)$"),
-    current_user: UserModel = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """Lista paginada de PDVs para /admin/pos-management (Gestión).
+class AdminPdvFilters:
+    """Filtros de la vista Gestión de PDV (compartidos por /admin-list y /admin-ids)."""
 
-    Envelope {items, total, page, page_size, has_more}. Cada item es un Pdv
-    completo + enriquecido con VisitCount, LastVisit, HasRoute, HasCoords y
-    TradeMarketerName (PDV.AssignedUserId). ``q`` busca en Name/Address/Code
-    (ILIKE). Todos los filtros de la vista se resuelven server-side; los buckets
-    de última visita/frecuencia solo joinean la subquery agrupada de Visit si
-    vienen en el request. Respeta jerarquía de visibilidad.
-    """
+    def __init__(
+        self,
+        zone_id: int | None = None,
+        channel_id: int | None = None,
+        is_active: bool | None = None,
+        assigned_user_id: int | None = None,
+        unassigned: bool = False,
+        distributor_id: int | None = None,
+        no_distributor: bool = False,
+        has_coords: bool | None = None,
+        has_route: bool | None = None,
+        days_since_visit: str | None = Query(None, pattern="^(7|14|30|60|60plus|never)$"),
+        visit_freq: str | None = Query(None, pattern="^(0|1-5|6-20|20plus)$"),
+        works_espert: str | None = Query(None, pattern="^(si|no|nd)$"),
+        sells_loose: str | None = Query(None, pattern="^(si|no|nd)$"),
+    ):
+        self.zone_id = zone_id
+        self.channel_id = channel_id
+        self.is_active = is_active
+        self.assigned_user_id = assigned_user_id
+        self.unassigned = unassigned
+        self.distributor_id = distributor_id
+        self.no_distributor = no_distributor
+        self.has_coords = has_coords
+        self.has_route = has_route
+        self.days_since_visit = days_since_visit
+        self.visit_freq = visit_freq
+        self.works_espert = works_espert
+        self.sells_loose = sells_loose
+
+
+def _admin_pdv_query(db: Session, current_user: UserModel, f: AdminPdvFilters, text: str | None):
+    """Query de PDVs con los filtros de Gestión aplicados (sin orden ni paginado)."""
+    zone_id = f.zone_id
+    channel_id = f.channel_id
+    is_active = f.is_active
+    assigned_user_id = f.assigned_user_id
+    unassigned = f.unassigned
+    distributor_id = f.distributor_id
+    no_distributor = f.no_distributor
+    has_coords = f.has_coords
+    has_route = f.has_route
+    days_since_visit = f.days_since_visit
+    visit_freq = f.visit_freq
+    works_espert = f.works_espert
+    sells_loose = f.sells_loose
+
     q = db.query(PDVModel)
 
     visible = _visible_pdv_ids(db, current_user)
@@ -350,13 +372,34 @@ def admin_list_pdvs(
             elif visit_freq == "20plus":
                 q = q.filter(cnt > 20)
 
-    if p.q:
-        like = f"%{p.q}%"
+    if text:
+        like = f"%{text}%"
         q = q.filter(or_(
             PDVModel.Name.ilike(like),
             PDVModel.Address.ilike(like),
             PDVModel.Code.ilike(like),
         ))
+
+    return q
+
+
+@router.get("/admin-list")
+def admin_list_pdvs(
+    p: PageParams = Depends(),
+    f: AdminPdvFilters = Depends(),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Lista paginada de PDVs para /admin/pos-management (Gestión).
+
+    Envelope {items, total, page, page_size, has_more}. Cada item es un Pdv
+    completo + enriquecido con VisitCount, LastVisit, HasRoute, HasCoords y
+    TradeMarketerName (PDV.AssignedUserId). ``q`` busca en Name/Address/Code
+    (ILIKE). Todos los filtros de la vista se resuelven server-side; los buckets
+    de última visita/frecuencia solo joinean la subquery agrupada de Visit si
+    vienen en el request. Respeta jerarquía de visibilidad.
+    """
+    q = _admin_pdv_query(db, current_user, f, p.q)
 
     items, total = paginate(q.order_by(PDVModel.Name, PDVModel.PdvId), p)
 
@@ -401,6 +444,23 @@ def admin_list_pdvs(
         item["HasCoords"] = pdv.Lat is not None and pdv.Lon is not None
         item["TradeMarketerName"] = tm_names.get(pdv.AssignedUserId) if pdv.AssignedUserId else None
     return make_page(out, total, p)
+
+
+ADMIN_IDS_MAX = 5000
+
+
+@router.get("/admin-ids", dependencies=[Depends(require_role("admin"))])
+def admin_pdv_ids(
+    f: AdminPdvFilters = Depends(),
+    q: str | None = Query(None, max_length=200),
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Ids de TODOS los PDVs que matchean los filtros de Gestión ("seleccionar todos
+    los filtrados" para el traspaso masivo). Tope ADMIN_IDS_MAX."""
+    query = _admin_pdv_query(db, current_user, f, (q or "").strip() or None)
+    ids = [r[0] for r in query.with_entities(PDVModel.PdvId).order_by(PDVModel.PdvId).limit(ADMIN_IDS_MAX + 1).all()]
+    return {"ids": ids[:ADMIN_IDS_MAX], "truncated": len(ids) > ADMIN_IDS_MAX}
 
 
 @router.get("/{pdv_id}", response_model=Pdv)

@@ -1382,6 +1382,138 @@ def update_route_day_pdv(route_day_id: int, pdv_id: int, data: RouteDayPdvUpdate
     return rdp
 
 
+# ── Traspaso masivo de cartera (solo admin) ─────────────
+class PortfolioTransfer(BaseModel):
+    """Exactamente uno de `from_user_id` (cartera completa) o `pdv_ids` (parcial)."""
+    to_user_id: int
+    from_user_id: int | None = None
+    pdv_ids: list[int] | None = None
+    dry_run: bool = True
+
+
+def _chunks(ids: list[int], n: int = 900):
+    # SQL Server admite ~2100 parámetros por sentencia
+    for i in range(0, len(ids), n):
+        yield ids[i:i + n]
+
+
+@router.post("/transfer-portfolio", dependencies=[Depends(require_role("admin"))])
+def transfer_portfolio(
+    data: PortfolioTransfer,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Pasa PDVs de un trade a otro sin armar rutas foco a mano.
+
+    - Cartera completa (`from_user_id`): rutas regulares del origen + sus días futuros
+      PLANNED + todos sus PDVs pasan al destino (las rutas siguen armadas).
+    - Parcial (`pdv_ids`): los PDVs pasan al destino y salen de las rutas regulares que
+      no sean del destino (y de sus días futuros pendientes); quedan en cartera sin ruta.
+    Las rutas de campaña no se tocan. El historial de visitas no cambia de dueño.
+    `dry_run` (default) devuelve el resumen sin escribir. Todo en una transacción + auditoría.
+    """
+    whole = data.from_user_id is not None
+    if whole == bool(data.pdv_ids):
+        raise HTTPException(status_code=422, detail="Indicar from_user_id (cartera completa) o pdv_ids (parcial), no ambos")
+    to_user = db.query(UserModel).filter(UserModel.UserId == data.to_user_id).first()
+    if not to_user or not to_user.IsActive:
+        raise HTTPException(status_code=422, detail="El usuario destino no existe o está inactivo")
+    to_id = to_user.UserId
+    today = _today_ar()
+    not_campaign = or_(RouteModel.RouteType.is_(None), RouteModel.RouteType != ROUTE_CAMPAIGN)
+
+    if whole:
+        if data.from_user_id == to_id:
+            raise HTTPException(status_code=422, detail="Origen y destino son el mismo usuario")
+        if not db.query(UserModel.UserId).filter(UserModel.UserId == data.from_user_id).first():
+            raise HTTPException(status_code=404, detail="Usuario origen no encontrado")
+        routes = db.query(RouteModel).filter(RouteModel.AssignedUserId == data.from_user_id, not_campaign).all()
+        route_ids = [r.RouteId for r in routes]
+        days = db.query(RouteDayModel).filter(
+            RouteDayModel.RouteId.in_(route_ids), RouteDayModel.WorkDate >= today, RouteDayModel.Status == "PLANNED",
+        ).all() if route_ids else []
+        owners = {pid: data.from_user_id for (pid,) in
+                  db.query(PDVModel.PdvId).filter(PDVModel.AssignedUserId == data.from_user_id).all()}
+        summary = {
+            "mode": "whole", "from_user_id": data.from_user_id, "to_user_id": to_id, "to_user_name": to_user.DisplayName,
+            "pdvs": len(owners), "already_owned": 0,
+            "routes": [{"RouteId": r.RouteId, "Name": r.Name, "pdvs": None} for r in routes],
+            "future_days": len(days), "dry_run": data.dry_run,
+        }
+        if data.dry_run:
+            return summary
+        for r in routes:
+            _audit(db, current_user, "ROUTE_UPDATE", r.RouteId, {
+                "antes": {"AssignedUserId": r.AssignedUserId}, "despues": {"AssignedUserId": to_id},
+                "motivo": "traspaso de cartera completa",
+            })
+            r.AssignedUserId = to_id
+        for d in days:
+            d.AssignedUserId = to_id
+        db.query(PDVModel).filter(PDVModel.AssignedUserId == data.from_user_id).update(
+            {PDVModel.AssignedUserId: to_id}, synchronize_session=False
+        )
+    else:
+        ids = sorted(set(data.pdv_ids))
+        owners: dict[int, int | None] = {}
+        for ch in _chunks(ids):
+            owners.update(db.query(PDVModel.PdvId, PDVModel.AssignedUserId).filter(PDVModel.PdvId.in_(ch)).all())
+        missing = [i for i in ids if i not in owners]
+        if missing:
+            raise HTTPException(status_code=404, detail=f"PDVs inexistentes: {missing[:20]}")
+        already = sum(1 for o in owners.values() if o == to_id)
+        # Membresías en rutas regulares que no son del destino → el PDV sale de esas rutas
+        foreign = or_(RouteModel.AssignedUserId.is_(None), RouteModel.AssignedUserId != to_id)
+        by_route: dict[int, list[int]] = {}
+        route_names: dict[int, str] = {}
+        for ch in _chunks(ids):
+            rows = (
+                db.query(RoutePdvModel.RouteId, RoutePdvModel.PdvId, RouteModel.Name)
+                .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+                .filter(RoutePdvModel.PdvId.in_(ch), not_campaign, foreign)
+                .all()
+            )
+            for rid, pid, name in rows:
+                by_route.setdefault(rid, []).append(pid)
+                route_names[rid] = name
+        summary = {
+            "mode": "partial", "from_user_id": None, "to_user_id": to_id, "to_user_name": to_user.DisplayName,
+            "pdvs": len(ids), "already_owned": already,
+            "routes": [{"RouteId": rid, "Name": route_names[rid], "pdvs": len(p)} for rid, p in sorted(by_route.items())],
+            "future_days": 0, "dry_run": data.dry_run,
+        }
+        if data.dry_run:
+            return summary
+        for rid, pids in by_route.items():
+            day_ids = [d[0] for d in db.query(RouteDayModel.RouteDayId).filter(
+                RouteDayModel.RouteId == rid, RouteDayModel.WorkDate >= today).all()]
+            for ch in _chunks(pids):
+                db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == rid, RoutePdvModel.PdvId.in_(ch)).delete(synchronize_session=False)
+                if day_ids:
+                    # Solo lo pendiente: lo ya ejecutado hoy queda para el contador del día
+                    db.query(RouteDayPdvModel).filter(
+                        RouteDayPdvModel.RouteDayId.in_(day_ids), RouteDayPdvModel.PdvId.in_(ch),
+                        RouteDayPdvModel.ExecutionStatus == "PENDING",
+                    ).delete(synchronize_session=False)
+            db.query(RouteModel).filter(RouteModel.RouteId == rid).update({RouteModel.IsOptimized: False}, synchronize_session=False)
+            _audit(db, current_user, "ROUTE_PDV_DEL", rid, {"pdvIds": pids, "motivo": f"traspaso a usuario {to_id}"})
+        for ch in _chunks(ids):
+            db.query(PDVModel).filter(PDVModel.PdvId.in_(ch)).update({PDVModel.AssignedUserId: to_id}, synchronize_session=False)
+
+    # Resumen del traspaso: dueño anterior de cada PDV (antes) → destino (después)
+    db.add(AuditEventModel(
+        UserId=current_user.UserId, Entity="User", EntityId=str(to_id), Action="PDV_TRANSFER",
+        PayloadJson=_json.dumps({
+            "modo": summary["mode"], "hacia": to_id, "desde": data.from_user_id,
+            "duenoAnterior": {str(k): v for k, v in owners.items()},
+            "rutas": [r["RouteId"] for r in summary["routes"]],
+        }, ensure_ascii=False),
+    ))
+    db.commit()
+    _MAP_CACHE.clear()
+    return summary
+
+
 # ── Route Overlap Detection ──────────────────────────────
 import json as _json
 from datetime import date as _date, timedelta as _timedelta, datetime as _datetime, timezone as _tz
