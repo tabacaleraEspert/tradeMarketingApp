@@ -407,6 +407,7 @@ def admin_list_pdvs(
     page_ids = [pdv.PdvId for pdv in items]
     visit_map: dict[int, tuple] = {}
     routed_ids: set[int] = set()
+    regular_route: dict[int, tuple] = {}
     tm_names: dict[int, str] = {}
     if page_ids:
         visit_stats = (
@@ -427,6 +428,19 @@ def admin_list_pdvs(
             .distinct()
             .all()
         }
+        # Ruta regular vigente de cada PDV (para cambiarla desde Gestión)
+        regular_route = {
+            pid: (rid, name)
+            for pid, rid, name in db.query(RoutePdvModel.PdvId, RouteModel.RouteId, RouteModel.Name)
+            .join(RouteModel, RouteModel.RouteId == RoutePdvModel.RouteId)
+            .filter(
+                RoutePdvModel.PdvId.in_(page_ids),
+                or_(RouteModel.RouteType.is_(None), RouteModel.RouteType != "campaign"),
+                or_(RouteModel.EndDate.is_(None), RouteModel.EndDate >= date.today()),
+            )
+            .order_by(RouteModel.RouteId.desc())
+            .all()
+        }
         tm_ids = {pdv.AssignedUserId for pdv in items if pdv.AssignedUserId}
         if tm_ids:
             tm_names = dict(
@@ -441,6 +455,7 @@ def admin_list_pdvs(
         item["VisitCount"] = cnt
         item["LastVisit"] = last.isoformat() if last else None
         item["HasRoute"] = pdv.PdvId in routed_ids
+        item["RouteId"], item["RouteName"] = regular_route.get(pdv.PdvId, (None, None))
         item["HasCoords"] = pdv.Lat is not None and pdv.Lon is not None
         item["TradeMarketerName"] = tm_names.get(pdv.AssignedUserId) if pdv.AssignedUserId else None
     return make_page(out, total, p)

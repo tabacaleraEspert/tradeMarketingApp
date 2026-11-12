@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { Checkbox } from "../../components/ui/checkbox";
 import { getCurrentUser } from "../../lib/auth";
 import { PortfolioTransferModal } from "./PortfolioTransferModal";
+import { PdvRouteModal } from "./PdvRouteModal";
 
 interface POSData {
   id: string;
@@ -266,6 +267,7 @@ export function POSManagement() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [transferIds, setTransferIds] = useState<number[] | null | undefined>(undefined); // undefined = cerrado, null = cartera completa
   const [selectingAll, setSelectingAll] = useState(false);
+  const [routePdv, setRoutePdv] = useState<{ id: number; name: string; routeId: number | null; routeName: string | null } | null>(null);
   const toggleSelected = (id: number, on: boolean) =>
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -1134,7 +1136,7 @@ export function POSManagement() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-7 gap-4 pt-4 border-t border-border">
+              <div className="grid grid-cols-2 md:grid-cols-8 gap-4 pt-4 border-t border-border">
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Canal</p>
                   <Badge variant="outline">{pos.channel}</Badge>
@@ -1185,6 +1187,24 @@ export function POSManagement() {
                       <option key={u.UserId} value={u.UserId}>{u.DisplayName}</option>
                     ))}
                   </select>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Ruta</p>
+                  {(() => {
+                    const raw = pdvs.find((p) => String(p.PdvId) === pos.id);
+                    return (
+                      <button
+                        type="button"
+                        title="Cambiar de ruta"
+                        onClick={() => setRoutePdv({ id: Number(pos.id), name: pos.name, routeId: raw?.RouteId ?? null, routeName: raw?.RouteName ?? null })}
+                        className={`max-w-full truncate text-left text-sm font-semibold px-2 py-1 border border-transparent hover:border-border rounded-lg cursor-pointer ${
+                          raw?.RouteName ? "text-foreground" : "text-destructive"
+                        }`}
+                      >
+                        {raw?.RouteName ?? "Sin ruta"}
+                      </button>
+                    );
+                  })()}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Visitas</p>
@@ -1241,6 +1261,8 @@ export function POSManagement() {
           refetch();
         }}
       />
+
+      <PdvRouteModal pdv={routePdv} onClose={() => setRoutePdv(null)} onDone={refetch} />
 
       {/* Create/Edit Modal */}
       <Modal

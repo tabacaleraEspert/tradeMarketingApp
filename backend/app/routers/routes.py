@@ -1522,6 +1522,121 @@ def transfer_portfolio(
     return summary
 
 
+# ── Mover un PDV de ruta (Gestión de PDV) + re-optimización automática ──
+def _optimize_route_order(db: Session, route: RouteModel) -> None:
+    """Reordena los PDVs de la ruta por vecino más cercano (mismo criterio que el botón
+    "Optimizar" del editor: arranca en el primero del orden actual; sin coordenadas al
+    final) y lleva el orden a los días futuros que todavía no empezaron."""
+    from ..utils.geo import haversine_km
+    rows = (
+        db.query(RoutePdvModel, PDVModel.Lat, PDVModel.Lon)
+        .join(PDVModel, PDVModel.PdvId == RoutePdvModel.PdvId)
+        .filter(RoutePdvModel.RouteId == route.RouteId)
+        .order_by(RoutePdvModel.SortOrder, RoutePdvModel.PdvId)
+        .all()
+    )
+    pending = [(rp, float(lat), float(lon)) for rp, lat, lon in rows if lat is not None and lon is not None]
+    no_coords = [rp for rp, lat, lon in rows if lat is None or lon is None]
+    ordered = []
+    if pending:
+        cur = pending.pop(0)
+        ordered.append(cur[0])
+        while pending:
+            i = min(range(len(pending)), key=lambda k: haversine_km(cur[1], cur[2], pending[k][1], pending[k][2]))
+            cur = pending.pop(i)
+            ordered.append(cur[0])
+    ordered += no_coords
+    order_map = {}
+    for i, rp in enumerate(ordered):
+        rp.SortOrder = i
+        order_map[rp.PdvId] = i
+    route.IsOptimized = True
+    day_ids = [d[0] for d in db.query(RouteDayModel.RouteDayId).filter(
+        RouteDayModel.RouteId == route.RouteId, RouteDayModel.WorkDate >= _today_ar(), RouteDayModel.Status == "PLANNED",
+    ).all()]
+    if day_ids:
+        for rdp in db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId.in_(day_ids)).all():
+            if rdp.PdvId in order_map:
+                rdp.PlannedOrder = order_map[rdp.PdvId]
+
+
+class PdvRouteMove(BaseModel):
+    pdv_id: int
+    to_route_id: int | None = None  # None = dejarlo sin ruta
+
+
+@router.post("/move-pdv", dependencies=[Depends(require_role("territory_manager"))])
+def move_pdv_to_route(
+    data: PdvRouteMove,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Cambia la ruta regular de un PDV en un paso: lo saca de la(s) ruta(s) regular(es)
+    vigente(s) donde está, lo suma a la ruta destino (con su trade y sus días futuros) y
+    re-optimiza el orden de las rutas tocadas. Las campañas no se tocan."""
+    pdv = db.query(PDVModel).filter(PDVModel.PdvId == data.pdv_id).first()
+    if not pdv:
+        raise HTTPException(status_code=404, detail="PDV no encontrado")
+    dest = None
+    if data.to_route_id is not None:
+        dest = db.query(RouteModel).filter(RouteModel.RouteId == data.to_route_id).first()
+        if not dest:
+            raise HTTPException(status_code=404, detail="Ruta destino no encontrada")
+        if _is_campaign(dest):
+            raise HTTPException(status_code=400, detail="El destino tiene que ser una ruta regular, no una campaña")
+        _assert_route_access(db, current_user, dest)
+
+    today = _today_ar()
+    origins = (
+        db.query(RouteModel)
+        .join(RoutePdvModel, RoutePdvModel.RouteId == RouteModel.RouteId)
+        .filter(
+            RoutePdvModel.PdvId == pdv.PdvId,
+            or_(RouteModel.RouteType.is_(None), RouteModel.RouteType != ROUTE_CAMPAIGN),
+            or_(RouteModel.EndDate.is_(None), RouteModel.EndDate >= today),
+        )
+        .all()
+    )
+    origins = [o for o in origins if dest is None or o.RouteId != dest.RouteId]
+    already_in_dest = dest is not None and db.query(RoutePdvModel).filter(
+        RoutePdvModel.RouteId == dest.RouteId, RoutePdvModel.PdvId == pdv.PdvId).first() is not None
+    if not origins and (dest is None or already_in_dest):
+        return {"changed": False, "from": [], "to": dest.Name if dest else None}
+
+    for o in origins:
+        _assert_route_access(db, current_user, o)
+        db.query(RoutePdvModel).filter(RoutePdvModel.RouteId == o.RouteId, RoutePdvModel.PdvId == pdv.PdvId).delete(synchronize_session=False)
+        day_ids = [d[0] for d in db.query(RouteDayModel.RouteDayId).filter(
+            RouteDayModel.RouteId == o.RouteId, RouteDayModel.WorkDate >= today).all()]
+        if day_ids:
+            db.query(RouteDayPdvModel).filter(
+                RouteDayPdvModel.RouteDayId.in_(day_ids), RouteDayPdvModel.PdvId == pdv.PdvId,
+                RouteDayPdvModel.ExecutionStatus == "PENDING",
+            ).delete(synchronize_session=False)
+        _audit(db, current_user, "ROUTE_PDV_DEL", o.RouteId, {"pdvId": pdv.PdvId, "motivo": "cambio de ruta", "hacia": dest.RouteId if dest else None})
+
+    if dest is not None and not already_in_dest:
+        last = db.query(func.max(RoutePdvModel.SortOrder)).filter(RoutePdvModel.RouteId == dest.RouteId).scalar()
+        order = (last + 1) if last is not None else 0
+        db.add(RoutePdvModel(RouteId=dest.RouteId, PdvId=pdv.PdvId, SortOrder=order, Priority=3))
+        if dest.AssignedUserId is not None:
+            pdv.AssignedUserId = dest.AssignedUserId
+        for (rd_id,) in db.query(RouteDayModel.RouteDayId).filter(
+                RouteDayModel.RouteId == dest.RouteId, RouteDayModel.WorkDate >= today).all():
+            exists = db.query(RouteDayPdvModel).filter(
+                RouteDayPdvModel.RouteDayId == rd_id, RouteDayPdvModel.PdvId == pdv.PdvId).first()
+            if not exists:
+                db.add(RouteDayPdvModel(RouteDayId=rd_id, PdvId=pdv.PdvId, PlannedOrder=order, Priority=3, ExecutionStatus="PENDING"))
+        _audit(db, current_user, "ROUTE_PDV_ADD", dest.RouteId, {"pdvId": pdv.PdvId, "motivo": "cambio de ruta", "desde": [o.RouteId for o in origins]})
+
+    db.flush()
+    for r in origins + ([dest] if dest is not None else []):
+        _optimize_route_order(db, r)
+    db.commit()
+    _MAP_CACHE.clear()
+    return {"changed": True, "from": [o.Name for o in origins], "to": dest.Name if dest else None}
+
+
 # ── Route Overlap Detection ──────────────────────────────
 import json as _json
 from datetime import date as _date, timedelta as _timedelta, datetime as _datetime, timezone as _tz

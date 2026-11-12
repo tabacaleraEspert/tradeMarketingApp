@@ -109,6 +109,8 @@ export interface AdminPdv extends Pdv {
   HasRoute: boolean;
   HasCoords: boolean;
   TradeMarketerName: string | null;  // DisplayName de AssignedUserId
+  RouteId: number | null;            // ruta regular vigente
+  RouteName: string | null;
 }
 
 // --- Product catalog ---
