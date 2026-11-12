@@ -24,6 +24,7 @@ import {
   Eye,
   Navigation,
   BarChart3,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useZones, useDistributors, useChannels, useSubChannels, useUsers, usePaginated, pdvsApi, distributorsApi, reportsApi, type AdminPdv } from "@/lib/api";
 import { Settings } from "lucide-react";
@@ -35,6 +36,9 @@ import { LocationMap } from "../../components/LocationMap";
 import { AddressAutocomplete, type AddressResult } from "../../components/AddressAutocomplete";
 import { PdvMapView } from "../../components/PdvMapView";
 import { toast } from "sonner";
+import { Checkbox } from "../../components/ui/checkbox";
+import { getCurrentUser } from "../../lib/auth";
+import { PortfolioTransferModal } from "./PortfolioTransferModal";
 
 interface POSData {
   id: string;
@@ -222,8 +226,7 @@ export function POSManagement() {
   } = usePaginated<AdminPdv>({ endpoint: "/pdvs/admin-list", pageSize: 50 });
 
   // Estado de filtros UI → query params del endpoint (resetea a página 1)
-  useEffect(() => {
-    setFilters({
+  const filterParams = useMemo(() => ({
       zone_id: selectedZoneId,
       channel_id: selectedChannel !== "all" ? Number(selectedChannel) : undefined,
       is_active: selectedStatus !== "all" ? selectedStatus === "active" : undefined,
@@ -249,12 +252,41 @@ export function POSManagement() {
           : undefined,
       works_espert: selectedEspertFilter !== "all" ? selectedEspertFilter : undefined,
       sells_loose: selectedSueltosFilter !== "all" ? selectedSueltosFilter : undefined,
-    });
-  }, [
-    setFilters, selectedZoneId, selectedChannel, selectedStatus, selectedTradeMarketer,
+  }), [
+    selectedZoneId, selectedChannel, selectedStatus, selectedTradeMarketer,
     selectedDistributorFilter, selectedLocation, selectedRouteFilter,
     selectedDaysSinceVisit, selectedVisitFrequency, selectedEspertFilter, selectedSueltosFilter,
   ]);
+  useEffect(() => {
+    setFilters(filterParams);
+  }, [setFilters, filterParams]);
+
+  // Traspaso masivo entre trades (solo admin): selección múltiple de PDVs
+  const isAdmin = getCurrentUser().role === "admin";
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [transferIds, setTransferIds] = useState<number[] | null | undefined>(undefined); // undefined = cerrado, null = cartera completa
+  const [selectingAll, setSelectingAll] = useState(false);
+  const toggleSelected = (id: number, on: boolean) =>
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const selectPage = () =>
+    setSelectedIds((prev) => new Set([...prev, ...pdvs.map((p) => p.PdvId)]));
+  const selectAllFiltered = async () => {
+    setSelectingAll(true);
+    try {
+      const r = await api.get<{ ids: number[]; truncated: boolean }>("/pdvs/admin-ids", { ...filterParams, q: searchTerm || undefined });
+      setSelectedIds(new Set(r.ids));
+      if (r.truncated) toast.warning(`Se seleccionaron los primeros ${r.ids.length} PDVs; afiná los filtros para el resto`);
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo seleccionar");
+    } finally {
+      setSelectingAll(false);
+    }
+  };
 
   const { data: zones } = useZones();
   const { data: distributors, refetch: refetchDistributors } = useDistributors();
@@ -640,6 +672,12 @@ export function POSManagement() {
               Mapa
             </button>
           </div>
+          {isAdmin && (
+            <Button variant="outline" onClick={() => setTransferIds(null)} className="gap-2">
+              <ArrowRightLeft size={16} />
+              Traspasar cartera
+            </Button>
+          )}
           <Button onClick={() => { setIsCreateModalOpen(true); openModal(); }} className="gap-2">
             <Plus size={20} />
             Nuevo PDV
@@ -1019,12 +1057,43 @@ export function POSManagement() {
 
       {/* POS List */}
       {viewMode === "list" && <div className="grid grid-cols-1 gap-4">
+        {isAdmin && (
+          <div className="flex items-center flex-wrap gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm">
+            <span className="font-medium mr-2">
+              {selectedIds.size > 0 ? `${selectedIds.size} PDVs seleccionados` : "Seleccioná PDVs para pasarlos a otro trade"}
+            </span>
+            <Button variant="outline" size="sm" onClick={selectPage} disabled={pdvs.length === 0}>
+              Esta página
+            </Button>
+            <Button variant="outline" size="sm" onClick={selectAllFiltered} disabled={selectingAll || total === 0}>
+              {selectingAll ? "Seleccionando..." : `Los ${total} filtrados`}
+            </Button>
+            {selectedIds.size > 0 && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
+                  Limpiar
+                </Button>
+                <Button size="sm" className="gap-1.5 ml-auto" onClick={() => setTransferIds([...selectedIds])}>
+                  <ArrowRightLeft size={14} />
+                  Pasar a otro trade
+                </Button>
+              </>
+            )}
+          </div>
+        )}
         {filteredPOS.map((pos) => (
           <Card key={pos.id} className="hover:shadow-md transition-shadow">
             <CardContent className="p-6">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
+                    {isAdmin && (
+                      <Checkbox
+                        checked={selectedIds.has(Number(pos.id))}
+                        onCheckedChange={(v) => toggleSelected(Number(pos.id), v === true)}
+                        aria-label={`Seleccionar ${pos.name}`}
+                      />
+                    )}
                     <h3 className="text-lg font-bold text-foreground">{pos.name} <span className="text-sm font-normal text-muted-foreground">#{pos.id}</span></h3>
                     <StatusChip
                       status={getStatusChipType(pos.status) as any}
@@ -1161,6 +1230,17 @@ export function POSManagement() {
           loading={loading}
         />
       </div>}
+
+      <PortfolioTransferModal
+        isOpen={transferIds !== undefined}
+        onClose={() => setTransferIds(undefined)}
+        pdvIds={transferIds ?? null}
+        users={tradeMarketers}
+        onDone={() => {
+          setSelectedIds(new Set());
+          refetch();
+        }}
+      />
 
       {/* Create/Edit Modal */}
       <Modal
