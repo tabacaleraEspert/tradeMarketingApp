@@ -68,7 +68,7 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 // Evita lanzar múltiples refresh al mismo tiempo: si ya hay uno en curso, esperamos a que termine.
 let refreshPromise: Promise<boolean> | null = null;
 
-async function tryRefreshAccessToken(): Promise<boolean> {
+export async function tryRefreshAccessToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
   const refresh = getRefreshToken();
   if (!refresh) return false;

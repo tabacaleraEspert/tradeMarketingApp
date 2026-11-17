@@ -76,6 +76,15 @@ class Settings(BaseSettings):
     comercial_api_url: str = ""
     comercial_material_api_key: str = ""
 
+    # --- Asistente IA "Puchi" (patrón Bachi; ver app/services/assistant/) ---
+    # Vacío = asistente deshabilitado: el botón no aparece y /assistant/ask da 503.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-5.2"
+    # Precios USD por millón de tokens (para el costo que se guarda por turno).
+    assistant_price_input: float = 1.75
+    assistant_price_output: float = 14.0
+    assistant_price_cached: float = 0.175
+
     @property
     def resolved_database_url(self) -> str:
         if self.database_url:

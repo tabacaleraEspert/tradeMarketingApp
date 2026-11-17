@@ -1,0 +1,128 @@
+/* Puchi — animaciones del avatar, el anillo del FAB y la entrada del panel.
+   Todo lo animado se apaga con prefers-reduced-motion (bloque al final). */
+
+.puchi {
+  overflow: visible;
+  --puchi-smoke: #9c9a94;
+}
+
+.puchi-bob {
+  animation: puchi-bob 3.6s ease-in-out infinite;
+}
+
+.puchi-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: puchi-blink 4.8s infinite;
+}
+
+.puchi-pupils,
+.puchi-brows {
+  transition: transform 0.25s ease-out;
+}
+.puchi[data-state="thinking"] .puchi-pupils {
+  transform: translate(0.9px, -2.6px);
+}
+.puchi[data-state="thinking"] .puchi-brows {
+  transform: translateY(-1.2px);
+}
+
+.puchi-wisp {
+  opacity: 0.85;
+  animation: puchi-smoke 3.4s ease-in-out infinite;
+}
+.puchi-wisp-2 {
+  animation-delay: -1.7s;
+}
+.puchi[data-state="thinking"] .puchi-wisp {
+  animation-duration: 1.3s;
+}
+.puchi[data-state="thinking"] .puchi-wisp-2 {
+  animation-delay: -0.65s;
+}
+
+.puchi-glow {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0.55;
+}
+.puchi[data-state="thinking"] .puchi-glow {
+  animation: puchi-ember 0.9s ease-in-out infinite;
+}
+
+.puchi-mouth-open {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: puchi-talk 0.42s ease-in-out infinite alternate;
+}
+
+@keyframes puchi-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1.4px); }
+}
+@keyframes puchi-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  96% { transform: scaleY(0.08); }
+}
+@keyframes puchi-smoke {
+  0% { opacity: 0; transform: translateY(2.5px); }
+  35% { opacity: 0.9; }
+  100% { opacity: 0; transform: translateY(-3px); }
+}
+@keyframes puchi-ember {
+  0%, 100% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+@keyframes puchi-talk {
+  from { transform: scaleY(0.35); }
+  to { transform: scaleY(1); }
+}
+
+/* Anillo del FAB mientras responde: un arco dorado que gira. */
+.puchi-ring {
+  background: conic-gradient(from 0deg, transparent 0 55%, var(--espert-gold-light) 80%, var(--espert-gold) 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2.5px));
+  animation: puchi-spin 1.1s linear infinite;
+}
+@keyframes puchi-spin {
+  to { transform: rotate(360deg); }
+}
+
+.puchi-panel {
+  transform-origin: bottom right;
+  animation: puchi-panel-in 0.16s ease-out;
+}
+@keyframes puchi-panel-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+}
+
+/* Banda de corcho: la boquilla del cigarrillo como remate del panel. */
+.puchi-cork {
+  background-color: #d09a58;
+  background-image:
+    radial-gradient(circle at 20% 35%, #a8703a 0 1px, transparent 1.4px),
+    radial-gradient(circle at 70% 65%, #a8703a 0 1px, transparent 1.4px),
+    radial-gradient(circle at 45% 20%, #e3b77d 0 1px, transparent 1.4px);
+  background-size: 14px 6px, 18px 6px, 22px 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .puchi-bob,
+  .puchi-eyes,
+  .puchi-wisp,
+  .puchi-glow,
+  .puchi-mouth-open,
+  .puchi-panel {
+    animation: none !important;
+  }
+  .puchi-pupils,
+  .puchi-brows {
+    transition: none;
+  }
+  /* Sin giro: el anillo queda completo y quieto. */
+  .puchi-ring {
+    animation: none;
+    background: var(--espert-gold-light);
+  }
+}

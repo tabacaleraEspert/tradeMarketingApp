@@ -24,6 +24,7 @@ import { Sync } from "./pages/Sync";
 
 // ── Other vendor pages — lazy loaded ──
 const PublicReportPage = lazy(() => import("./pages/public-report/PublicReportPage").then(m => ({ default: m.PublicReportPage })));
+const AssistantUsage = lazy(() => import("./pages/admin/AssistantUsage").then(m => ({ default: m.AssistantUsage })));
 const MailReports = lazy(() => import("./pages/admin/MailReports").then(m => ({ default: m.MailReports })));
 const RouteList = lazy(() => import("./pages/RouteList").then(m => ({ default: m.RouteList })));
 const RouteFocoPage = lazy(() => import("./pages/RouteFocoPage").then(m => ({ default: m.RouteFocoPage })));
@@ -269,6 +270,12 @@ export const router = createBrowserRouter([
     path: "/admin/mail-reports",
     Component: AdminOnlyGuard,
     children: [{ index: true, element: <SuspenseWrap><MailReports /></SuspenseWrap> }],
+  },
+  {
+    // Uso y costo del asistente Puchi: solo admin.
+    path: "/admin/asistente-uso",
+    Component: AdminOnlyGuard,
+    children: [{ index: true, element: <SuspenseWrap><AssistantUsage /></SuspenseWrap> }],
   },
   {
     path: "/inteligencia",

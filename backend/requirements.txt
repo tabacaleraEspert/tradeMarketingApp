@@ -22,3 +22,5 @@ sentry-sdk[fastapi]>=2.0
 azure-monitor-opentelemetry==1.8.8
 opentelemetry-instrumentation-sqlalchemy==0.61b0
 azure-communication-email>=1.0
+# Asistente IA "Puchi" (app/services/assistant/). Se importa lazy: sin OPENAI_API_KEY no se usa.
+openai>=1.60

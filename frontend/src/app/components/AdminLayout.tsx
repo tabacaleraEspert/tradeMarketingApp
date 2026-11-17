@@ -26,12 +26,14 @@ import {
   Settings2,
   LogOut,
   Megaphone,
+  MessageCircleQuestion,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { authApi, type MeResponse } from "../../lib/api/services";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { ThemeToggle } from "./ThemeToggle";
+import { PuchiAssistant } from "./assistant/PuchiAssistant";
 import { logout } from "../lib/auth";
 import { toast } from "sonner";
 
@@ -116,6 +118,7 @@ export function AdminLayout() {
     { path: "/admin/visit-data", icon: Eye, label: "Censos y Respuestas" },
     { path: "/admin/users", icon: Users, label: "Usuarios" },
     { path: "/admin/audit", icon: Shield, label: "Auditoría" },
+    ...(isAdmin ? [{ path: "/admin/asistente-uso", icon: MessageCircleQuestion, label: "Uso de Puchi" }] : []),
   ];
 
   const isActivePath = (path: string) => {
@@ -282,6 +285,8 @@ export function AdminLayout() {
         <main className="flex-1 p-6 min-h-[calc(100vh-4rem)]">
           <Outlet />
         </main>
+        {/* Puchi (asistente de consultas): solo admin; se oculta solo si el backend lo tiene apagado. */}
+        {isAdmin && <PuchiAssistant />}
       </div>
 
       {/* Mobile Sidebar Overlay */}

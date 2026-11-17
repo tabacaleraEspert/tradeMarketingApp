@@ -205,6 +205,12 @@ def load_census(db: Session, pdv_scope: Optional[set[int]]) -> Census:
     for p in db.query(PDV).filter(PDV.IsActive == True).all():  # noqa: E712
         if pdv_scope is None or p.PdvId in pdv_scope:
             c.pdvs[p.PdvId] = p
+    # El censo se cachea 30 min y lo leen otros requests: los PDVs tienen que
+    # quedar sueltos de ESTA sesión. Si no, un commit o rollback posterior de la
+    # sesión que lo construyó (p.ej. la del asistente, que commitea su auditoría)
+    # los expira y el caché entero empieza a tirar DetachedInstanceError.
+    for p in c.pdvs.values():
+        db.expunge(p)
 
     c.zone_names = {z.ZoneId: z.Name for z in db.query(Zone).all()}
     c.channel_names = {ch.ChannelId: ch.Name for ch in db.query(Channel).all()}

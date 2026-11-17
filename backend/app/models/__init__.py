@@ -38,8 +38,11 @@ from .scoring_coverage_rule import ScoringCoverageRule
 from .scoring_communication_rule import ScoringCommunicationRule
 from .kpi_monthly_snapshot import KpiMonthlySnapshot
 from .behavior_report import BehaviorReport, BehaviorReportSubscription
+from .assistant import AssistantTurn, AssistantToolUse
 
 __all__ = [
+    "AssistantTurn",
+    "AssistantToolUse",
     "PopMaterial",
     "VisitPOPPlacement",
     "Zone",
