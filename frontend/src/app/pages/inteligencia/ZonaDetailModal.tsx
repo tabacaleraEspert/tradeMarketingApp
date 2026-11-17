@@ -58,7 +58,7 @@ export function ZonaDetailModal({ zona: z, topSkus, origin, variant, onClose }: 
   const porTrade = z.trades30d ? Math.round(z.visitas30d / z.trades30d) : 0;
 
   const stats = [
-    { l: "PDVs activos", v: nf(z.pdvs) },
+    { l: "Rastrillado", v: nf(z.pdvs) },
     { l: "Censados", v: `${nf(z.censados)} (${pctCensado}%)` },
     { l: "Sin censar", v: nf(z.pdvs - z.censados) },
     { l: "Con Espert", v: nf(z.conEspert) },

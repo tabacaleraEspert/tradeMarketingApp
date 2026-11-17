@@ -1,3 +1,44 @@
+# Vista gerencial en Inteligencia — etapa 1 (2026-11-17) — COMMIT LOCAL, FALTA PUSH
+
+Plan: `~/.claude/plans/precious-soaring-hammock.md`. Fuente: PDF "Inteligencia Comercial · capturas" + PPTX "Tablero TM". Sección nueva `/inteligencia/gerencial` (solo admin); la Inteligencia actual no cambia salvo el rename "PDVs activos" → "Rastrillado".
+
+Definiciones (Davor, 17/11): embudo acumulado Rastrillado (PDVs activos) → En ruta foco → Visitados (≥1 visita cerrada en el período) → Efectivos (cobertura Regular o más + POP Regular o más en el mismo mes, sin exigir acción). Rúbrica: la configurable de la app. NO toca el variable (`kpi_engine`). Sin filtro Provincia (no hay dato).
+
+- [x] Back: `services/gerencial.py` (filtros, universo, equipo) + `services/user_activity.py` (conteo de movimientos compartido con `/audit/active-users`) + 3 endpoints `/intelligence/gerencial/*` con cache 30 min.
+- [x] Front: `pages/inteligencia/gerencial/` (filtros País/Área/TM Rep/meses, solapa Universo con embudo y tabla por área, Performance de equipo con Actividad y Ejecución en PDV, color por terciles) + ruta + botón en Inteligencia + rename.
+- [x] Tests: back 29 nuevos (suite 768 ok) · front 7 nuevos (270 ok) + build.
+- [x] Revisión independiente → corregido: con rep elegido la zona ya no recorta (Universo y Equipo daban distinto), PDV en rutas foco de dos reps cuenta para ambos, cache por combinación de meses (antes re-escaneaba cobertura y POP en cada cambio de filtro, dos veces), plan hasta hoy, `months` fuera de rango daba 500, zona/rep inválidos en la URL, foco visible en filas. Sin re-capturar pantallas después de estos cambios (tests + build ok).
+- [x] E2E Playwright local sobre SQLite sembrada: escritorio y celular, clic en área / rep aplica filtro, preflight CORS OK, 0 errores de consola.
+- [x] Verificado contra prod (solo lectura, sonda `scratchpad/tools/probe_gerencial.py`), Sep+Oct+Nov al 17/11: rastrillado 9.946 (prototipo 9.859), en ruta foco 4.224 (4.189), visitados 3.096, efectivos 1.046 (33,8%), realizadas 10.497 (10.363), planificadas 22.599 (21.966), duración 15 min. Rutas foco 152 con PDVs (el 94 del prototipo era "Ejemplo").
+- [x] Performance: la cobertura se consolida en SQL en una sola pasada (antes 96 mil filas a Python, 17 s). En frío ~10 s desde la notebook por combinación de meses (cache 30 min por worker); cambiar área o rep no vuelve a la base para el embudo; Equipo ~3 s.
+- [x] Firewall Azure SQL `trade-mkt-sql`: reglas `DavorLocal3` (181.0.24.137) y `DavorLocal4` (190.30.144.140) agregadas el 17/11.
+- [ ] No visto en navegador con datos de prod (no tengo login real); solo con SQLite sembrada.
+- [ ] Etapa 2: Performance de marcas, Producto, subsolapas Cobertura / Categorización / Variable mensual.
+
+Preguntas abiertas: nómina (¿activadores, Riccardi, "Usuario prueba"?) · días hábiles (hoy L–V menos tabla Holiday) · acceso de managers · Vlank en Producto.
+
+---
+
+# Explotación de datos v2 — Asistente "Puchi" (2026-11-17) — EN PROD 17/11 (553b9a5)
+
+Plan: `~/.claude/plans/stateless-cooking-key.md`. Patrón Bachi/RRHH portado a FastAPI+React. OpenAI gpt-5.2 (misma key que RRHH/Horeca) · FAB en todo el admin · solo admin · solo lectura.
+
+- [x] Back: `app/services/assistant/` (provider, openai_provider, loop, compact, prompt + conocimiento/*.md, 13 tools, turnlog) + router `/assistant` (status, ask SSE, usage, purge) + modelos + Alembic 0029 + `scripts/ddl_assistant_20261117.py` + sonda `scripts/assistant_probe.py`.
+- [x] Front: `lib/api/assistant.ts` (SSE) + `components/assistant/` (avatar SVG cigarrillo con ojos, FAB, panel, markdown con tablas, hook) + `/admin/asistente-uso` + menú "Uso de Puchi".
+- [x] Tests: back 41 nuevos (suite 738 ok) · front 27 nuevos (263 ok) + build.
+- [x] Verificado con uvicorn real y proveedor guionado: preflight CORS, SSE en chunks, desconexión a mitad (turno queda "cancelado", deja de gastar), E2E en Chrome front+back (etiqueta de tool → texto parcial → final, panel de uso).
+- [x] Revisión independiente del backend → corregido: turno del asistente envenenaba el caché del censo de Inteligencia (fix: `db.expunge` en `load_census` + sesión de auditoría separada; test de regresión), conteos de oportunidades con tope 5000, presupuesto del cierre invertido, vuelta de más tras "SIN TIEMPO", tope 6 tools/vuelta, rango máx 92 días, volátil después del historial (caché), catch-all del stream.
+- [x] Llamada real a OpenAI probada (sonda local y contra DB prod: 4 preguntas, ~US$ 0,01 c/u, caché del prompt ok).
+- [x] Go-live 17/11: push (Davor) · DDL en prod · `OPENAI_API_KEY` en `espert-trade-api`.
+- [ ] Davor: probar en el navegador (botón, una pregunta, panel "Uso de Puchi").
+- [x] Probado en Chrome contra DB prod + OpenAI real (3 preguntas, sin errores de consola).
+- [x] Censo frío (~95 s, cortaba la 1ª pregunta): `POST /assistant/warm` al abrir el panel + panel ancho para tablas — commit `3408aac`.
+- [ ] Tras el deploy de `3408aac`: medir la 1ª pregunta en frío en prod.
+
+Pendientes conocidos: la conversación se pierde al pasar entre `/admin/*` e `/inteligencia` (cada guard remonta `AdminLayout`; haría falta un store a nivel módulo) · rate limit es check-then-insert (carrera acotada, solo admin; sin presupuesto diario global) · fase 2 de tools: POP colocaciones → matriz de precios → respuestas de formularios · gobernanza: nombres de PDVs/trades/contactos viajan a OpenAI (teléfonos, mails, DNI y fotos no).
+
+---
+
 # Traspaso masivo de cartera entre trades (2026-11-12) — DEPLOYADO (26c76fe + b410f6c)
 
 Pedido (audio 12/11): migrar cartera completa o parcial de un trade a otro sin armar rutas foco ni ir PDV por PDV. Solo admin.
@@ -13,7 +54,7 @@ Pedido (audio 12/11): migrar cartera completa o parcial de un trade a otro sin a
 - [x] 767bb31: manager del equipo edita rutas de campaña de sus subordinados (`_assert_campaign_rules`); crear/borrar sigue solo admin. Afecta también a Nahuel (La Plata). Sin verificar en prod con usuario de Santiago.
 - [x] 1fa3149: Gestión PDV › celda "Ruta" → `PdvRouteModal` → `POST /routes/move-pdv` (TM+): cambia de ruta regular, toma el trade de la ruta, re-optimiza origen y destino (`_optimize_route_order`, pisa orden manual; días ya iniciados no). Auto-optimizar NO corre en editor de rutas ni en traspaso masivo.
 
-# Excel consolidado en Censos y Respuestas (2026-11-12, pedido Nahuel) — commiteado, falta push
+# Excel consolidado en Censos y Respuestas (2026-11-12, pedido Nahuel) — DEPLOYADO (e88b27a)
 - [x] `GET /visits/answers-export` (mismos filtros/jerarquía que `/visits`, tope 5000 visitas, columna por FormId+KeyName, opciones valor→etiqueta).
 - [x] Front: botón "Descargar Excel" en `VisitDataExplorer` → `lib/visitAnswersExport.ts`: hojas Visitas / Por vendedor / Por vendedor y día (suma numéricas, cuenta "Sí", cuenta por opción).
 - [x] Tests back + front, build, lectura contra prod como Nahuel (415 visitas nov, 10 s). Sin probar el click en navegador.

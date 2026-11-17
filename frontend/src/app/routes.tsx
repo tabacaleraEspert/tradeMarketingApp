@@ -63,6 +63,7 @@ const ProductDeliveries = lazy(() => import("./pages/admin/ProductDeliveries").t
 const PopPlacementsReport = lazy(() => import("./pages/admin/PopPlacementsReport").then(m => ({ default: m.PopPlacementsReport })));
 const TableroPage = lazy(() => import("./pages/tablero/TableroPage").then(m => ({ default: m.TableroPage })));
 const InteligenciaPage = lazy(() => import("./pages/inteligencia/InteligenciaPage").then(m => ({ default: m.InteligenciaPage })));
+const GerencialPage = lazy(() => import("./pages/inteligencia/gerencial/GerencialPage").then(m => ({ default: m.GerencialPage })));
 
 function LazyFallback() {
   return <div className="flex items-center justify-center h-32"><div className="w-6 h-6 border-2 border-[#A48242] border-t-transparent rounded-full animate-spin" /></div>;
@@ -282,6 +283,7 @@ export const router = createBrowserRouter([
     Component: AdminOnlyGuard,
     children: [
       { index: true, element: <SuspenseWrap><InteligenciaPage /></SuspenseWrap> },
+      { path: "gerencial", element: <SuspenseWrap><GerencialPage /></SuspenseWrap> },
       { path: "*", element: <Navigate to="/login" replace /> },
     ],
   },

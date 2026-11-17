@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { BarChart3, RefreshCw } from "lucide-react";
+import { Link } from "react-router";
 import { Card, CardContent } from "../../components/ui/card";
 import { intelligenceApi, type IntelOverview, type IntelTrade, type IntelZona } from "@/lib/api";
 import { ZonaPage } from "./ZonaPage";
@@ -76,6 +77,12 @@ export function InteligenciaPage() {
             </span>
           )}
         </p>
+        <Link
+          to="/inteligencia/gerencial"
+          className="inline-flex items-center gap-1.5 mt-3 rounded-md border border-espert-gold/50 px-3 py-1.5 text-sm font-semibold text-espert-gold hover:bg-espert-gold/10"
+        >
+          <BarChart3 size={15} /> Vista gerencial
+        </Link>
       </header>
 
       {loading && (

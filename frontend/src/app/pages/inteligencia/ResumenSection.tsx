@@ -43,7 +43,7 @@ export function ResumenSection({ data }: { data: IntelOverview }) {
   // Ordenadas para leerse como contexto: la cartera → cuánto la conocemos →
   // cómo nos va donde la conocemos → quiénes la trabajan y a qué ritmo.
   const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
-    { v: nf(r.pdvsActivos), l: "PDVs activos", d: `en ${zonas.length} zonas` },
+    { v: nf(r.pdvsActivos), l: "Rastrillado", d: `en ${zonas.length} zonas` },
     { v: nf(r.censados), l: "Censados", d: `${r.pctCensado}% de la cartera` },
     { v: nf(sinCensar), l: "Sin censar", d: "la frontera de expansión" },
     // Completitud: cuánto del catálogo tiene respuesta (Sí/No) en cada PDV.

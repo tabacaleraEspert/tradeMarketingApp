@@ -54,7 +54,7 @@ export function ZonaPage({ zona: z, overview, onBack, onTradeClick, onRutaClick 
     .slice(0, 10);
 
   const tiles: Array<{ v: string; l: string; d?: string; cls?: string }> = [
-    { v: nf(z.pdvs), l: "PDVs activos" },
+    { v: nf(z.pdvs), l: "Rastrillado" },
     { v: nf(z.censados), l: "Censados", d: `${pctCensado}% de la zona` },
     { v: nf(z.pdvs - z.censados), l: "Sin censar" },
     ...(z.completitud != null

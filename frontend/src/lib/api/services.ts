@@ -1747,6 +1747,93 @@ export interface IntelBehaviorResponse {
   dias: IntelBehaviorDia[];
 }
 
+// --- Inteligencia › Vista gerencial (/intelligence/gerencial/*, solo admin) ---
+export interface GerencialFilters {
+  zonas: Array<{ id: number; name: string }>;
+  reps: Array<{ id: number; name: string; zoneId: number | null }>;
+  /** Últimos 6 meses, del más viejo al más nuevo. key = "2026-11", label = "Nov". */
+  meses: Array<{ key: string; label: string }>;
+  fechaDatos: string;
+}
+
+export interface GerencialQuery {
+  months: string[];
+  zone_id?: number;
+  user_id?: number;
+}
+
+export interface GerencialEmbudo {
+  rastrillado: number;
+  enRutaFoco: number;
+  visitados: number;
+  efectivos: number;
+}
+
+export interface GerencialAreaRow extends GerencialEmbudo {
+  zoneId: number | null;
+  area: string;
+  rutas: number;
+  repsActivos: number;
+  pdvPorRep: number | null;
+}
+
+export interface GerencialUniverso {
+  periodoLabel: string;
+  embudo: GerencialEmbudo;
+  rutasFoco: number;
+  repsActivos: number;
+  repsNomina: number;
+  pdvPorRuta: number | null;
+  pdvPorRep: number | null;
+  areas: GerencialAreaRow[];
+}
+
+export interface GerencialEquipoCards {
+  planificadas: number;
+  realizadas: number;
+  cumplimientoPct: number | null;
+  visitasPorDiaRep: number | null;
+  duracionMin: number | null;
+  efectividadPct: number | null;
+  efectivos: number;
+  visitados: number;
+}
+
+export interface GerencialRepRow {
+  id: number;
+  nombre: string;
+  zoneId: number | null;
+  area: string;
+  clientes: number;
+  rutasFoco: number;
+  planificadas: number;
+  realizadas: number;
+  cumplimientoPct: number | null;
+  visitasPorDia: number | null;
+  duracionMin: number | null;
+  efectividadPct: number | null;
+  gpsPct: number | null;
+  fotoPct: number | null;
+  movimientos: number;
+  comunicacionPct: number | null;
+  sueltosPct: number | null;
+  activacionesPct: number | null;
+}
+
+export interface GerencialEquipo {
+  periodoLabel: string;
+  diasHabiles: number;
+  cards: GerencialEquipoCards;
+  reps: GerencialRepRow[];
+}
+
+// months viaja como lista separada por comas; zone_id/user_id se omiten si no hay filtro.
+const gerencialParams = (q: GerencialQuery): Record<string, string | number | undefined> => ({
+  months: q.months.join(","),
+  zone_id: q.zone_id,
+  user_id: q.user_id,
+});
+
 export const intelligenceApi = {
   pdvDetail: (pdvId: number) => api.get<IntelPdvDetail>(`/intelligence/pdv/${pdvId}`),
   suppliers: (params: { user_id?: number; ruta?: string; zone_id?: number }) =>
@@ -1778,6 +1865,11 @@ export const intelligenceApi = {
   map: () => api.get<IntelMapResponse>("/intelligence/map"),
   behavior: (params: { user_id: number; date_from: string; date_to: string }) =>
     api.get<IntelBehaviorResponse>("/intelligence/behavior", { ...params }),
+  gerencialFilters: () => api.get<GerencialFilters>("/intelligence/gerencial/filters"),
+  gerencialUniverso: (q: GerencialQuery) =>
+    api.get<GerencialUniverso>("/intelligence/gerencial/universo", gerencialParams(q)),
+  gerencialEquipo: (q: GerencialQuery) =>
+    api.get<GerencialEquipo>("/intelligence/gerencial/equipo", gerencialParams(q)),
 };
 
 // --- Supplier Types (admin lookup) ---

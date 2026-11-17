@@ -6,6 +6,7 @@ Tres recursos de solo lectura sobre `services/intelligence.py`:
     GET /intelligence/opportunities  motor de 5 reglas, con filtros y paginado
     GET /intelligence/map            puntos para el mapa canvas
     GET /intelligence/behavior       comportamiento de un vendedor por rango (auditoría)
+    GET /intelligence/gerencial/*    vista gerencial: filtros, universo (embudo) y equipo
 
 Solo admin (decisión 2026-08-27: Inteligencia y Tablero TMR son de dirección).
 El recorte jerárquico por `visible_pdv_ids`/`visible_user_ids` se mantiene por
@@ -28,6 +29,7 @@ from ..database import get_db
 from ..hierarchy import visible_pdv_ids, visible_user_ids
 from ..models import User as UserModel
 from ..services import behavior as B
+from ..services import gerencial as G
 from ..services import intelligence as I
 from ..utils.ttl_cache import TTLCache
 
@@ -175,3 +177,52 @@ def get_behavior(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     key = ("behavior", user_id, date_from, date_to)
     return _BEHAVIOR_CACHE.get_or_build(key, lambda: B.build_behavior(db, user_id, date_from, date_to))
+
+
+# ---------------------------------------------------------------------------
+# Vista gerencial — ver `services/gerencial.py`
+# ---------------------------------------------------------------------------
+
+def _gerencial_months(months: Optional[str]) -> list:
+    try:
+        return G.parse_months(months)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+def _gerencial_shared(db: Session, parsed: list) -> G.Shared:
+    """Lo caro (cartera + estado por PDV del período) se cachea por combinación
+    de meses; zona y rep se filtran en memoria. La fecha va en la key para que
+    el mes en curso no arrastre el día anterior."""
+    key = ("gerencial", "shared", tuple(parsed), G.E._business_today())
+    return _INTEL_CACHE.get_or_build(key, lambda: G.load_shared(db, parsed))
+
+
+@router.get("/gerencial/filters")
+def get_gerencial_filters(db: Session = Depends(get_db)):
+    """Zonas, TM Reps y meses disponibles para la barra de filtros."""
+    return G.build_filters(db)
+
+
+@router.get("/gerencial/universo")
+def get_gerencial_universo(
+    months: Optional[str] = Query(default=None, description="Meses AAAA-MM separados por coma"),
+    zone_id: Optional[int] = Query(default=None),
+    user_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Embudo Rastrillado → En ruta foco → Visitados → Efectivos, por área."""
+    parsed = _gerencial_months(months)
+    return G.build_universo(db, parsed, zone_id, user_id, _gerencial_shared(db, parsed))
+
+
+@router.get("/gerencial/equipo")
+def get_gerencial_equipo(
+    months: Optional[str] = Query(default=None, description="Meses AAAA-MM separados por coma"),
+    zone_id: Optional[int] = Query(default=None),
+    user_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Actividad y ejecución en PDV por TM Rep."""
+    parsed = _gerencial_months(months)
+    return G.build_equipo(db, parsed, zone_id, user_id, _gerencial_shared(db, parsed))

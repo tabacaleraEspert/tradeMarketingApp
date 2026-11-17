@@ -18,6 +18,7 @@ from ..models.pdv_note import PdvNote as NoteModel
 from ..models.file import File as FileModel
 from ..models.product import Product as ProductModel
 from ..hierarchy import visible_user_ids
+from ..services.user_activity import count_user_activity
 
 router = APIRouter(prefix="/audit", tags=["Auditoría"])
 
@@ -38,62 +39,12 @@ def active_users(
     # Visibilidad por jerarquía: None = admin (ve todo).
     visible = visible_user_ids(db, current_user)
 
-    # acc[user_id] = {"count": n, "last": datetime|None}
-    acc: dict[int, dict] = {}
-
-    def add(uid, count, last_ts):
-        if uid is None:
-            return
-        if visible is not None and uid not in visible:
-            return
-        slot = acc.setdefault(uid, {"count": 0, "last": None})
-        slot["count"] += int(count or 0)
-        if last_ts and (slot["last"] is None or last_ts > slot["last"]):
-            slot["last"] = last_ts
-
-    # Visitas
-    vq = db.query(
-        VisitModel.UserId, func.count(VisitModel.VisitId), func.max(VisitModel.OpenedAt)
-    )
-    if dt_from:
-        vq = vq.filter(VisitModel.OpenedAt >= dt_from)
-    if dt_to:
-        vq = vq.filter(VisitModel.OpenedAt <= dt_to)
-    for uid, cnt, last in vq.group_by(VisitModel.UserId).all():
-        add(uid, cnt, last)
-
-    # Altas de PDV (proxy: AssignedUserId = creador en el alta)
-    pq = db.query(
-        PDVModel.AssignedUserId, func.count(PDVModel.PdvId), func.max(PDVModel.CreatedAt)
-    )
-    if dt_from:
-        pq = pq.filter(PDVModel.CreatedAt >= dt_from)
-    if dt_to:
-        pq = pq.filter(PDVModel.CreatedAt <= dt_to)
-    for uid, cnt, last in pq.group_by(PDVModel.AssignedUserId).all():
-        add(uid, cnt, last)
-
-    # Incidentes
-    iq = db.query(
-        IncidentModel.CreatedBy, func.count(IncidentModel.CreatedBy), func.max(IncidentModel.CreatedAt)
-    )
-    if dt_from:
-        iq = iq.filter(IncidentModel.CreatedAt >= dt_from)
-    if dt_to:
-        iq = iq.filter(IncidentModel.CreatedAt <= dt_to)
-    for uid, cnt, last in iq.group_by(IncidentModel.CreatedBy).all():
-        add(uid, cnt, last)
-
-    # Notas de PDV
-    nq = db.query(
-        NoteModel.CreatedByUserId, func.count(NoteModel.CreatedByUserId), func.max(NoteModel.CreatedAt)
-    )
-    if dt_from:
-        nq = nq.filter(NoteModel.CreatedAt >= dt_from)
-    if dt_to:
-        nq = nq.filter(NoteModel.CreatedAt <= dt_to)
-    for uid, cnt, last in nq.group_by(NoteModel.CreatedByUserId).all():
-        add(uid, cnt, last)
+    # Conteo único compartido con la vista gerencial (`services/user_activity.py`).
+    acc = {
+        uid: slot
+        for uid, slot in count_user_activity(db, dt_from, dt_to).items()
+        if visible is None or uid in visible
+    }
 
     user_ids = list(acc.keys())
     users = (
