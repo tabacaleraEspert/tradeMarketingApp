@@ -700,6 +700,7 @@ def test_router_solo_admin(client, db):
         assert client.post("/assistant/ask", json={"question": "hola"}, headers=hdr).status_code == 403
         assert client.get("/assistant/usage", headers=hdr).status_code == 403
         assert client.post("/assistant/purge", headers=hdr).status_code == 403
+        assert client.post("/assistant/warm", headers=hdr).status_code == 403
 
 
 def test_router_sin_key_deshabilitado(client, monkeypatch):
@@ -762,6 +763,38 @@ def test_un_turno_del_asistente_no_envenena_el_cache_del_censo(client, monkeypat
     assert client.get("/intelligence/map").status_code == 200
     opp = client.get("/intelligence/opportunities", params={"page_size": 5000}).json()
     assert any(o["pdvId"] == world["pdvs"][1].PdvId and o["pdv"] for o in opp["items"])
+
+
+def test_warm_precalienta_el_censo_una_vez_y_sin_bloquear(client, monkeypatch, world):
+    import threading
+    import time
+    from app.routers import intelligence as R
+    builds, gate = [], threading.Event()
+    real = R.I.load_census
+
+    def slow_census(db, scope):
+        builds.append(1)
+        gate.wait(5)
+        return real(db, scope)
+
+    monkeypatch.setattr(R.I, "load_census", slow_census)
+    monkeypatch.setattr(assistant_router.settings, "openai_api_key", "sk-test")
+    assert client.post("/assistant/warm").json() == {"warming": True}   # vuelve sin esperar el censo
+    assert client.post("/assistant/warm").json() == {"warming": False}  # ya hay uno en curso
+    gate.set()
+    for _ in range(100):
+        if assistant_router._warm_lock.acquire(blocking=False):
+            assistant_router._warm_lock.release()
+            break
+        time.sleep(0.05)
+    assert builds == [1]
+    # El censo quedó en el caché compartido: la consulta siguiente no lo vuelve a armar.
+    assert client.get("/intelligence/overview").status_code == 200 and builds == [1]
+    pdv_id = world["pdvs"][0].PdvId
+    assert client.get(f"/intelligence/pdv/{pdv_id}").json()["info"]["pdvId"] == pdv_id
+
+    monkeypatch.setattr(assistant_router.settings, "openai_api_key", "")
+    assert client.post("/assistant/warm").json() == {"warming": False}  # asistente apagado: no escanea
 
 
 def test_stream_que_explota_avisa_por_el_stream(client, monkeypatch):

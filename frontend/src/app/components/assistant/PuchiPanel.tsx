@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { ArrowUp, RotateCcw, TriangleAlert, X } from "lucide-react";
-import { Markdown } from "./markdown";
+import { Markdown, hasWideTable } from "./markdown";
 import { fmtAnswerFooter } from "./format";
 import { PuchiAvatar, type PuchiState } from "./PuchiAvatar";
 import { PUCHI_LABEL } from "./PuchiFab";
@@ -62,6 +62,9 @@ export function PuchiPanel({ assistant, avatarState, onClose }: PuchiPanelProps)
   const lastMessage = messages[messages.length - 1];
   const waitingForText = answering && !(lastMessage?.role === "assistant" && lastMessage.content);
   const showProgress = answering && (waitingForText || !!toolLabel);
+  // Con una tabla ancha en la conversación el panel crece (en escritorio) para
+  // que las columnas entren sin scroll lateral.
+  const wide = messages.some((m) => m.role === "assistant" && hasWideTable(m.content));
 
   return (
     <section
@@ -73,7 +76,9 @@ export function PuchiPanel({ assistant, avatarState, onClose }: PuchiPanelProps)
           onClose();
         }
       }}
-      className="puchi-panel fixed z-40 inset-x-2 sm:left-auto sm:right-4 sm:w-[420px] bottom-[calc(1rem+68px+env(safe-area-inset-bottom))] h-[min(640px,calc(100dvh-120px))] flex flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl shadow-black/20"
+      className={`puchi-panel fixed z-40 inset-x-2 sm:left-auto sm:right-4 ${
+        wide ? "sm:w-[min(640px,calc(100vw-2rem))]" : "sm:w-[420px]"
+      } transition-[width] duration-200 bottom-[calc(1rem+68px+env(safe-area-inset-bottom))] h-[min(640px,calc(100dvh-120px))] flex flex-col overflow-hidden rounded-2xl border border-border bg-card text-card-foreground shadow-2xl shadow-black/20`}
     >
       <div aria-hidden="true" className="puchi-cork h-1.5 shrink-0" />
 
@@ -190,7 +195,7 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     );
   }
   return (
-    <div className="flex max-w-[85%] min-w-0 flex-col gap-1 self-start">
+    <div className={`flex min-w-0 flex-col gap-1 self-start ${hasWideTable(message.content) ? "max-w-full" : "max-w-[85%]"}`}>
       <div className="rounded-2xl rounded-bl-md bg-muted px-3 py-2 text-sm leading-relaxed text-foreground">
         <Markdown text={message.content} />
       </div>

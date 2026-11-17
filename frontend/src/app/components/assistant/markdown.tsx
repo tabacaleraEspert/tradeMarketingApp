@@ -43,6 +43,14 @@ const isTableSeparator = (line: string) => {
   const t = line.trim();
   return t.includes("-") && /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/.test(t);
 };
+/** ¿El texto trae una tabla de 4 columnas o más? El panel se ensancha para que entre. */
+export function hasWideTable(text: string): boolean {
+  const lines = text.split("\n");
+  return lines.some(
+    (line, i) => i > 0 && isTableSeparator(line) && isTableRow(lines[i - 1]) && splitRow(lines[i - 1]).length >= 4
+  );
+}
+
 const splitRow = (line: string) => {
   let t = line.trim();
   if (t.startsWith("|")) t = t.slice(1);

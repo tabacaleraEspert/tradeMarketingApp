@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Markdown } from "@/app/components/assistant/markdown";
+import { hasWideTable } from "@/app/components/assistant/markdown";
 
 describe("Markdown de Puchi", () => {
   it("muestra como texto lo que parece HTML", () => {
@@ -54,5 +55,14 @@ describe("Markdown de Puchi", () => {
     const { container } = render(<Markdown text={"| Zona | Cobertura |"} />);
     expect(container.querySelector("table")).toBeNull();
     expect(container.textContent).toBe("| Zona | Cobertura |");
+  });
+});
+
+describe("hasWideTable", () => {
+  it("detecta tablas de 4 columnas o más, no las angostas ni el texto suelto", () => {
+    expect(hasWideTable("Hola\n| A | B | C | D |\n|---|---:|---|---|\n| 1 | 2 | 3 | 4 |")).toBe(true);
+    expect(hasWideTable("| Zona | PDVs |\n|---|---:|\n| AMBA | 441 |")).toBe(false);
+    expect(hasWideTable("| A | B | C | D |")).toBe(false); // sin separador todavía (stream a medio llegar)
+    expect(hasWideTable("sin tablas")).toBe(false);
   });
 });

@@ -237,4 +237,6 @@ export const assistantApi = {
   usage: (dateFrom: string, dateTo: string) =>
     api.get<AssistantUsage>("/assistant/usage", { date_from: dateFrom, date_to: dateTo }),
   purge: (days = 90) => api.post<{ purged: number }>(`/assistant/purge?days=${days}`),
+  /** Precalienta en segundo plano el censo que usan casi todas las consultas. */
+  warm: () => api.post<{ warming: boolean }>("/assistant/warm"),
 };

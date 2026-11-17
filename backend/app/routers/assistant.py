@@ -2,6 +2,7 @@
 
     GET  /assistant/status   {enabled}: sin OPENAI_API_KEY el front no muestra el botón
     POST /assistant/ask      pregunta + historial → respuesta por SSE
+    POST /assistant/warm     precalienta el censo en segundo plano (al abrir el panel)
     GET  /assistant/usage    panel de uso y costo
     POST /assistant/purge    borra los textos de turnos viejos (las filas quedan)
 
@@ -115,6 +116,37 @@ def ask(body: AskRequest, current_user: UserModel = Depends(get_current_user)):
         # no-transform + X-Accel-Buffering: que ningún proxy junte los eventos.
         headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+_warm_lock = threading.Lock()
+
+
+def _warm(user_id: int) -> None:
+    """Arma (o encuentra ya armado) el censo y el overview de Inteligencia, que
+    usan casi todas las herramientas. Pasa por el mismo caché que las pantallas:
+    si ya está caliente no toca la DB, y si otro request lo está armando espera
+    a ese en vez de escanear de nuevo."""
+    from . import intelligence as intel
+    db = database.SessionLocal()
+    try:
+        intel.get_overview(db=db, current_user=db.get(UserModel, user_id))
+    except Exception:
+        log.exception("assistant: falló el precalentado del censo")
+    finally:
+        db.close()
+        _warm_lock.release()
+
+
+@router.post("/warm")
+def warm(current_user: UserModel = Depends(get_current_user)):
+    """El front lo llama al abrir el panel. Armar el censo en frío tarda más que
+    un turno entero (el caché es por proceso y dura 30 min): sin esto la primera
+    pregunta se quedaba sin tiempo. Devuelve enseguida; como mucho un
+    precalentado a la vez por proceso."""
+    if not settings.openai_api_key or not _warm_lock.acquire(blocking=False):
+        return {"warming": False}
+    threading.Thread(target=_warm, args=(current_user.UserId,), daemon=True, name="puchi-warm").start()
+    return {"warming": True}
 
 
 def _today_ar() -> date:
