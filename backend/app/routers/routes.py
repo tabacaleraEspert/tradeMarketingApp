@@ -5,9 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
-from ..auth import require_role, get_current_user, get_user_role
+from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
 from ..database import get_db
-from ..hierarchy import get_visible_user_ids, visible_user_ids, get_all_subordinate_ids
+from ..hierarchy import get_visible_user_ids, visible_user_ids, visible_pdv_ids, get_all_subordinate_ids
 from ..models import (
     Route as RouteModel,
     RouteForm as RouteFormModel,
@@ -35,6 +35,7 @@ from ..schemas.route import (
     RouteDay,
     RouteDayCreate,
     RouteDayUpdate,
+    RouteDayShiftWeekday,
     RouteDayPdv,
     RouteDayPdvCreate,
     RouteDayPdvUpdate,
@@ -693,6 +694,357 @@ def my_routes_detail(
     return result
 
 
+# --- Tablero de control de rutas (semana × trade) ---
+BOARD_MAX_DAYS = 14
+
+
+def _day_has_progress(db: Session, route_day_id: int) -> bool:
+    """True si el día ya se ejecutó en parte: tiene visitas o algún PDV salió de PENDING."""
+    if not _without_visits(db, [route_day_id]):
+        return True
+    return db.query(RouteDayPdvModel.PdvId).filter(
+        RouteDayPdvModel.RouteDayId == route_day_id,
+        RouteDayPdvModel.ExecutionStatus != "PENDING",
+    ).first() is not None
+
+
+def _assert_user_visible(db: Session, current_user: UserModel, target_user_id: int) -> UserModel:
+    """El trade destino existe, está activo y cae dentro de la jerarquía del que opera."""
+    target = db.query(UserModel).filter(UserModel.UserId == target_user_id).first()
+    if not target or not target.IsActive:
+        raise HTTPException(status_code=400, detail="El Trade Marketer destino no existe o está inactivo")
+    visible = visible_user_ids(db, current_user)
+    if visible is not None and target_user_id not in visible:
+        raise HTTPException(status_code=403, detail="No puede asignar días a un usuario fuera de su equipo")
+    return target
+
+
+def _get_day_and_route(db: Session, current_user: UserModel, route_day_id: int) -> tuple[RouteDayModel, RouteModel]:
+    rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
+    if not rd:
+        raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
+    route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+    if not route:
+        raise HTTPException(status_code=404, detail="Ruta no encontrada")
+    visible = visible_user_ids(db, current_user)
+    if visible is not None and rd.AssignedUserId not in visible and route.AssignedUserId not in visible:
+        raise HTTPException(status_code=403, detail="No tiene permiso sobre días fuera de su equipo")
+    return rd, route
+
+
+def _assert_planner(db: Session, current_user: UserModel) -> None:
+    """Mover días o achicarlos es planificación del equipo (territory_manager o superior).
+    Un trade no reprograma ni recorta sus propios días: eso cambia el denominador del
+    KPI de cumplimiento (RouteDayPdv del mes)."""
+    role = (get_user_role(db, current_user.UserId) or "").lower()
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["territory_manager"]:
+        raise HTTPException(status_code=403, detail="Solo un responsable de equipo puede reprogramar días de ruta")
+
+
+def _assert_day_editable(db: Session, rd: RouteDayModel, *, deleting: bool = False) -> None:
+    """Guarda única del tablero (espejo de `locked`): un día que ya pasó no se toca
+    (ni sumar/quitar PDVs ni borrarlo); para borrarlo además tiene que estar PLANIFICADO
+    y sin ejecución (visitas o PDVs empezados)."""
+    if rd.WorkDate < _today_ar():
+        raise HTTPException(status_code=409, detail="El día ya pasó: no se puede modificar")
+    if deleting and (rd.Status != "PLANNED" or _day_has_progress(db, rd.RouteDayId)):
+        raise HTTPException(status_code=409, detail="El día ya tiene visitas cargadas o está en curso, no se puede borrar")
+
+
+def _assert_day_owner(route: RouteModel | None, user_id: int) -> None:
+    """Un día de ruta es del trade dueño de la ruta. "Prestar" un solo día a otro trade
+    todavía no está disponible: el otro no ve esos PDVs (visible_pdv_ids mira el dueño del
+    PDV / de la ruta) y sus visitas no cuentan para nadie en el KPI. Para cambiar de trade
+    se reasigna la ruta entera. (start-today de activadores no pasa por acá.)"""
+    if route is not None and route.AssignedUserId is not None and user_id != route.AssignedUserId:
+        raise HTTPException(
+            status_code=400,
+            detail="Todavía no se puede asignar un solo día a otro trade: reasigná toda la ruta",
+        )
+
+
+def _reassign_route_cascade(db: Session, r: RouteModel, new_user: int | None, today: _date) -> None:
+    """Efectos de cambiar el trade de una ruta (ya seteado en `r.AssignedUserId`): dueño de
+    los PDVs (salvo campaña) y días futuros PLANIFICADOS. Lo usan PATCH /routes/{id} y el
+    cambio de día de la semana con reasignación (una sola transacción)."""
+    # En una campaña el dueño de los PDVs no cambia (siguen siendo del trade de su ruta regular).
+    if not _is_campaign(r):
+        pdv_ids = [
+            row[0]
+            for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == r.RouteId).all()
+        ]
+        if pdv_ids:
+            db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).update(
+                {PDVModel.AssignedUserId: new_user}, synchronize_session=False
+            )
+    # Update future PLANNED RouteDays
+    future_days = db.query(RouteDayModel).filter(
+        RouteDayModel.RouteId == r.RouteId,
+        RouteDayModel.WorkDate >= today,
+        RouteDayModel.Status == "PLANNED",
+    ).all()
+    if new_user is None:
+        # Desasignar: borrar días futuros planificados (hijos primero por FK)
+        _delete_planned_days(db, _without_visits(db, [fd.RouteDayId for fd in future_days]))
+    else:
+        # Reasignar: actualizar AssignedUserId en días futuros
+        for fd in future_days:
+            fd.AssignedUserId = new_user
+
+
+@router.get("/board", dependencies=[Depends(require_role("territory_manager"))])
+def routes_board(
+    date_from: _date,
+    date_to: _date,
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """Tablero de control: trades (filas) × días planificados (RouteDay) del rango.
+
+    Cantidad fija de queries (no depende de la cantidad de trades ni de días): usuarios,
+    zonas, roles, días+ruta, conteos de PDVs por día, días con visitas y rutas vigentes.
+    Filtrado por jerarquía (admin ve todo; el resto, su sub-árbol)."""
+    from ..models.user import Role as RoleModel, UserRole as UserRoleModel
+    from ..models.visit import Visit as VisitModel
+    from ..models.zone import Zone as ZoneModel
+    from sqlalchemy import case
+
+    if date_to < date_from:
+        raise HTTPException(status_code=400, detail="date_to no puede ser anterior a date_from")
+    if (date_to - date_from).days >= BOARD_MAX_DAYS:
+        raise HTTPException(status_code=400, detail=f"El rango máximo es de {BOARD_MAX_DAYS} días")
+
+    visible = visible_user_ids(db, current_user)
+    today = _today_ar()
+
+    users = db.query(
+        UserModel.UserId, UserModel.DisplayName, UserModel.ZoneId, UserModel.ManagerUserId, UserModel.IsActive,
+    ).all()
+    user_by_id = {u.UserId: u for u in users}
+    zone_names = dict(db.query(ZoneModel.ZoneId, ZoneModel.Name).all())
+    role_by_user: dict[int, str] = {}
+    for uid, rname in (
+        db.query(UserRoleModel.UserId, RoleModel.Name).join(RoleModel, RoleModel.RoleId == UserRoleModel.RoleId).all()
+    ):
+        role_by_user.setdefault(uid, rname)
+
+    in_range = (RouteDayModel.WorkDate >= date_from, RouteDayModel.WorkDate <= date_to)
+    day_scope = in_range if visible is None else (*in_range, RouteDayModel.AssignedUserId.in_(visible))
+
+    day_rows = (
+        db.query(RouteDayModel, RouteModel)
+        .join(RouteModel, RouteModel.RouteId == RouteDayModel.RouteId)
+        .filter(*day_scope)
+        .order_by(RouteDayModel.WorkDate, RouteModel.Name, RouteDayModel.RouteDayId)
+        .all()
+    )
+    counts = {
+        day_id: (int(total or 0), int(done or 0), int(started or 0))
+        for day_id, total, done, started in (
+            db.query(
+                RouteDayPdvModel.RouteDayId,
+                func.count(),
+                func.sum(case((RouteDayPdvModel.ExecutionStatus == "DONE", 1), else_=0)),
+                func.sum(case((RouteDayPdvModel.ExecutionStatus != "PENDING", 1), else_=0)),
+            )
+            .join(RouteDayModel, RouteDayModel.RouteDayId == RouteDayPdvModel.RouteDayId)
+            .filter(*day_scope)
+            .group_by(RouteDayPdvModel.RouteDayId)
+            .all()
+        )
+    }
+    with_visits = {
+        row[0] for row in (
+            db.query(VisitModel.RouteDayId)
+            .join(RouteDayModel, RouteDayModel.RouteDayId == VisitModel.RouteDayId)
+            .filter(*day_scope)
+            .distinct()
+            .all()
+        )
+    }
+
+    # Rutas vigentes visibles (para el "+" de cada celda) con su cantidad de PDVs.
+    pdv_count_sq = (
+        db.query(RoutePdvModel.RouteId.label("rid"), func.count().label("n"))
+        .group_by(RoutePdvModel.RouteId)
+        .subquery()
+    )
+    live_q = (
+        db.query(RouteModel, pdv_count_sq.c.n)
+        .outerjoin(pdv_count_sq, pdv_count_sq.c.rid == RouteModel.RouteId)
+        .filter(route_is_live(today))
+    )
+    if visible is not None:
+        live_q = live_q.filter(or_(
+            RouteModel.AssignedUserId.in_(visible),
+            RouteModel.CreatedByUserId == current_user.UserId,
+        ))
+
+    def route_dict(r: RouteModel, pdv_count: int | None, live: bool) -> dict:
+        return {
+            "routeId": r.RouteId,
+            "name": r.Name,
+            "routeType": r.RouteType or ROUTE_REGULAR,
+            "assignedUserId": r.AssignedUserId,
+            "zoneId": r.ZoneId,
+            "frequencyType": r.FrequencyType,
+            "frequencyConfig": r.FrequencyConfig,
+            "endDate": r.EndDate.isoformat() if r.EndDate else None,
+            "pdvCount": pdv_count,
+            "isLive": live,
+        }
+
+    routes_out: dict[int, dict] = {}
+    for r, n in live_q.all():
+        routes_out[r.RouteId] = route_dict(r, int(n or 0), True)
+
+    days_out = []
+    for rd, r in day_rows:
+        routes_out.setdefault(r.RouteId, route_dict(r, None, False))
+        total, done, started = counts.get(rd.RouteDayId, (0, 0, 0))
+        has_visits = rd.RouteDayId in with_visits
+        days_out.append({
+            "routeDayId": rd.RouteDayId,
+            "routeId": r.RouteId,
+            "routeName": r.Name,
+            "routeType": r.RouteType or ROUTE_REGULAR,
+            "workDate": rd.WorkDate.isoformat(),
+            "userId": rd.AssignedUserId,
+            "status": rd.Status,
+            "pdvCount": total,
+            "doneCount": done,
+            "hasVisits": has_visits,
+            # Se puede mover / borrar: planificado, de hoy en adelante y sin ejecución.
+            "locked": has_visits or started > 0 or rd.Status != "PLANNED" or rd.WorkDate < today,
+        })
+
+    # Filas: trades de campo activos visibles + cualquiera con rutas vigentes o días en el rango.
+    rep_ids = {d["userId"] for d in days_out}
+    rep_ids |= {r["assignedUserId"] for r in routes_out.values() if r["isLive"] and r["assignedUserId"]}
+    rep_ids |= {
+        u.UserId for u in users
+        if u.IsActive and role_by_user.get(u.UserId, "vendedor") == "vendedor"
+    }
+    if visible is not None:
+        rep_ids &= visible
+    reps_out = []
+    for uid in rep_ids:
+        u = user_by_id.get(uid)
+        if u is None:
+            continue
+        mgr = user_by_id.get(u.ManagerUserId) if u.ManagerUserId else None
+        reps_out.append({
+            "userId": u.UserId,
+            "name": u.DisplayName,
+            "zoneId": u.ZoneId,
+            "zoneName": zone_names.get(u.ZoneId) if u.ZoneId else None,
+            "managerId": u.ManagerUserId,
+            "managerName": mgr.DisplayName if mgr else None,
+            "role": role_by_user.get(u.UserId, "vendedor"),
+            "isActive": bool(u.IsActive),
+        })
+    reps_out.sort(key=lambda x: ((x["managerName"] or "~").lower(), (x["name"] or "").lower()))
+
+    return {
+        "dateFrom": date_from.isoformat(),
+        "dateTo": date_to.isoformat(),
+        "today": today.isoformat(),
+        "reps": reps_out,
+        "days": days_out,
+        "routes": sorted(routes_out.values(), key=lambda x: (x["name"] or "").lower()),
+    }
+
+
+@router.get("/days/{route_day_id}/detail", dependencies=[Depends(require_role("territory_manager"))])
+def route_day_board_detail(route_day_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(get_current_user)):
+    """Panel lateral del tablero: el día, su ruta, su trade y la lista ordenada de PDVs
+    del día (RouteDayPdv) con estado de ejecución y si ya tienen visita."""
+    from ..models.visit import Visit as VisitModel
+
+    rd, route = _get_day_and_route(db, current_user, route_day_id)
+    user = db.query(UserModel).filter(UserModel.UserId == rd.AssignedUserId).first()
+    visited = {
+        row[0] for row in db.query(VisitModel.PdvId).filter(VisitModel.RouteDayId == route_day_id).distinct().all()
+    }
+    rows = (
+        db.query(RouteDayPdvModel, PDVModel.Name, PDVModel.Address, PDVModel.City)
+        .join(PDVModel, PDVModel.PdvId == RouteDayPdvModel.PdvId)
+        .filter(RouteDayPdvModel.RouteDayId == route_day_id)
+        .order_by(RouteDayPdvModel.PlannedOrder, RouteDayPdvModel.PdvId)
+        .all()
+    )
+    started = any(dp.ExecutionStatus != "PENDING" for dp, *_ in rows)
+    return {
+        "routeDayId": rd.RouteDayId,
+        "routeId": route.RouteId,
+        "routeName": route.Name,
+        "routeType": route.RouteType or ROUTE_REGULAR,
+        "frequencyType": route.FrequencyType,
+        "frequencyConfig": route.FrequencyConfig,
+        "endDate": route.EndDate.isoformat() if route.EndDate else None,
+        "workDate": rd.WorkDate.isoformat(),
+        "userId": rd.AssignedUserId,
+        "userName": user.DisplayName if user else None,
+        "status": rd.Status,
+        "hasVisits": bool(visited),
+        "locked": bool(visited) or started or rd.Status != "PLANNED" or rd.WorkDate < _today_ar(),
+        "pdvs": [
+            {
+                "pdvId": dp.PdvId,
+                "name": name,
+                "address": address,
+                "city": city,
+                "plannedOrder": dp.PlannedOrder,
+                "executionStatus": dp.ExecutionStatus,
+                "hasVisit": dp.PdvId in visited,
+            }
+            for dp, name, address, city in rows
+        ],
+    }
+
+
+@router.get("/days/{route_day_id}/pdv-candidates", dependencies=[Depends(require_role("territory_manager"))])
+def route_day_pdv_candidates(
+    route_day_id: int,
+    q: str = "",
+    limit: int = Query(30, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: UserModel = Depends(get_current_user),
+):
+    """PDVs que se pueden sumar a ESTE día: los de la ruta que no están en el día y, después,
+    los activos de la zona de la ruta. `q` busca por nombre / dirección / código."""
+    rd, route = _get_day_and_route(db, current_user, route_day_id)
+    in_day = db.query(RouteDayPdvModel.PdvId).filter(RouteDayPdvModel.RouteDayId == route_day_id)
+    in_route = db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route.RouteId)
+    cols = (PDVModel.PdvId, PDVModel.Name, PDVModel.Address, PDVModel.City)
+    base = db.query(*cols).filter(PDVModel.IsActive == True, ~PDVModel.PdvId.in_(in_day))  # noqa: E712
+    term = q.strip()
+    if term:
+        like = f"%{term}%"
+        base = base.filter(or_(PDVModel.Name.ilike(like), PDVModel.Address.ilike(like), PDVModel.Code.ilike(like)))
+
+    def row(r, in_route_flag: bool) -> dict:
+        return {"pdvId": r[0], "name": r[1], "address": r[2], "city": r[3], "inRoute": in_route_flag}
+
+    # 1) Los de la ruta que faltan en el día: siempre todos (son pocos), sin tope.
+    out = [row(r, True) for r in base.filter(PDVModel.PdvId.in_(in_route)).order_by(PDVModel.Name).all()]
+    # 2) Se completa hasta `limit` con los de la zona; un no-admin solo ve los de su jerarquía
+    #    (se filtra en Python: el set puede tener miles de ids, no entra en un IN de SQL Server).
+    room = limit - len(out)
+    if room > 0 and route.ZoneId is not None:
+        visible = visible_pdv_ids(db, current_user)
+        zone_q = base.filter(PDVModel.ZoneId == route.ZoneId, ~PDVModel.PdvId.in_(in_route)).order_by(PDVModel.Name)
+        if visible is None:
+            out += [row(r, False) for r in zone_q.limit(room).all()]
+        else:
+            for r in zone_q.limit(3000).all():
+                if r[0] in visible:
+                    out.append(row(r, False))
+                    if len(out) >= limit:
+                        break
+    return out
+
+
 # --- Route ---
 @router.get("", response_model=list[Route])
 def list_routes(
@@ -880,31 +1232,8 @@ def update_route(route_id: int, data: RouteUpdate, db: Session = Depends(get_db)
     # Propagar el cambio de Trade Marketer a todos los PDVs de la ruta
     today = _today_ar()
 
-    # En una campaña el dueño de los PDVs no cambia (siguen siendo del trade de su ruta regular).
-    if assigned_actually_changed and not _is_campaign(r):
-        pdv_ids = [
-            row[0]
-            for row in db.query(RoutePdvModel.PdvId).filter(RoutePdvModel.RouteId == route_id).all()
-        ]
-        if pdv_ids:
-            db.query(PDVModel).filter(PDVModel.PdvId.in_(pdv_ids)).update(
-                {PDVModel.AssignedUserId: new_assigned_user}, synchronize_session=False
-            )
-
     if assigned_actually_changed:
-        # Update future PLANNED RouteDays
-        future_days = db.query(RouteDayModel).filter(
-            RouteDayModel.RouteId == route_id,
-            RouteDayModel.WorkDate >= today,
-            RouteDayModel.Status == "PLANNED",
-        ).all()
-        if new_assigned_user is None:
-            # Desasignar: borrar días futuros planificados (hijos primero por FK)
-            _delete_planned_days(db, _without_visits(db, [fd.RouteDayId for fd in future_days]))
-        else:
-            # Reasignar: actualizar AssignedUserId en días futuros
-            for fd in future_days:
-                fd.AssignedUserId = new_assigned_user
+        _reassign_route_cascade(db, r, new_assigned_user, today)
 
     # Si cambió la frecuencia DE VERDAD, borrar días futuros PLANNED para que el frontend regenere
     if freq_actually_changed:
@@ -1240,6 +1569,17 @@ def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserMode
     user_id = data.AssignedUserId or getattr(r, "AssignedUserId", None)
     if not user_id:
         raise HTTPException(status_code=400, detail="Se requiere un Trade Marketer asignado")
+    _assert_day_owner(r, user_id)
+    if user_id != r.AssignedUserId:  # ruta sin asignar: el trade del día tiene que ser del equipo
+        _assert_user_visible(db, current_user, user_id)
+    # Una ruta no se planifica dos veces el mismo día para el mismo trade (los editores
+    # generan en lote y saltean los errores; el tablero muestra el mensaje). Otro usuario sí
+    # puede tener su día de la misma ruta esa fecha (activadores, start-today).
+    if db.query(RouteDayModel.RouteDayId).filter(
+        RouteDayModel.RouteId == route_id, RouteDayModel.WorkDate == data.WorkDate,
+        RouteDayModel.AssignedUserId == user_id,
+    ).first():
+        raise HTTPException(status_code=409, detail=f"La ruta ya tiene un día planificado el {data.WorkDate.strftime('%d/%m/%Y')}")
     rd = RouteDayModel(
         RouteId=route_id,
         WorkDate=data.WorkDate,
@@ -1258,7 +1598,13 @@ def create_route_day(route_id: int, data: RouteDayCreate, current_user: UserMode
             Priority=rp.Priority,
         )
         db.add(rdp)
+    if data.Origin:
+        _audit(db, current_user, "ROUTE_DAY_CREATE", route_id, {
+            "origen": data.Origin, "routeDayId": rd.RouteDayId,
+            "despues": {"WorkDate": data.WorkDate, "AssignedUserId": user_id, "pdvs": len(route_pdvs)},
+        })
     db.commit()
+    _MAP_CACHE.clear()
     db.refresh(rd)
     return rd
 
@@ -1294,18 +1640,32 @@ def start_route_today(route_id: int, current_user: UserModel = Depends(get_curre
 
 
 @router.delete("/days/{route_day_id}", status_code=204)
-def delete_route_day(route_day_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+def delete_route_day(route_day_id: int, origin: str | None = None, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
     rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
     if not rd:
         raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
     route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
+    if origin:
+        # Baja desde el tablero: planificador, dentro de su jerarquía (también ejecutivo /
+        # regional, a los que _assert_route_access deja pasar) y solo días sin ejecutar de
+        # hoy en adelante. Sin `origin` (editores de ruta) el comportamiento no cambia.
+        _assert_planner(db, current_user)
+        _get_day_and_route(db, current_user, route_day_id)
+        _assert_day_editable(db, rd, deleting=True)
     if route:
         _assert_route_access(db, current_user, route)
     if not _without_visits(db, [route_day_id]):
         raise HTTPException(status_code=409, detail="El día ya tiene visitas cargadas, no se puede borrar")
+    if origin:
+        # Baja manual desde el tablero de control (los editores regeneran en lote y no lo mandan).
+        _audit(db, current_user, "ROUTE_DAY_DELETE", rd.RouteId, {
+            "origen": origin, "routeDayId": rd.RouteDayId,
+            "antes": {"WorkDate": rd.WorkDate, "AssignedUserId": rd.AssignedUserId, "Status": rd.Status},
+        })
     db.query(RouteDayPdvModel).filter(RouteDayPdvModel.RouteDayId == route_day_id).delete()
     db.delete(rd)
     db.commit()
+    _MAP_CACHE.clear()
 
 
 @router.get("/days/{route_day_id}", response_model=RouteDay)
@@ -1339,11 +1699,182 @@ def update_route_day(route_day_id: int, data: RouteDayUpdate, current_user: User
     route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
     if route:
         _assert_route_access(db, current_user, route)
+
+    # Mover SOLO este día (tablero de control): otra fecha y/o otro trade.
+    new_date = data.WorkDate if data.WorkDate is not None and data.WorkDate != rd.WorkDate else None
+    new_user = data.AssignedUserId if data.AssignedUserId is not None and data.AssignedUserId != rd.AssignedUserId else None
+    if new_date is not None or new_user is not None:
+        _assert_planner(db, current_user)
+        _get_day_and_route(db, current_user, route_day_id)  # jerarquía (incluye ejecutivo / regional)
+        if route:
+            _assert_campaign_rules(db, current_user, route)
+        today = _today_ar()
+        if _day_has_progress(db, route_day_id) or rd.Status != "PLANNED":
+            raise HTTPException(status_code=409, detail="El día ya tiene visitas o está en curso, no se puede mover")
+        if rd.WorkDate < today:
+            raise HTTPException(status_code=400, detail="No se puede mover un día que ya pasó")
+        if new_date is not None:
+            if new_date < today:
+                raise HTTPException(status_code=400, detail="No se puede mover un día a una fecha pasada")
+            if route and route.EndDate is not None and new_date > route.EndDate:
+                raise HTTPException(status_code=400, detail=f"La ruta termina el {route.EndDate.strftime('%d/%m/%Y')}")
+        if new_user is not None:
+            _assert_day_owner(route, new_user)
+            _assert_user_visible(db, current_user, new_user)
+        target_date, target_user = new_date or rd.WorkDate, new_user or rd.AssignedUserId
+        if db.query(RouteDayModel.RouteDayId).filter(
+            RouteDayModel.RouteId == rd.RouteId,
+            RouteDayModel.WorkDate == target_date,
+            RouteDayModel.AssignedUserId == target_user,
+            RouteDayModel.RouteDayId != route_day_id,
+        ).first():
+            raise HTTPException(status_code=409, detail=f"La ruta ya tiene un día planificado el {target_date.strftime('%d/%m/%Y')}")
+        before = {"WorkDate": rd.WorkDate, "AssignedUserId": rd.AssignedUserId}
+        if new_date is not None:
+            rd.WorkDate = new_date
+        if new_user is not None:
+            rd.AssignedUserId = new_user
+        after = {"WorkDate": rd.WorkDate, "AssignedUserId": rd.AssignedUserId}
+        diff = [k for k in after if after[k] != before[k]]
+        _audit(db, current_user, "ROUTE_DAY_MOVE", rd.RouteId, {
+            "routeDayId": rd.RouteDayId,
+            "antes": {k: before[k] for k in diff}, "despues": {k: after[k] for k in diff},
+        })
+
     if data.Status is not None:
         rd.Status = data.Status
     db.commit()
+    if new_date is not None or new_user is not None:
+        _MAP_CACHE.clear()
     db.refresh(rd)
     return rd
+
+
+def _monday_index(d: _date) -> int:
+    return d.weekday()  # 0 = lunes … 6 = domingo
+
+
+@router.post("/days/{route_day_id}/shift-weekday", dependencies=[Depends(require_role("territory_manager"))])
+def shift_route_weekday(route_day_id: int, data: RouteDayShiftWeekday, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Tablero de control → "Toda la ruta de acá en adelante": cambia el día de la semana
+    de la frecuencia (semanal / quincenal / días específicos) y corre a ese día los días
+    PLANIFICADOS sin visitas desde el día arrastrado en adelante. Todo en una transacción.
+
+    `data.WorkDate` es el destino del día arrastrado: misma semana (lun–dom), otro día.
+    Días con visitas o ya empezados no se tocan; los que caerían después de la fecha de fin
+    o sobre otro día ya planificado de la misma ruta se eliminan (quedarían duplicados)."""
+    rd, route = _get_day_and_route(db, current_user, route_day_id)
+    _assert_route_access(db, current_user, route)
+    _assert_campaign_rules(db, current_user, route)
+    # Reasignación en la misma transacción (soltar en otro día Y otro trade → "toda la ruta").
+    new_owner = data.AssignedUserId if data.AssignedUserId is not None and data.AssignedUserId != route.AssignedUserId else None
+    if new_owner is not None:
+        _assert_route_access(db, current_user, route, RouteUpdate(AssignedUserId=new_owner))
+        _assert_user_visible(db, current_user, new_owner)
+
+    freq = route.FrequencyType
+    if freq not in ("weekly", "biweekly", "specific_days"):
+        raise HTTPException(status_code=400, detail="La frecuencia de esta ruta no tiene día de la semana: mové solo este día")
+    today = _today_ar()
+    src, dst = rd.WorkDate, data.WorkDate
+    if src < today or dst < today:
+        raise HTTPException(status_code=400, detail="No se pueden mover días que ya pasaron")
+    delta = (dst - src).days
+    if delta == 0 or (src - _timedelta(days=_monday_index(src))) != (dst - _timedelta(days=_monday_index(dst))):
+        raise HTTPException(status_code=400, detail="El destino tiene que ser otro día de la misma semana")
+    if _day_has_progress(db, route_day_id) or rd.Status != "PLANNED":
+        raise HTTPException(status_code=409, detail="El día ya tiene visitas o está en curso, no se puede mover")
+    if route.EndDate is not None and dst > route.EndDate:
+        raise HTTPException(status_code=400, detail=f"La ruta termina el {route.EndDate.strftime('%d/%m/%Y')}")
+
+    try:
+        config = _json.loads(route.FrequencyConfig) if route.FrequencyConfig else {}
+    except ValueError:
+        config = {}
+    js_from, js_to = (src.weekday() + 1) % 7, (dst.weekday() + 1) % 7  # JS: 0 = domingo
+    before = _route_snapshot(route)
+    if freq == "specific_days":
+        days_cfg = list(config.get("days") or [])
+        if js_from not in days_cfg:
+            raise HTTPException(status_code=400, detail="Ese día no es parte de la frecuencia de la ruta: mové solo este día")
+        if js_to in days_cfg:
+            raise HTTPException(status_code=409, detail="La ruta ya se visita ese día de la semana")
+        config["days"] = sorted(js_to if d == js_from else d for d in days_cfg)
+    else:
+        if config.get("day") != js_from:
+            raise HTTPException(status_code=400, detail="Ese día no es parte de la frecuencia de la ruta: mové solo este día")
+        config["day"] = js_to
+        # Quincenal: la fase (qué semanas toca) se ancla en startDate; se corre igual que
+        # los días para que al regenerar caiga en las mismas semanas.
+        start = _start_date_of(route.FrequencyConfig)
+        if freq == "biweekly" and start is not None:
+            anchor = start + _timedelta(days=(js_from - (start.weekday() + 1) % 7) % 7)
+            config["startDate"] = (anchor + _timedelta(days=delta)).isoformat()
+    # Si el nuevo día cae antes del inicio de la ruta, el inicio se adelanta con él.
+    start_now = _start_date_of(_json.dumps(config))
+    if start_now is not None and dst < start_now:
+        config["startDate"] = dst.isoformat()
+    route.FrequencyConfig = _json.dumps(config)
+
+    future = (
+        db.query(RouteDayModel)
+        .filter(RouteDayModel.RouteId == route.RouteId, RouteDayModel.WorkDate >= src, RouteDayModel.Status == "PLANNED")
+        .order_by(RouteDayModel.WorkDate)
+        .all()
+    )
+    # Solo los días del mismo trade que el arrastrado: los de otro usuario sobre la misma
+    # ruta y fecha (activadores, start-today) no se mueven ni se borran.
+    candidates = [d for d in future if d.WorkDate.weekday() == src.weekday() and d.AssignedUserId == rd.AssignedUserId]
+    movable = set(_without_visits(db, [d.RouteDayId for d in candidates]))
+    started = {
+        row[0] for row in db.query(RouteDayPdvModel.RouteDayId).filter(
+            RouteDayPdvModel.RouteDayId.in_(list(movable)), RouteDayPdvModel.ExecutionStatus != "PENDING",
+        ).distinct()
+    } if movable else set()
+    movable -= started
+    taken = {
+        wd for (wd,) in db.query(RouteDayModel.WorkDate).filter(
+            RouteDayModel.RouteId == route.RouteId, RouteDayModel.WorkDate >= today,
+            RouteDayModel.AssignedUserId == rd.AssignedUserId,
+        ).all()
+    }
+    moved, removed, kept = [], [], []
+    for d in candidates:
+        if d.RouteDayId not in movable:
+            kept.append(d.WorkDate)
+            continue
+        target = d.WorkDate + _timedelta(days=delta)
+        if target in taken or (route.EndDate is not None and target > route.EndDate):
+            removed.append(d.RouteDayId)
+            continue
+        moved.append((d.WorkDate, target))
+        taken.add(target)
+        d.WorkDate = target
+    _delete_planned_days(db, removed)
+
+    antes = {"FrequencyConfig": before["FrequencyConfig"], "dias": [a for a, _ in moved]}
+    despues = {"FrequencyConfig": route.FrequencyConfig, "dias": [b for _, b in moved]}
+    if new_owner is not None:
+        antes["AssignedUserId"], despues["AssignedUserId"] = route.AssignedUserId, new_owner
+        route.AssignedUserId = new_owner
+        db.flush()  # los días corridos ya tienen su fecha nueva antes de reasignarlos
+        _reassign_route_cascade(db, route, new_owner, today)
+    _audit(db, current_user, "ROUTE_SHIFT_WEEKDAY", route.RouteId, {
+        "routeDayId": rd.RouteDayId,
+        "antes": antes, "despues": despues,
+        "eliminados": len(removed), "sinTocar": kept,
+    })
+    db.commit()
+    _MAP_CACHE.clear()
+    return {
+        "routeId": route.RouteId,
+        "frequencyType": freq,
+        "frequencyConfig": route.FrequencyConfig,
+        "assignedUserId": route.AssignedUserId,
+        "moved": len(moved),
+        "removed": len(removed),
+        "kept": len(kept),
+    }
 
 
 # --- RouteDayPdv ---
@@ -1354,12 +1885,25 @@ def list_route_day_pdvs(route_day_id: int, db: Session = Depends(get_db)):
 
 @router.post("/days/{route_day_id}/pdvs", response_model=RouteDayPdv, status_code=201)
 def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
-    rd = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
-    if not rd:
-        raise HTTPException(status_code=404, detail="Día de ruta no encontrado")
-    route = db.query(RouteModel).filter(RouteModel.RouteId == rd.RouteId).first()
-    if route:
-        _assert_route_access(db, current_user, route)
+    rd, route = _get_day_and_route(db, current_user, route_day_id)  # jerarquía (incluye ejecutivo / regional)
+    _assert_route_access(db, current_user, route)
+    _assert_campaign_rules(db, current_user, route)
+    _assert_day_editable(db, rd)
+    if db.query(RouteDayPdvModel.PdvId).filter(
+        RouteDayPdvModel.RouteDayId == route_day_id, RouteDayPdvModel.PdvId == data.PdvId,
+    ).first():
+        raise HTTPException(status_code=409, detail="El PDV ya está en este día")
+    if not db.query(PDVModel.PdvId).filter(PDVModel.PdvId == data.PdvId).first():
+        raise HTTPException(status_code=404, detail="PDV no encontrado")
+    # Solo PDVs de la propia ruta o dentro de la jerarquía del que opera.
+    visible_pdvs = visible_pdv_ids(db, current_user)
+    if visible_pdvs is not None and data.PdvId not in visible_pdvs and not db.query(RoutePdvModel.PdvId).filter(
+        RoutePdvModel.RouteId == rd.RouteId, RoutePdvModel.PdvId == data.PdvId,
+    ).first():
+        raise HTTPException(status_code=403, detail="No tenés acceso a ese PDV")
+    _audit(db, current_user, "ROUTE_DAY_PDV_ADD", rd.RouteId, {
+        "routeDayId": route_day_id, "workDate": rd.WorkDate, "pdvId": data.PdvId,
+    })
     rdp = RouteDayPdvModel(
         RouteDayId=route_day_id,
         PdvId=data.PdvId,
@@ -1373,6 +1917,35 @@ def add_route_day_pdv(route_day_id: int, data: RouteDayPdvCreate, current_user: 
     db.commit()
     db.refresh(rdp)
     return rdp
+
+
+@router.delete("/days/{route_day_id}/pdvs/{pdv_id}", status_code=204)
+def remove_route_day_pdv(route_day_id: int, pdv_id: int, current_user: UserModel = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Saca un PDV de ESTE día solamente (la ruta y sus otros días no cambian)."""
+    from ..models.visit import Visit as VisitModel
+
+    _assert_planner(db, current_user)
+    rd, route = _get_day_and_route(db, current_user, route_day_id)  # jerarquía (incluye ejecutivo / regional)
+    _assert_route_access(db, current_user, route)
+    _assert_campaign_rules(db, current_user, route)
+    _assert_day_editable(db, rd)
+    rdp = db.query(RouteDayPdvModel).filter(
+        RouteDayPdvModel.RouteDayId == route_day_id,
+        RouteDayPdvModel.PdvId == pdv_id,
+    ).first()
+    if not rdp:
+        raise HTTPException(status_code=404, detail="PDV no encontrado en el día de ruta")
+    has_visit = db.query(VisitModel.VisitId).filter(
+        VisitModel.RouteDayId == route_day_id, VisitModel.PdvId == pdv_id,
+    ).first() is not None
+    if has_visit or rdp.ExecutionStatus != "PENDING":
+        raise HTTPException(status_code=409, detail="El PDV ya tiene una visita ese día, no se puede quitar")
+    _audit(db, current_user, "ROUTE_DAY_PDV_DEL", rd.RouteId, {
+        "routeDayId": route_day_id, "workDate": rd.WorkDate, "pdvId": pdv_id,
+        "antes": {"PlannedOrder": rdp.PlannedOrder, "ExecutionStatus": rdp.ExecutionStatus},
+    })
+    db.delete(rdp)
+    db.commit()
 
 
 @router.patch("/days/{route_day_id}/pdvs/{pdv_id}", response_model=RouteDayPdv)

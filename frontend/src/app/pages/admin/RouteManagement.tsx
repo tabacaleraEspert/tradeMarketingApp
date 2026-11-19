@@ -25,6 +25,7 @@ import {
   TrendingUp,
   Search,
   ArrowUpDown,
+  LayoutGrid,
 } from "lucide-react";
 import { routesApi, useZones, useUsers, useForms, usePaginated, BEJERMAN_ZONES, reportsApi } from "@/lib/api";
 import type { Route, RouteStats } from "@/lib/api";
@@ -37,6 +38,7 @@ import { getCurrentUser } from "../../lib/auth";
 import { todayAR } from "../../lib/dateUtils";
 import { describeOverlaps } from "@/lib/routeDays";
 import { fitMapToPoints, inBox, pointsBox } from "@/lib/mapFit";
+import { RouteBoard } from "./route-board/RouteBoard";
 
 const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined;
 const DEFAULT_MAP_CENTER = { lat: -34.6, lng: -58.45 };
@@ -221,7 +223,9 @@ function RouteAnalyticsView({ analytics, loading }: { analytics: RouteAnalytics 
 export function RouteManagement() {
   const navigate = useNavigate();
   const currentUser = getCurrentUser();
-  const [routeActiveTab, setRouteActiveTab] = useState<"data" | "config">("data");
+  // Tablero de control (semana × trade): pestaña por defecto para quien gestiona equipos.
+  const canSeeBoard = ["admin", "regional_manager", "territory_manager", "supervisor"].includes(currentUser.role);
+  const [routeActiveTab, setRouteActiveTab] = useState<"board" | "data" | "config">(canSeeBoard ? "board" : "data");
   const [routeAnalytics, setRouteAnalytics] = useState<RouteAnalytics | null>(null);
   const [routeAnalyticsLoading, setRouteAnalyticsLoading] = useState(false);
 
@@ -238,7 +242,6 @@ export function RouteManagement() {
   const [deleting, setDeleting] = useState(false);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedRouteId, setSelectedRouteId] = useState<number | null>(null);
   const [formName, setFormName] = useState("");
   const [formZoneId, setFormZoneId] = useState<number | "">("");
   const [formFormId, setFormFormId] = useState<number | "">("");
@@ -393,9 +396,14 @@ export function RouteManagement() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-3xl font-bold text-foreground mb-1">Rutas Foco</h1>
-          <p className="text-muted-foreground">{routeActiveTab === "data" ? "Analytics y cumplimiento de rutas" : "Configurar rutas y asignaciones"}</p>
+          <p className="text-muted-foreground">{routeActiveTab === "board" ? "Planificación semanal por trade: qué ruta hace cada uno, cada día" : routeActiveTab === "data" ? "Analytics y cumplimiento de rutas" : "Configurar rutas y asignaciones"}</p>
         </div>
         <div className="flex items-center gap-2 bg-muted rounded-lg p-1">
+          {canSeeBoard && (
+            <button onClick={() => setRouteActiveTab("board")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${routeActiveTab === "board" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              <LayoutGrid size={16} /> Tablero
+            </button>
+          )}
           <button onClick={() => setRouteActiveTab("data")} className={`flex items-center gap-1.5 px-4 py-2 rounded-md text-sm font-medium transition-colors ${routeActiveTab === "data" ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
             <BarChart3 size={16} /> Datos
           </button>
@@ -405,7 +413,9 @@ export function RouteManagement() {
         </div>
       </div>
 
-      {routeActiveTab === "data" ? (
+      {routeActiveTab === "board" ? (
+        <RouteBoard />
+      ) : routeActiveTab === "data" ? (
         <RouteAnalyticsView analytics={routeAnalytics} loading={routeAnalyticsLoading} />
       ) : (<>
       {/* Original config content */}
@@ -451,7 +461,6 @@ export function RouteManagement() {
           <Button
             onClick={() => {
               setIsCreateModalOpen(true);
-              setSelectedRouteId(null);
               setFormName("");
               setFormZoneId("");
               setFormFormId("");
@@ -1041,24 +1050,15 @@ export function RouteManagement() {
         </>
       )}
 
-      {/* Create/Edit Modal */}
+      {/* Create Modal (la edición vive en /admin/routes/:id/edit) */}
       <Modal
-        isOpen={isCreateModalOpen || selectedRouteId !== null}
-        onClose={() => {
-          setIsCreateModalOpen(false);
-          setSelectedRouteId(null);
-        }}
-        title={selectedRouteId ? "Editar Ruta" : "Nueva Ruta"}
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        title="Nueva Ruta"
         size="lg"
         footer={
           <>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setIsCreateModalOpen(false);
-                setSelectedRouteId(null);
-              }}
-            >
+            <Button variant="outline" onClick={() => setIsCreateModalOpen(false)}>
               Cancelar
             </Button>
             <Button
@@ -1066,34 +1066,18 @@ export function RouteManagement() {
               onClick={async () => {
                 setSaving(true);
                 try {
-                  if (selectedRouteId) {
-                    await routesApi.update(selectedRouteId, {
-                      Name: formName,
-                      ZoneId: formZoneId || undefined,
-                      FormId: formFormId || undefined,
-                      BejermanZone: formBejermanZone || undefined,
-                      EstimatedMinutes: formEstimatedMinutes !== "" ? Number(formEstimatedMinutes) : undefined,
-                      IsActive: formIsActive,
-                    });
-                    toast.success("Ruta actualizada");
-                    setIsCreateModalOpen(false);
-                    setSelectedRouteId(null);
-                    refetch();
-                  } else {
-                    const newRoute = await routesApi.create({
-                      Name: formName,
-                      ZoneId: formZoneId || undefined,
-                      FormId: formFormId || undefined,
-                      BejermanZone: formBejermanZone || undefined,
-                      EstimatedMinutes: formEstimatedMinutes !== "" ? Number(formEstimatedMinutes) : undefined,
-                      IsActive: formIsActive,
-                    });
-                    toast.success("Ruta creada");
-                    setIsCreateModalOpen(false);
-                    setSelectedRouteId(null);
-                    refetch();
-                    navigate(`/admin/routes/${newRoute.RouteId}/edit`);
-                  }
+                  const newRoute = await routesApi.create({
+                    Name: formName,
+                    ZoneId: formZoneId || undefined,
+                    FormId: formFormId || undefined,
+                    BejermanZone: formBejermanZone || undefined,
+                    EstimatedMinutes: formEstimatedMinutes !== "" ? Number(formEstimatedMinutes) : undefined,
+                    IsActive: formIsActive,
+                  });
+                  toast.success("Ruta creada");
+                  setIsCreateModalOpen(false);
+                  refetch();
+                  navigate(`/admin/routes/${newRoute.RouteId}/edit`);
                 } catch (e) {
                   toast.error(e instanceof Error ? e.message : "Error");
                 } finally {

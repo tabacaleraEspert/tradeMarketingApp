@@ -109,10 +109,24 @@ class RouteDayCreate(BaseModel):
     WorkDate: date
     AssignedUserId: int | None = None
     Status: str = "PLANNED"
+    # "board" cuando el alta es manual desde el tablero de control: deja rastro en AuditEvent
+    # (los editores generan días en lote y no lo mandan).
+    Origin: str | None = None
 
 
 class RouteDayUpdate(BaseModel):
     Status: str | None = None
+    # Tablero de control: mover SOLO este día a otra fecha y/o a otro trade.
+    WorkDate: date | None = None
+    AssignedUserId: int | None = None
+
+
+class RouteDayShiftWeekday(BaseModel):
+    """Mover "toda la ruta de acá en adelante" a otro día de la semana: `WorkDate` es la
+    fecha destino del día arrastrado (misma semana, otro día). Con `AssignedUserId` además
+    reasigna la ruta a ese trade en la misma transacción."""
+    WorkDate: date
+    AssignedUserId: int | None = None
 
 
 class RouteDay(RouteDayBase):

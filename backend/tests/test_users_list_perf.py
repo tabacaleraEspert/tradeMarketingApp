@@ -45,7 +45,13 @@ def _count_queries(fn):
 
 def test_users_list_queries_constantes_y_sin_tope_100(client):
     ids = _seed(110)
-    r, queries = _count_queries(lambda: client.get("/users"))
+    # El endpoint tiene tope 500 y la DB de tests es compartida por toda la suite: si los
+    # tests anteriores ya crearon muchos usuarios, los 110 recién sembrados (IDs más altos)
+    # caían fuera de la primera página. Se pide la página que los contiene.
+    db = sessionmaker(bind=engine)()
+    total = db.query(UserModel).count()
+    db.close()
+    r, queries = _count_queries(lambda: client.get("/users", params={"skip": max(0, total - 500)}))
     assert r.status_code == 200
     body = r.json()
     got = {u["UserId"]: u for u in body if u["UserId"] in ids}

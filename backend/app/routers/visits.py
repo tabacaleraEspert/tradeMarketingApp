@@ -560,10 +560,22 @@ def create_visit(
             detail=f"No se puede crear una visita con Status '{data.Status}'. Solo se permite OPEN o IN_PROGRESS.",
         )
 
+    # RouteDayId que manda el front: se descarta (sin rechazar la visita) si ese día no es
+    # del usuario de la visita o quedó en una fecha FUTURA — un celular con datos viejos u
+    # offline puede mandar el id de un día que el tablero de rutas ya movió, y la visita
+    # ataría y marcaría EN CURSO un día que todavía no llegó. Días pasados se respetan
+    # (visitas offline que sincronizan después). Descartado, sigue el auto-resolve de abajo.
+    route_day_id = data.RouteDayId
+    if route_day_id:
+        from ..models.route import today_ar
+        sent_day = db.query(RouteDayModel).filter(RouteDayModel.RouteDayId == route_day_id).first()
+        if sent_day is None or sent_day.AssignedUserId != data.UserId or sent_day.WorkDate > today_ar():
+            route_day_id = None
+
     v = VisitModel(
         PdvId=data.PdvId,
         UserId=data.UserId,
-        RouteDayId=data.RouteDayId,
+        RouteDayId=route_day_id,
         Status=data.Status,
         FormId=data.FormId,
         FormVersion=data.FormVersion,
