@@ -106,7 +106,7 @@ export function ActividadTable({
                 title={`Filtrar por ${r.nombre}`}
               >
                 <td className={`${TD} text-left font-medium text-foreground`}>{r.nombre}</td>
-                <td className={`${TD} text-left text-muted-foreground`}>{r.area || DASH}</td>
+                <td className={`${TD} text-left text-muted-foreground max-w-[7.5rem] truncate`} title={r.area}>{r.area || DASH}</td>
                 <td className={TD}>{nf(r.clientes)}</td>
                 <td className={TD}>{nf(r.rutasFoco)}</td>
                 <td className={TD}>{nf(r.planificadas)}</td>

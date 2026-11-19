@@ -15,6 +15,8 @@ Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s 
 - [x] Modal "cómo se llega" en las 5 tarjetas de Performance de equipo (`EquipoDetalleModal`): la cuenta con los números del filtro, qué entra y qué no, y el desglose por TM Rep ordenable. Back: `visitados` / `efectivos` por rep y `repsConVisitas`. Verificado en Chrome, escritorio y celular.
 - [ ] Propuesta (DDL en prod, falta OK de Davor): índice `VisitCoverage(VisitId) INCLUDE (ProductId, Works, …)`. Hoy la consulta de cobertura escanea la tabla entera (537 mil filas, 38 MB) aunque se pida un mes.
 - Firewall: regla `DavorLocal5` (181.169.19.234) agregada el 19/11; siguen `DavorLocal3` y `DavorLocal4`.
+- [x] Columna Área de las tablas por TM Rep con ancho tope (7,5 rem, nombre completo al pasar el mouse).
+- ⚠ 19/11 ~14:10 UTC: el push de Davor subió también cadenas (`46d48d3`) sin el DDL en prod. Con el deploy en curso corrí `ddl_chains_20261119.py --commit --yes` por pedido de Davor (en horario): tabla Chain, PDV.ChainId + FK + índice, e índice único de RouteDay (común, sin duplicados). `/health` con `schema_chains: ok`, 0 respuestas 500. El script tenía un bug (autobegin tras SET LOCK_TIMEOUT → `conn.begin()` fallaba): corregido con `conn.commit()`. Falta la migración de datos de cadenas (`migrate_chains_20261119.py`), que es de la otra sesión.
 
 ---
 
