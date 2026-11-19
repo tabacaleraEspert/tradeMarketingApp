@@ -25,12 +25,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_role
+from ..config import settings
 from ..database import get_db
 from ..hierarchy import visible_pdv_ids, visible_user_ids
 from ..models import User as UserModel
 from ..services import behavior as B
 from ..services import gerencial as G
 from ..services import intelligence as I
+from ..utils.shared_cache import SharedTTLCache
 from ..utils.ttl_cache import TTLCache
 
 router = APIRouter(
@@ -190,18 +192,70 @@ def _gerencial_months(months: Optional[str]) -> list:
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+# Lo caro de la vista gerencial se guarda por mes y se comparte entre los
+# workers (ver `utils/shared_cache.py`): la base S0 no aguanta que cada worker
+# repita el mismo cálculo. La fecha va en la key para que el mes en curso no
+# arrastre el día anterior.
+_GERENCIAL_CACHE = SharedTTLCache("gerencial", ttl_seconds=1800.0, namespace=settings.resolved_database_url)
+
+
+def _gerencial_base(db: Session, today: date) -> G.Base:
+    key = ("base", today)
+    base = _GERENCIAL_CACHE.get(key)  # camino rápido, sin lock
+    if base is None:
+        with _GERENCIAL_CACHE.lock():
+            base = _GERENCIAL_CACHE.get(key)
+            if base is None:
+                base = G.Base(db)
+                _GERENCIAL_CACHE.set(key, base)
+    return base
+
+
 def _gerencial_shared(db: Session, parsed: list) -> G.Shared:
-    """Lo caro (cartera + estado por PDV del período) se cachea por combinación
-    de meses; zona y rep se filtran en memoria. La fecha va en la key para que
-    el mes en curso no arrastre el día anterior."""
-    key = ("gerencial", "shared", tuple(parsed), G.E._business_today())
-    return _INTEL_CACHE.get_or_build(key, lambda: G.load_shared(db, parsed))
+    """Arma el período con las piezas cacheadas y calcula, en una sola pasada,
+    solo los meses que falten. Zona y rep se filtran después, en memoria.
+
+    Con todo cacheado no se toma ningún lock: un pedido ya resuelto no espera
+    detrás del cálculo en frío de otro."""
+    today = G.E._business_today()
+    base = _gerencial_base(db, today)
+
+    def cached() -> dict:
+        return {m: _GERENCIAL_CACHE.get(("month", m, today)) for m in parsed}
+
+    data = cached()
+    if any(d is None for d in data.values()):
+        with _GERENCIAL_CACHE.lock():
+            data = cached()  # otro worker pudo calcular mientras esperábamos
+            missing = [m for m, d in data.items() if d is None]
+            if missing:
+                for m, d in G.load_month_data(db, base, missing).items():
+                    _GERENCIAL_CACHE.set(("month", m, today), d)
+                    data[m] = d
+    return G.Shared(base, data)
 
 
 @router.get("/gerencial/filters")
 def get_gerencial_filters(db: Session = Depends(get_db)):
     """Zonas, TM Reps y meses disponibles para la barra de filtros."""
-    return G.build_filters(db)
+    return G.build_filters(db, _gerencial_base(db, G.E._business_today()))
+
+
+@router.get("/gerencial/resumen")
+def get_gerencial_resumen(
+    months: Optional[str] = Query(default=None, description="Meses AAAA-MM separados por coma"),
+    zone_id: Optional[int] = Query(default=None),
+    user_id: Optional[int] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Universo + equipo en un solo pedido: es lo que usa la pantalla, para que
+    el cálculo del período se haga una vez y no una por solapa."""
+    parsed = _gerencial_months(months)
+    shared = _gerencial_shared(db, parsed)
+    return {
+        "universo": G.build_universo(db, parsed, zone_id, user_id, shared),
+        "equipo": G.build_equipo(db, parsed, zone_id, user_id, shared),
+    }
 
 
 @router.get("/gerencial/universo")

@@ -21,6 +21,7 @@ import {
   Gift,
   LayoutGrid,
   Brain,
+  Presentation,
   Smartphone,
   Mail,
   Settings2,
@@ -99,6 +100,8 @@ export function AdminLayout() {
       ? [
           { path: "/tablero-tmr/index.html", icon: LayoutGrid, label: "Tablero TMR", external: true },
           { path: "/inteligencia", icon: Brain, label: "Inteligencia" },
+          // Entrada directa: no pasa por Inteligencia, que al abrir carga el censo completo.
+          { path: "/inteligencia/gerencial", icon: Presentation, label: "Vista gerencial" },
           { path: "/admin/mail-reports", icon: Mail, label: "Reportes por mail" },
         ]
       : []),
@@ -125,7 +128,12 @@ export function AdminLayout() {
     if (path === "/admin") {
       return location.pathname === "/admin";
     }
-    return location.pathname.startsWith(path);
+    if (!location.pathname.startsWith(path)) return false;
+    // Si otro ítem del menú es más específico (p.ej. /inteligencia/gerencial
+    // frente a /inteligencia), gana ese: no se marcan los dos.
+    return !menuItems.some(
+      (other) => other.path.length > path.length && other.path.startsWith(path) && location.pathname.startsWith(other.path),
+    );
   };
 
   return (

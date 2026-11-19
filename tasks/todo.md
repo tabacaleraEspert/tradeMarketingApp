@@ -1,3 +1,19 @@
+# Vista gerencial — tiempo de carga (2026-11-19) — EN CURSO
+
+Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s + `equipo` 52,2 s; segunda 0,2 s + 2,2 s. Causa: la base S0 quedó al 100% de CPU un minuto. La consulta de cobertura corrió 3 veces en paralelo (una por solapa y por worker; el cache era por worker) y a la vez corría el censo de Inteligencia, porque a la vista se entraba pasando por esa página. Cada consulta usa ~0,5 s de CPU; sola tarda segundos, compitiendo tarda decenas.
+
+- [x] Back: datos por mes (`MonthData` / `load_month_data`), los builders ya no consultan la base. Cache por mes, compartido entre los 4 workers (`utils/shared_cache.py`: archivo en tmp + flock, TTL 30 min). Sumar un mes calcula solo ese mes; zona / rep / sacar un mes = 0 consultas.
+- [x] Back: `GET /intelligence/gerencial/resumen` (universo + equipo en un pedido). `filters` usa la base cacheada.
+- [x] Front: un solo pedido, sin espera de 300 ms en la primera carga, entrada "Vista gerencial" en el menú lateral (no pasa por Inteligencia).
+- [x] Tests: back 11 nuevos (suite 779 ok) · front 271 ok + build. Prueba con 4 procesos reales: 1 solo cálculo.
+- [x] Contra prod (solo lectura, `scratchpad/tools/profile_new.py`): mismos números; repetir / filtrar / otro worker / sacar un mes 0,01 s y 0 consultas; frío 37 consultas en una pasada.
+- [ ] Revisión independiente.
+- [ ] Deploy y medir de nuevo en App Insights.
+- [ ] Propuesta (DDL en prod, falta OK de Davor): índice `VisitCoverage(VisitId) INCLUDE (ProductId, Works, …)`. Hoy la consulta de cobertura escanea la tabla entera (537 mil filas, 38 MB) aunque se pida un mes.
+- Firewall: regla `DavorLocal5` (181.169.19.234) agregada el 19/11; siguen `DavorLocal3` y `DavorLocal4`.
+
+---
+
 # Vista gerencial en Inteligencia — etapa 1 (2026-11-17) — COMMIT LOCAL, FALTA PUSH
 
 Plan: `~/.claude/plans/precious-soaring-hammock.md`. Fuente: PDF "Inteligencia Comercial · capturas" + PPTX "Tablero TM". Sección nueva `/inteligencia/gerencial` (solo admin); la Inteligencia actual no cambia salvo el rename "PDVs activos" → "Rastrillado".
@@ -263,3 +279,27 @@ Alternativas: "Ruta especial", "Ruta de acción", "Ruta temporal". "Campaña" tr
 ## Fase 2: absorber `Distributor`
 - `PDV.DistributorId` + `PdvDistributor` (alta/edición PDV, filtros POSManagement, paso obligatorio "Proveedor de cigarrillos" en visit_indicators) → pasar a `Supplier`.
 - Distributor no tiene zona → tomarla de sus PDVs.
+
+---
+
+## 2026-11-19 — Propuesta A: Cadenas / Key Accounts unificado (PENDIENTE OK Davor)
+
+Problema: la misma cadena vive en 3 lugares (Cadenas de Proximidad › <nombre cadena> como subcanal; Convenience › Key Accounts id 62 con cadena solo en el Name; Convenience › Kiosco/Maxikiosco con "(cadena)" en el nombre).
+
+Diseño: 2 ejes separados. Canal›Subcanal = formato del local. Cadena = a quién pertenece (entidad nueva). Key account = atributo de la cadena.
+
+- [ ] DDL quirúrgico prod (no alembic): tabla `Chain(ChainId, Name, Kind cadena|bandera, IsKeyAccount, AccountManagerUserId, StoreCount, Aliases, IsActive)` + `PDV.ChainId` nullable + índice. Migración alembic espejo para dev.
+- [ ] Backend: modelo/schema/router `/chains` (CRUD TM+), `ChainId`/`ChainName`/`IsKeyAccount` en respuestas PDV, filtro `chain_id` + `key_account` en `/pdvs`, validar subcanal ∈ canal (hueco actual), AuditLog.
+- [ ] Front: selector "Cadena" en alta/edición PDV (obligatorio si canal = Cadenas de Proximidad; precarga offline), pestaña "Cadenas" en admin Canales, filtro en Gestión PDV, badge en ficha.
+- [ ] Migración datos prod (dry-run + backup JSON): cadenas desde subcanales del canal 22 (fusionar duplicados Tomyshop/Tommy's shop…) + las 11 de Santiago con IsKeyAccount; ChainId por subcanal (canal 22), por prefijo Name (371 `CAD-*`), por log de reuso (82); subcanal → Chica/Mediana/Grande según StoreCount; desactivar subcanales-cadena y el 62.
+- [ ] Candidatos por nombre "(cadena)" / notas → Excel de revisión, NO automático.
+- [ ] Consumidores: Inteligencia, Puchi (tool + conocimiento), export dashboard, reportes (corte por cadena).
+
+## 2026-11-19 — Propuesta B: Tablero de control de rutas (PENDIENTE OK Davor)
+
+Grilla en `/admin/routes` (pestaña por defecto): filas = TM rep, columnas = días de la semana, navegación por semana. Celda = chips de ruta del día.
+
+- [ ] Fase 1 (ver + agregar/sacar): `GET /routes/board?from&to` (1 query, filtrada por jerarquía); grilla; panel lateral del día (PDVs, orden, sacar/agregar PDV, sacar día); "+" en celda (agregar ruta existente ese día); superposiciones en rojo. Falta `DELETE /routes/days/{id}/pdvs/{pdv}`.
+- [ ] Fase 2 (mover): `PATCH /routes/days/{id}` acepta `WorkDate` y `AssignedUserId` (guarda: sin visitas, jerarquía, sin duplicado); drag & drop (react-dnd ya instalado) entre días y entre trades; al soltar: "solo este día" / "toda la ruta de acá en adelante" (cambia frecuencia / reasigna).
+- [ ] Fase 3 (robustez): generación de días en servidor (`POST /routes/{id}/generate-days`, idempotente) + unique (RouteId, WorkDate); horizonte: días proyectados "fantasma" pasada la semana 8; resolver superposición con 1 clic (mover / fusionar / dejar); traspaso de cartera desde menú de la fila.
+- [ ] Limpieza: modal "Editar Ruta" muerto, alta de ruta sin trade ni frecuencia, visibilidad faltante en `/all-days` `/day-detail`.

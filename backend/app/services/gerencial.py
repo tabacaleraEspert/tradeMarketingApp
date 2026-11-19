@@ -3,6 +3,7 @@
     GET /intelligence/gerencial/filters
     GET /intelligence/gerencial/universo
     GET /intelligence/gerencial/equipo
+    GET /intelligence/gerencial/resumen   (universo + equipo en un solo pedido)
 
 Filtros comunes: meses (selección múltiple, pueden no ser contiguos), área
 (zona) y TM Rep.
@@ -39,15 +40,18 @@ Filtros: con TM Rep elegido manda el rep y la zona se ignora (sus rutas pueden
 cruzar zonas). Solo con zona, Universo corta por la zona del PDV y Equipo por la
 zona del rep.
 
-Costo: el período se resuelve con un solo `OR` de ventanas de mes por query, no
-una pasada por mes. Lo único pesado son las filas de cobertura (acotadas a las
-marcas de la rúbrica) y de POP del período: por eso `load_shared` (cartera +
-estado por PDV) se cachea en el router por combinación de meses, y los filtros
-de zona / rep se aplican en memoria sin volver a la base.
+Costo: la base de prod es chica (S0) y se satura de CPU con poco, así que lo
+que se cuida es NO repetir trabajo. Todo lo que sale de la base se carga por
+mes (`load_month_data`: estado de cada PDV + actividad del equipo) y el router
+lo cachea mes por mes, compartido entre los workers. Sumar o sacar un mes del
+filtro solo calcula el mes que falta; zona y TM Rep se filtran en memoria, sin
+volver a la base. Varios meses faltantes se resuelven en una sola pasada (un
+`OR` de ventanas de mes por query).
 """
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -473,8 +477,8 @@ def load_pdv_status(db: Session, base: Base, months: list[Month]) -> PdvStatus:
 # Filtros
 # ---------------------------------------------------------------------------
 
-def build_filters(db: Session) -> dict[str, Any]:
-    base = Base(db)
+def build_filters(db: Session, base: Optional[Base] = None) -> dict[str, Any]:
+    base = base or Base(db)
     reps = sorted(base.rep_ids(), key=lambda uid: base.user_name.get(uid, ""))
     return {
         "zonas": [
@@ -496,30 +500,153 @@ def build_filters(db: Session) -> dict[str, Any]:
 # Universo
 # ---------------------------------------------------------------------------
 
-def _active_reps(db: Session, months: list[Month]) -> set[int]:
-    """Usuarios con al menos una visita cerrada en el período."""
-    return {
-        uid for (uid,) in (
-            db.query(Visit.UserId)
-            .filter(Visit.Status == "CLOSED", _in_months_dt(Visit.OpenedAt, months))
+EJECUCION_ACTIONS = {"canje_sueltos": "sueltos", "promo": "activaciones"}
+
+
+def _counter() -> dict:
+    return defaultdict(int)
+
+
+@dataclass
+class MonthData:
+    """Todo lo que sale de la base para UN mes, sin filtrar por zona ni rep.
+    Solo sets y dicts planos: se cachea y se comparte entre workers."""
+
+    # Estado de cada PDV (ver `load_pdv_status`).
+    visited: set[int] = field(default_factory=set)
+    cov_ok: set[int] = field(default_factory=set)
+    pop_ok: set[int] = field(default_factory=set)
+    # Visitas cerradas por usuario.
+    realizadas: dict[int, int] = field(default_factory=_counter)
+    dur_sum: dict[int, float] = field(default_factory=lambda: defaultdict(float))
+    dur_n: dict[int, int] = field(default_factory=_counter)
+    gps: dict[int, int] = field(default_factory=_counter)    # con check-in geolocalizado
+    foto: dict[int, int] = field(default_factory=_counter)   # con al menos una foto
+    # Visitas programadas por ruta, hasta hoy.
+    planificadas: dict[int, int] = field(default_factory=_counter)
+    # PDVs con acción ejecutada, por tipo ("sueltos" / "activaciones").
+    action_pdvs: dict[str, set[int]] = field(
+        default_factory=lambda: {k: set() for k in EJECUCION_ACTIONS.values()}
+    )
+    movimientos: dict[int, int] = field(default_factory=_counter)
+    dias: int = 0  # días hábiles
+
+    @property
+    def effective(self) -> set[int]:
+        return self.visited & self.cov_ok & self.pop_ok
+
+
+def load_month_data(db: Session, base: Base, months: list[Month]) -> dict[Month, MonthData]:
+    """Una pasada por la base para todos los `months`; devuelve una pieza por
+    mes para poder cachearlas por separado."""
+    data: dict[Month, MonthData] = {m: MonthData() for m in months}
+    if not months:
+        return data
+
+    status = load_pdv_status(db, base, months)
+    for attr in ("visited", "cov_ok", "pop_ok"):
+        for pdv_id, pdv_months in getattr(status, attr).items():
+            for m in pdv_months:
+                if m in data:
+                    getattr(data[m], attr).add(pdv_id)
+
+    # ── Visitas cerradas: cantidad y duración ──────────────────────────────
+    visit_slot: dict[int, tuple[Month, int]] = {}
+    for visit_id, uid, opened_at, closed_at in (
+        db.query(Visit.VisitId, Visit.UserId, Visit.OpenedAt, Visit.ClosedAt)
+        .filter(Visit.Status == "CLOSED", _in_months_dt(Visit.OpenedAt, months))
+        .all()
+    ):
+        month = _month_of(opened_at)
+        d = data.get(month)
+        if d is None or uid is None:
+            continue
+        visit_slot[visit_id] = (month, uid)
+        d.realizadas[uid] += 1
+        if closed_at is not None and closed_at >= opened_at:
+            d.dur_sum[uid] += (closed_at - opened_at).total_seconds() / 60.0
+            d.dur_n[uid] += 1
+
+    def count_visits_with(attr: str, model, *extra) -> None:
+        """Visitas cerradas del período con al menos una fila en `model`."""
+        for (visit_id,) in (
+            db.query(model.VisitId)
+            .join(Visit, Visit.VisitId == model.VisitId)
+            .filter(Visit.Status == "CLOSED", _in_months_dt(Visit.OpenedAt, months), *extra)
             .distinct()
             .all()
+        ):
+            slot = visit_slot.get(visit_id)
+            if slot is not None:
+                getattr(data[slot[0]], attr)[slot[1]] += 1
+
+    count_visits_with("gps", VisitCheck, VisitCheck.Lat.isnot(None))
+    count_visits_with("foto", VisitPhoto)
+
+    # ── Planificación: visitas programadas por ruta y día ──────────────────
+    for route_id, work_date, n in (
+        db.query(RouteDay.RouteId, RouteDay.WorkDate, func.count(RouteDayPdv.PdvId))
+        .join(RouteDayPdv, RouteDayPdv.RouteDayId == RouteDay.RouteDayId)
+        .filter(
+            _in_months_date(RouteDay.WorkDate, months),
+            # Hasta hoy: los días futuros del mes en curso todavía no se podían cumplir.
+            RouteDay.WorkDate <= E._business_today(),
         )
-    }
+        .group_by(RouteDay.RouteId, RouteDay.WorkDate)
+        .all()
+    ):
+        d = data.get((work_date.year, work_date.month))
+        if d is not None:
+            d.planificadas[route_id] += n
+
+    # ── Acciones ejecutadas: (pdv, mes), por cualquier usuario ─────────────
+    for pdv_id, opened_at, action_type in (
+        db.query(Visit.PdvId, Visit.OpenedAt, VisitAction.ActionType)
+        .join(VisitAction, VisitAction.VisitId == Visit.VisitId)
+        .filter(
+            _in_months_dt(Visit.OpenedAt, months),
+            VisitAction.ActionType.in_(list(EJECUCION_ACTIONS)),
+            E.executed_action_condition(),
+        )
+        .all()
+    ):
+        d = data.get(_month_of(opened_at))
+        if d is not None:
+            d.action_pdvs[EJECUCION_ACTIONS[action_type]].add(pdv_id)
+
+    # ── Movimientos en la app y días hábiles ───────────────────────────────
+    for month, d in data.items():
+        dt_start, dt_end = E._month_datetime_range(*month)
+        for uid, slot in count_user_activity(db, dt_start, dt_end, end_exclusive=True).items():
+            d.movimientos[uid] += slot["count"]
+        d.dias = business_days(db, [month])
+
+    return data
 
 
 class Shared:
-    """Todo lo que depende solo de los meses elegidos. Son dicts y sets planos
-    (sin objetos ORM), así que se puede cachear y compartir entre requests."""
+    """Base + una pieza por mes. Lo arma el router con lo que tiene cacheado;
+    de acá para abajo Universo y Equipo no vuelven a la base."""
 
-    def __init__(self, db: Session, months: list[Month]):
-        self.months = months
-        self.base = Base(db)
-        self.status = load_pdv_status(db, self.base, months)
+    def __init__(self, base: Base, data: dict[Month, MonthData]):
+        self.base = base
+        self.data = data
+        # Un PDV cuenta si lo fue en al menos uno de los meses elegidos.
+        self.visited: set[int] = set().union(*(d.visited for d in data.values()))
+        self.effective: set[int] = set().union(*(d.effective for d in data.values()))
+
+    def total(self, attr: str) -> dict[int, float]:
+        """Suma un contador por clave (usuario o ruta) entre los meses."""
+        out: dict[int, float] = defaultdict(float if attr == "dur_sum" else int)
+        for d in self.data.values():
+            for key, n in getattr(d, attr).items():
+                out[key] += n
+        return out
 
 
-def load_shared(db: Session, months: list[Month]) -> Shared:
-    return Shared(db, months)
+def load_shared(db: Session, months: list[Month], base: Optional[Base] = None) -> Shared:
+    base = base or Base(db)
+    return Shared(base, load_month_data(db, base, months))
 
 
 def build_universo(
@@ -530,10 +657,11 @@ def build_universo(
     shared: Optional[Shared] = None,
 ) -> dict[str, Any]:
     shared = shared or load_shared(db, months)
-    base, status = shared.base, shared.status
+    base = shared.base
     if user_id is not None:
         zone_id = None  # el rep manda: sus rutas pueden cruzar zonas
-    active = _active_reps(db, months) & base.nomina
+    # TM Reps activos: con al menos una visita cerrada en el período.
+    active = {uid for uid, n in shared.total("realizadas").items() if n} & base.nomina
 
     # Alcance del filtro. Con TM Rep: su cartera (rastrillado) y sus rutas foco.
     def pdv_in_scope(pdv_id: int) -> bool:
@@ -572,9 +700,9 @@ def build_universo(
         if not focus_in_scope(pdv_id):
             continue
         row["enRutaFoco"] += 1
-        if status.is_visited(pdv_id):
+        if pdv_id in shared.visited:
             row["visitados"] += 1
-            if status.is_effective(pdv_id):
+            if pdv_id in shared.effective:
                 row["efectivos"] += 1
 
     for route_id in base.routes_with_pdvs:
@@ -628,9 +756,6 @@ def build_universo(
 # Performance de equipo
 # ---------------------------------------------------------------------------
 
-EJECUCION_ACTIONS = {"canje_sueltos": "sueltos", "promo": "activaciones"}
-
-
 def build_equipo(
     db: Session,
     months: list[Month],
@@ -639,10 +764,10 @@ def build_equipo(
     shared: Optional[Shared] = None,
 ) -> dict[str, Any]:
     shared = shared or load_shared(db, months)
-    base, status = shared.base, shared.status
+    base = shared.base
     if user_id is not None:
         zone_id = None  # el rep manda (mismo criterio que Universo)
-    dias = business_days(db, months)
+    dias = sum(d.dias for d in shared.data.values())
 
     rep_ids = [
         uid for uid in base.rep_ids()
@@ -651,57 +776,17 @@ def build_equipo(
     ]
     rep_set = set(rep_ids)
 
-    # ── Visitas cerradas: cantidad y duración ──────────────────────────────
-    realizadas: dict[int, int] = defaultdict(int)
-    dur_sum: dict[int, float] = defaultdict(float)
-    dur_n: dict[int, int] = defaultdict(int)
-    visit_user: dict[int, int] = {}
-    for visit_id, uid, opened_at, closed_at in (
-        db.query(Visit.VisitId, Visit.UserId, Visit.OpenedAt, Visit.ClosedAt)
-        .filter(Visit.Status == "CLOSED", _in_months_dt(Visit.OpenedAt, months))
-        .all()
-    ):
-        if uid not in rep_set:
-            continue
-        visit_user[visit_id] = uid
-        realizadas[uid] += 1
-        if closed_at is not None and closed_at >= opened_at:
-            dur_sum[uid] += (closed_at - opened_at).total_seconds() / 60.0
-            dur_n[uid] += 1
+    def of_reps(attr: str) -> dict[int, float]:
+        return {uid: n for uid, n in shared.total(attr).items() if uid in rep_set}
 
-    def _visits_with(model, *extra) -> dict[int, int]:
-        """Visitas cerradas del período con al menos una fila en `model`."""
-        out: dict[int, int] = defaultdict(int)
-        for (visit_id,) in (
-            db.query(model.VisitId)
-            .join(Visit, Visit.VisitId == model.VisitId)
-            .filter(Visit.Status == "CLOSED", _in_months_dt(Visit.OpenedAt, months), *extra)
-            .distinct()
-            .all()
-        ):
-            uid = visit_user.get(visit_id)
-            if uid is not None:
-                out[uid] += 1
-        return out
-
-    gps = _visits_with(VisitCheck, VisitCheck.Lat.isnot(None))
-    foto = _visits_with(VisitPhoto)
+    realizadas, dur_sum, dur_n = of_reps("realizadas"), of_reps("dur_sum"), of_reps("dur_n")
+    gps, foto, movimientos = of_reps("gps"), of_reps("foto"), of_reps("movimientos")
 
     # ── Planificación: visitas programadas en rutas foco del período ───────
     # Cumplimiento = realizadas / planificadas, como lo definió el negocio: las
     # realizadas incluyen visitas fuera de plan, así que puede pasar de 100%.
     planificadas: dict[int, int] = defaultdict(int)
-    for route_id, n in (
-        db.query(RouteDay.RouteId, func.count(RouteDayPdv.PdvId))
-        .join(RouteDayPdv, RouteDayPdv.RouteDayId == RouteDay.RouteDayId)
-        .filter(
-            _in_months_date(RouteDay.WorkDate, months),
-            # Hasta hoy: los días futuros del mes en curso todavía no se podían cumplir.
-            RouteDay.WorkDate <= E._business_today(),
-        )
-        .group_by(RouteDay.RouteId)
-        .all()
-    ):
+    for route_id, n in shared.total("planificadas").items():
         uid = base.route_user.get(route_id)  # solo rutas foco vigentes
         if uid in rep_set:
             planificadas[uid] += n
@@ -725,10 +810,12 @@ def build_equipo(
     # Un PDV en rutas foco de dos reps cuenta para los dos; en el total, una vez.
     tot_vis = tot_ef = 0
     for pdv_id in base.focus_owner:
-        owners = base.focus_owners(pdv_id) & rep_set
-        if not owners or not status.is_visited(pdv_id):
+        if pdv_id not in shared.visited:
             continue
-        effective = status.is_effective(pdv_id)
+        owners = base.focus_owners(pdv_id) & rep_set
+        if not owners:
+            continue
+        effective = pdv_id in shared.effective
         tot_vis += 1
         tot_ef += effective
         for owner in owners:
@@ -736,41 +823,12 @@ def build_equipo(
             efectivos[owner] += effective
 
     # ── Ejecución en PDV: % de la cartera, promedio mensual ────────────────
-    # (pdv, mes) con acción ejecutada de cada tipo, por cualquier usuario.
-    action_pdvs: dict[str, dict[Month, set[int]]] = {
-        k: defaultdict(set) for k in EJECUCION_ACTIONS.values()
-    }
-    for pdv_id, opened_at, action_type in (
-        db.query(Visit.PdvId, Visit.OpenedAt, VisitAction.ActionType)
-        .join(VisitAction, VisitAction.VisitId == Visit.VisitId)
-        .filter(
-            _in_months_dt(Visit.OpenedAt, months),
-            VisitAction.ActionType.in_(list(EJECUCION_ACTIONS)),
-            E.executed_action_condition(),
-        )
-        .all()
-    ):
-        action_pdvs[EJECUCION_ACTIONS[action_type]][_month_of(opened_at)].add(pdv_id)
-
-    pop_pdvs: dict[Month, set[int]] = defaultdict(set)
-    for pdv_id, ok_months in status.pop_ok.items():
-        for m in ok_months:
-            pop_pdvs[m].add(pdv_id)
-
-    def monthly_avg_pct(uid: int, by_month: dict[Month, set[int]]) -> Optional[float]:
+    def monthly_avg_pct(uid: int, pdvs_of_month) -> Optional[float]:
         n = clientes.get(uid, 0)
         if not n:
             return None
         mine = cartera[uid]
-        return _mean([100.0 * len(by_month.get(m, set()) & mine) / n for m in months])
-
-    # ── Movimientos en la app ──────────────────────────────────────────────
-    movimientos: dict[int, int] = defaultdict(int)
-    for year, month in months:
-        dt_start, dt_end = E._month_datetime_range(year, month)
-        for uid, slot in count_user_activity(db, dt_start, dt_end, end_exclusive=True).items():
-            if uid in rep_set:
-                movimientos[uid] += slot["count"]
+        return _mean([100.0 * len(pdvs_of_month(d) & mine) / n for d in shared.data.values()])
 
     reps = []
     for uid in rep_ids:
@@ -787,14 +845,14 @@ def build_equipo(
             "realizadas": real,
             "cumplimientoPct": _pct(real, plan),
             "visitasPorDia": _ratio(real, dias) if real else None,
-            "duracionMin": round(dur_sum[uid] / dur_n[uid]) if dur_n.get(uid) else None,
+            "duracionMin": round(dur_sum.get(uid, 0) / dur_n[uid]) if dur_n.get(uid) else None,
             "efectividadPct": _pct(efectivos.get(uid, 0), visitados.get(uid, 0)),
             "gpsPct": _pct(gps.get(uid, 0), real),
             "fotoPct": _pct(foto.get(uid, 0), real),
             "movimientos": movimientos.get(uid, 0),
-            "comunicacionPct": monthly_avg_pct(uid, pop_pdvs),
-            "sueltosPct": monthly_avg_pct(uid, action_pdvs["sueltos"]),
-            "activacionesPct": monthly_avg_pct(uid, action_pdvs["activaciones"]),
+            "comunicacionPct": monthly_avg_pct(uid, lambda d: d.pop_ok),
+            "sueltosPct": monthly_avg_pct(uid, lambda d: d.action_pdvs["sueltos"]),
+            "activacionesPct": monthly_avg_pct(uid, lambda d: d.action_pdvs["activaciones"]),
         })
     reps.sort(key=lambda r: (-r["realizadas"], r["nombre"]))
 

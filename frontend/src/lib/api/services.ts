@@ -1870,6 +1870,12 @@ export const intelligenceApi = {
     api.get<GerencialUniverso>("/intelligence/gerencial/universo", gerencialParams(q)),
   gerencialEquipo: (q: GerencialQuery) =>
     api.get<GerencialEquipo>("/intelligence/gerencial/equipo", gerencialParams(q)),
+  /** Universo + equipo en un solo pedido: es lo que usa la pantalla. */
+  gerencialResumen: (q: GerencialQuery) =>
+    api.get<{ universo: GerencialUniverso; equipo: GerencialEquipo }>(
+      "/intelligence/gerencial/resumen",
+      gerencialParams(q),
+    ),
 };
 
 // --- Supplier Types (admin lookup) ---

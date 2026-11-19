@@ -91,6 +91,7 @@ export function GerencialPage() {
   const [reloadKey, setReloadKey] = useState(0);
   // Si los filtros cambian rápido, solo vale la respuesta del último pedido.
   const requestSeq = useRef(0);
+  const firstLoadDone = useRef(false);
 
   const monthsKey = months?.join(",") ?? "";
   useEffect(() => {
@@ -103,22 +104,31 @@ export function GerencialPage() {
     };
     setLoading(true);
     setError(false);
-    // Pequeña espera: al tocar varios meses seguidos sale un solo pedido.
-    const timer = setTimeout(() => {
-    // Las dos solapas se piden siempre: las tarjetas de arriba usan un número de cada una.
-    Promise.all([intelligenceApi.gerencialUniverso(query), intelligenceApi.gerencialEquipo(query)])
-      .then(([u, e]) => {
-        if (seq !== requestSeq.current) return;
-        setUniverso(u);
-        setEquipo(e);
-      })
-      .catch(() => {
-        if (seq === requestSeq.current) setError(true);
-      })
-      .finally(() => {
-        if (seq === requestSeq.current) setLoading(false);
-      });
-    }, 300);
+    const load = () => {
+      // Un solo pedido para las dos solapas (las tarjetas de arriba usan un
+      // número de cada una): el servidor calcula el período una sola vez.
+      intelligenceApi
+        .gerencialResumen(query)
+        .then(({ universo: u, equipo: e }) => {
+          if (seq !== requestSeq.current) return;
+          setUniverso(u);
+          setEquipo(e);
+        })
+        .catch(() => {
+          if (seq === requestSeq.current) setError(true);
+        })
+        .finally(() => {
+          if (seq === requestSeq.current) setLoading(false);
+        });
+    };
+    // La primera carga sale ya; después, una pequeña espera para que tocar
+    // varios meses seguidos sea un solo pedido.
+    if (!firstLoadDone.current) {
+      firstLoadDone.current = true;
+      load();
+      return;
+    }
+    const timer = setTimeout(load, 300);
     return () => clearTimeout(timer);
   }, [monthsKey, zoneId, repId, reloadKey]);
 

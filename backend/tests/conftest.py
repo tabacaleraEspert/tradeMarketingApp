@@ -116,4 +116,5 @@ def _clear_response_caches():
     _reports._REPORTS_CACHE.clear()
     _kpi._TMR_CACHE.clear()
     _intelligence._INTEL_CACHE.clear()
+    _intelligence._GERENCIAL_CACHE.clear()
     yield

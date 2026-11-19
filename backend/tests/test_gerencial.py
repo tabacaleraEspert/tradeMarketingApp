@@ -517,3 +517,67 @@ def test_endpoints_responden_y_validan(client):
     assert set(r.json()["embudo"]) == {"rastrillado", "enRutaFoco", "visitados", "efectivos"}
     assert client.get("/intelligence/gerencial/equipo", params={"months": "2026-04"}).status_code == 200
     assert client.get("/intelligence/gerencial/universo", params={"months": "abril"}).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Tiempo de carga: un solo pedido, cache por mes y compartido entre workers
+# ---------------------------------------------------------------------------
+
+def test_resumen_trae_universo_y_equipo_iguales_a_los_endpoints_sueltos(client, db, milenio):
+    rep = _rep(db)
+    pdv = _pdv(db, rep)
+    _route(db, rep, [pdv])
+    v = _visit(db, pdv, rep)
+    _cov(db, v, milenio)
+    _pop(db, v)
+    # Los handlers directos, con la sesión del test (sus datos no se commitean).
+    from app.routers import intelligence as router
+
+    args = dict(months="2026-04", zone_id=None, user_id=rep.UserId, db=db)
+    resumen = router.get_gerencial_resumen(**args)
+    assert resumen["universo"]["embudo"]["efectivos"] == 1
+    assert resumen["equipo"]["cards"]["realizadas"] == 1
+    assert resumen["universo"] == router.get_gerencial_universo(**args)
+    assert resumen["equipo"] == router.get_gerencial_equipo(**args)
+    assert client.get("/intelligence/gerencial/resumen", params={"months": "abril"}).status_code == 400
+
+
+def test_solo_se_calculan_los_meses_que_faltan(client, monkeypatch):
+    calls = []
+    real = G.load_month_data
+    monkeypatch.setattr(G, "load_month_data", lambda db, base, months: calls.append(list(months)) or real(db, base, months))
+
+    client.get("/intelligence/gerencial/resumen", params={"months": "2026-03,2026-04"})
+    client.get("/intelligence/gerencial/resumen", params={"months": "2026-04", "zone_id": 1})  # filtro: en memoria
+    client.get("/intelligence/gerencial/universo", params={"months": "2026-04,2026-05"})  # solo falta mayo
+    client.get("/intelligence/gerencial/equipo", params={"months": "2026-03,2026-05"})
+    assert calls == [[(2026, 3), (2026, 4)], [(2026, 5)]]
+
+
+def test_otro_worker_reusa_lo_calculado(client, monkeypatch):
+    from app.routers import intelligence as router
+
+    params = {"months": "2026-04"}
+    first = client.get("/intelligence/gerencial/resumen", params=params).json()
+    # Otro worker: misma carpeta de cache, memoria vacía.
+    router._GERENCIAL_CACHE._memory.clear()
+    monkeypatch.setattr(G, "load_month_data", lambda *a, **k: pytest.fail("no debía recalcular"))
+    monkeypatch.setattr(G.Base, "__init__", lambda *a, **k: pytest.fail("no debía recargar la base"))
+    assert client.get("/intelligence/gerencial/resumen", params=params).json() == first
+    assert client.get("/intelligence/gerencial/filters").status_code == 200
+
+
+def test_pieza_por_mes_equivale_a_calcular_el_periodo_junto(db, milenio):
+    rep = _rep(db)
+    pdv = _pdv(db, rep)
+    _route(db, rep, [pdv])
+    for day in (DAY_FEB, DAY_APR):
+        v = _visit(db, pdv, rep, opened=day)
+        _cov(db, v, milenio)
+        _pop(db, v)
+    base = G.Base(db)
+    juntos = G.Shared(base, G.load_month_data(db, base, [FEB, APR]))
+    por_mes = G.Shared(base, {m: G.load_month_data(db, base, [m])[m] for m in (FEB, APR)})
+    assert juntos.effective == {pdv.PdvId}
+    for build in (G.build_universo, G.build_equipo):
+        assert build(db, [FEB, APR], shared=juntos) == build(db, [FEB, APR], shared=por_mes)
