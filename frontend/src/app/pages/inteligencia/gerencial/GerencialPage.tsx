@@ -265,7 +265,7 @@ export function GerencialPage() {
           {tab === "universo" ? (
             <UniversoTab data={universo} context={context} onSelectZone={handleZoneChange} />
           ) : (
-            <EquipoTab data={equipo} subtab={subtab} onSubtabChange={setSubtab} onSelectRep={handleSelectRepRow} />
+            <EquipoTab data={equipo} context={context} subtab={subtab} onSubtabChange={setSubtab} onSelectRep={handleSelectRepRow} />
           )}
         </section>
       )}

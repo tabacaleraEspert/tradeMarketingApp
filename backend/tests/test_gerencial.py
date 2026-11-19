@@ -624,3 +624,21 @@ def test_el_cache_en_disco_cambia_de_carpeta_si_cambia_el_codigo(monkeypatch):
     assert router._GERENCIAL_CACHE._dir == cache_dir(G.cache_version())
     assert cache_dir(G.cache_version()) != cache_dir("otra-version")
     assert len(G.cache_version()) == 12
+
+
+def test_equipo_trae_los_numeros_que_explican_cada_tarjeta(db, milenio):
+    rep = _rep(db)
+    efectivo, visitado = _pdv(db, rep), _pdv(db, rep)
+    _route(db, rep, [efectivo, visitado])
+    v = _visit(db, efectivo, rep)
+    _cov(db, v, milenio)
+    _pop(db, v)
+    _visit(db, visitado, rep)
+
+    e = G.build_equipo(db, [APR], user_id=rep.UserId)
+    row, cards = e["reps"][0], e["cards"]
+    assert (row["visitados"], row["efectivos"], row["efectividadPct"]) == (2, 1, 50.0)
+    assert cards["repsConVisitas"] == 1
+    # La tarjeta se puede rehacer con lo que muestra el modal.
+    assert cards["visitasPorDiaRep"] == round(cards["realizadas"] / (e["diasHabiles"] * cards["repsConVisitas"]), 1)
+    assert cards["efectividadPct"] == round(100 * cards["efectivos"] / cards["visitados"], 1)

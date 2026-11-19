@@ -11,7 +11,8 @@ Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s 
 - [x] Orden por columna en las tres tablas (`sort.ts` + `SortTH`): vacíos siempre al final; verificado en Chrome sobre SQLite sembrada.
 - [x] Modal de detalle en las 4 tarjetas de Universo (Rutas foco, TM Reps activos, PDV por ruta, PDV por TM Rep): listas `rutasDetalle` / `repsDetalle` en la respuesta de universo (del cache, sin consultas), tablas ordenables. Verificado en Chrome, escritorio y celular.
 - [x] Fix: la carpeta del cache lleva la huella del código (`gerencial.cache_version`); un pickle con la forma vieja daba 500 (pasó en local).
-- [ ] Medir de nuevo en App Insights cuando alguien abra la vista.
+- [x] Medido en prod tras el deploy (App Insights 13:05 UTC): frío 6,9 s (antes 46,6 + 52,2), recargas 0,05–0,1 s, filtros 0,03–0,3 s.
+- [x] Modal "cómo se llega" en las 5 tarjetas de Performance de equipo (`EquipoDetalleModal`): la cuenta con los números del filtro, qué entra y qué no, y el desglose por TM Rep ordenable. Back: `visitados` / `efectivos` por rep y `repsConVisitas`. Verificado en Chrome, escritorio y celular.
 - [ ] Propuesta (DDL en prod, falta OK de Davor): índice `VisitCoverage(VisitId) INCLUDE (ProductId, Works, …)`. Hoy la consulta de cobertura escanea la tabla entera (537 mil filas, 38 MB) aunque se pida un mes.
 - Firewall: regla `DavorLocal5` (181.169.19.234) agregada el 19/11; siguen `DavorLocal3` y `DavorLocal4`.
 
