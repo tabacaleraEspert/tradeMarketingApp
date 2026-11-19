@@ -312,10 +312,18 @@ Grilla en `/admin/routes` (pestaña por defecto): filas = TM rep, columnas = dí
 
 ### Review 2026-11-19 (A cadenas + B tablero fases 1-2)
 - Implementado y revisado en local (revisión independiente + correcciones). 898 pytest / 307 vitest / build OK. E2E Playwright: tablero 54/54, cadenas 38/38. SIN commit, SIN deploy.
-- Prod cadenas (fuera de horario, `USE_SQLITE=false` + creds): `ddl_chains_20261119.py --commit` → deploy backend (`/health` 200) → `migrate_chains_20261119.py --plan-json plan.json` → revisar → `--commit --plan-json plan.json [--ack-mandatory-activities]` → `review_chain_candidates_20261119.py --plan-json plan.json --out revision.xlsx`.
+- Prod cadenas (fuera de horario, `USE_SQLITE=false` + creds): `ddl_chains_20261119.py --commit` → deploy backend (`/health` 200) → `migrate_chains_20261119.py --plan-json plan.json` → revisar → `--commit --plan-json plan.json` → `review_chain_candidates_20261119.py --plan-json plan.json --out revision.xlsx`.
 - Tablero: sin DDL.
 - [ ] Davor: ¿prestar un día a otro trade? (a quién cuenta en KPI 2) — hoy bloqueado
-- [ ] Davor: revisar actividades obligatorias canal 9 vs 22 en el dry-run
+- [ ] Davor: leer la sección "(vii) ACTIVIDADES OBLIGATORIAS" del dry-run antes del commit (qué se clona y a quién le suma)
 - [ ] Santiago: conflictos de nombre en reusados + Excel de candidatos + marcar key accounts restantes
 - [ ] Fase 3 tablero + índice único RouteDay (DDL)
 - [ ] Probar tablero con ~40 trades y contra Azure SQL; DDL cadenas nunca corrió en SQL Server
+
+### Review 2026-11-19 (seguimiento: actividades obligatorias + índice único RouteDay)
+- Decisión Davor: los PDVs que pasan de Convenience (9) a Cadenas de Proximidad (22) CONSERVAN sus actividades obligatorias. `migrate_chains_20261119.py` clona al canal 22 cada MandatoryActivity ACTIVA del canal de origen (todos los campos; idempotente; equivalente inactiva → se reactiva; queda en el backup; el rollback desactiva los clones). Sale `--ack-mandatory-activities`, entra `--no-clone-mandatory-activities` (opt-out; mismo flag en dry-run y commit, forma parte de la huella del plan).
+- No hay mecanismo más fino sin tocar el esquema: la plantilla solo se acota por canal y/o ruta, y `visits.py` siembra por IsActive + canal + ruta (NO mira ValidFrom/ValidTo). Efecto colateral aceptado: los PDVs que ya estaban en el canal 22 también reciben las clonadas, y los movidos reciben las que el 22 ya tenía. El dry-run lista ambas cosas.
+- Índice único `uq_RouteDay_Route_Date_User` (RouteId, WorkDate, AssignedUserId): `ddl_chains_20261119.py` (transacción aparte; filtrado si la columna admite NULL; con duplicados los lista y lo saltea, exit 1, el DDL de cadenas queda aplicado) + alembic `0031_routeday_unique` para dev (con duplicados no crea ni falla). Sin UniqueConstraint en el modelo. `/health` no lo mira.
+- Ensayo en SQLite forma-prod: 2 actividades clonadas, 425 PDVs movidos, 442 ya en canal 22; rollback deja los PDVs idénticos y los clones inactivos. SIN commit, SIN prod.
+- [ ] Con el índice puesto, una carrera que el código no ataje pasa de "duplicado silencioso" a IntegrityError (500): que `routes.py` lo traduzca a 409 (dueño: tablero de rutas)
+- [ ] Si el dry-run de prod lista duplicados de RouteDay: resolverlos a mano y volver a correr el DDL

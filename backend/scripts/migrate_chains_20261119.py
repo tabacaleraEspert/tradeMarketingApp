@@ -25,6 +25,24 @@ Qué hace (todo en UNA transacción; sin --commit no escribe nada):
   (vi)  Siembra banderas (Kind 'bandera', canal "Estación de Servicio"): BANDERAS.
         No asigna PDVs.
 
+  (vii) ACTIVIDADES OBLIGATORIAS (decisión de Davor 2026-11-19): los PDVs que cambian de
+        canal tienen que SEGUIR recibiendo las actividades obligatorias que reciben hoy.
+        La plantilla (MandatoryActivity) solo se puede acotar por canal y/o por ruta —
+        no hay alcance por PDV ni por cadena, y app/routers/visits.py siembra con
+        IsActive + ChannelId + RouteId (NO mira ValidFrom/ValidTo) — así que no existe
+        un mecanismo más fino sin cambiar el esquema. Entonces: por cada actividad
+        ACTIVA acotada al canal de origen (hoy: Convenience) se asegura una equivalente
+        acotada al canal de cadenas: se CLONA con todos sus campos (mismo formulario,
+        misma ruta si la tenía, mismas fechas, mismo creador). Idempotente: si ya hay
+        una equivalente activa (mismo nombre + tipo + ruta + formulario) no hace nada;
+        si hay una equivalente INACTIVA la reactiva. Queda en el backup y el rollback
+        desactiva los clones.
+        EFECTO COLATERAL (el dry-run lo detalla): los PDVs que YA estaban en el canal
+        de cadenas también empiezan a recibir esas actividades, y los PDVs movidos
+        empiezan a recibir las que el canal de cadenas ya tenía.
+        Opt-out: --no-clone-mandatory-activities (los PDVs movidos PIERDEN las del
+        canal viejo). El flag forma parte del plan: usar el mismo en dry-run y commit.
+
 Seguridad:
   - Imprime servidor y base destino y corta si el entorno es ambiguo (misma resolución
     que la app y que ddl_chains; ver chains_ops_20261119.py).
@@ -33,9 +51,7 @@ Seguridad:
   - --commit EXIGE --plan-json con el plan del dry-run que se revisó: se vuelve a armar
     el plan y, si difiere (hash) del revisado o es de otra base, aborta sin escribir.
   - Confirmación tipeada (nombre de la base) antes de escribir; --yes la saltea.
-  - Actividades obligatorias (MandatoryActivity) por canal: los PDVs que cambian de
-    canal pierden las del canal viejo y ganan las del nuevo. El dry-run las lista y
-    --commit exige --ack-mandatory-activities si hay alguna activa.
+  - Actividades obligatorias (MandatoryActivity): ver "(vii)" abajo.
   - build_plan verifica que toda cadena asignada exista o se cree (si no, el DRY-RUN falla).
   - Backup JSON de TODA fila que cambia, escrito ANTES de aplicar. Idempotente: una
     segunda pasada no cambia nada. Rollback: scripts/rollback_chains_20261119.py <backup.json>.
@@ -47,7 +63,7 @@ grupo cadena/subcanal, no fila por fila) y toma locks sobre PDV. Con SET LOCK_TI
 Uso (desde backend/):
     python scripts/migrate_chains_20261119.py --plan-json plan_cadenas.json      # dry-run (default): escribe el plan
     # …revisar el resumen y plan_cadenas.json…
-    python scripts/migrate_chains_20261119.py --commit --plan-json plan_cadenas.json [--ack-mandatory-activities]
+    python scripts/migrate_chains_20261119.py --commit --plan-json plan_cadenas.json
 """
 from __future__ import annotations
 
@@ -260,7 +276,63 @@ def check_assignments(pdv_changes: list[dict], resolvable: set[str]) -> None:
         raise PlanError(f"PLAN INCONSISTENTE: {n} PDVs asignados a cadenas que no existen ni se crean: {orphans}")
 
 
-def build_plan(state: dict, import_log: dict) -> dict:
+MA_FIELDS = ("Name", "ActionType", "Description", "DetailsJson", "PhotoRequired", "RouteId", "FormId",
+             "ValidFrom", "ValidTo", "CreatedByUserId")
+
+
+def ma_key(a: dict) -> tuple:
+    """Dos actividades son "equivalentes" si coinciden nombre, tipo, ruta y formulario."""
+    return (norm(a["Name"]), a["ActionType"], a.get("RouteId"), a.get("FormId"))
+
+
+def plan_mandatory_activities(activities: list[dict], moved_from: dict, ch22: int,
+                              pdvs_already_in_22: int, clone: bool = True) -> dict:
+    """(vii) Qué hacer con las actividades obligatorias por canal. Puro.
+
+    activities: TODAS las MandatoryActivity con ChannelId (activas e inactivas).
+    moved_from: {ChannelId origen: cantidad de PDVs que pasan al canal de cadenas}.
+    """
+    in22 = [a for a in activities if a["ChannelId"] == ch22]
+    active22 = {ma_key(a): a for a in in22 if a["IsActive"]}
+    inactive22 = {}
+    for a in in22:
+        if not a["IsActive"]:
+            inactive22.setdefault(ma_key(a), a)
+    sources = [a for a in activities if a["IsActive"] and a["ChannelId"] != ch22 and moved_from.get(a["ChannelId"])]
+    to_clone, to_reactivate, already = [], [], []
+    seen: set[tuple] = set()
+    for a in sorted(sources, key=lambda a: a["MandatoryActivityId"]):
+        k = ma_key(a)
+        ref = {"source_id": a["MandatoryActivityId"], "source_channel": a["ChannelId"], "Name": a["Name"],
+               "ActionType": a["ActionType"], "pdvs_movidos": moved_from[a["ChannelId"]]}
+        if k in active22:
+            already.append({**ref, "existing_id": active22[k]["MandatoryActivityId"]})
+        elif k in seen:
+            already.append({**ref, "existing_id": None})   # otra del mismo plan ya la cubre
+        elif not clone:
+            continue
+        elif k in inactive22:
+            to_reactivate.append({**ref, "MandatoryActivityId": inactive22[k]["MandatoryActivityId"]})
+            seen.add(k)
+        else:
+            to_clone.append({**ref, **{f: a.get(f) for f in MA_FIELDS}, "ChannelId": ch22})
+            seen.add(k)
+    lost = [] if clone else [
+        {"source_id": a["MandatoryActivityId"], "source_channel": a["ChannelId"], "Name": a["Name"],
+         "ActionType": a["ActionType"], "pdvs_movidos": moved_from[a["ChannelId"]]}
+        for a in sources if ma_key(a) not in active22]
+    return {
+        "clone_enabled": clone, "clone": to_clone, "reactivate": to_reactivate, "already_equivalent": already,
+        "lost_by_moved": lost,
+        # las que el canal de cadenas YA tenía: los PDVs movidos las empiezan a recibir
+        "gained_by_moved": [{"MandatoryActivityId": a["MandatoryActivityId"], "Name": a["Name"],
+                             "ActionType": a["ActionType"], "RouteId": a.get("RouteId")}
+                            for a in sorted(active22.values(), key=lambda a: a["MandatoryActivityId"])],
+        "pdvs_moved": sum(moved_from.values()), "pdvs_already_in_chain_channel": pdvs_already_in_22,
+    }
+
+
+def build_plan(state: dict, import_log: dict, clone_mandatory: bool = True) -> dict:
     """Plan completo a partir de un snapshot de la base (dicts planos). No toca la DB.
 
     state = {
@@ -500,9 +572,12 @@ def build_plan(state: dict, import_log: dict) -> dict:
     # plan está roto y hay que enterarse en el DRY-RUN, no a mitad del --commit.
     check_assignments(pdv_changes, {k for (ch, k) in desired if ch == ch22} | {k for (ch, k) in existing if ch == ch22})
 
-    moved_from = Counter(c["before"]["ChannelId"] for c in pdv_changes if c["before"]["ChannelId"] != ch22)
+    moved_from = Counter(c["before"]["ChannelId"] for c in pdv_changes
+                         if c["before"]["ChannelId"] not in (ch22, None) and c["IsActive"])
+    already_22 = sum(1 for p in state["pdvs"] if p["ChannelId"] == ch22 and p["IsActive"])
     return {
-        "mandatory_activities": state.get("mandatory_activities", []),
+        "mandatory": plan_mandatory_activities(state.get("mandatory_activities", []), dict(moved_from), ch22,
+                                               already_22, clone_mandatory),
         "moved_from_channel": {str(k): v for k, v in sorted(moved_from.items(), key=lambda kv: str(kv[0]))},
         "bucket_subchannels": bucket_info, "inactive_subs_with_pdvs": inactive_subs_with_pdvs,
         "chains_create": chains_create, "chains_update": chains_update,
@@ -560,17 +635,16 @@ def load_state(db, skip_id_check: bool) -> dict:
 
     subs = db.query(SubChannel).filter(SubChannel.ChannelId.in_([ch_chain.ChannelId, ch_ka.ChannelId])).all()
     from app.models.mandatory_activity import MandatoryActivity
-    today = datetime.now(timezone.utc).date()
-    acts = (db.query(MandatoryActivity)
-            .filter(MandatoryActivity.IsActive == True,  # noqa: E712
-                    MandatoryActivity.ChannelId.in_([ch_chain.ChannelId, ch_ka.ChannelId]))
-            .order_by(MandatoryActivity.ChannelId, MandatoryActivity.MandatoryActivityId).all())
+    acts = (db.query(MandatoryActivity).filter(MandatoryActivity.ChannelId.isnot(None))
+            .order_by(MandatoryActivity.MandatoryActivityId).all())
     return {
         "mandatory_activities": [
             {"MandatoryActivityId": a.MandatoryActivityId, "Name": a.Name, "ActionType": a.ActionType,
-             "ChannelId": a.ChannelId, "RouteId": a.RouteId,
-             "ValidFrom": str(a.ValidFrom) if a.ValidFrom else None, "ValidTo": str(a.ValidTo) if a.ValidTo else None}
-            for a in acts if a.ValidTo is None or a.ValidTo >= today],
+             "Description": a.Description, "DetailsJson": a.DetailsJson, "PhotoRequired": bool(a.PhotoRequired),
+             "ChannelId": a.ChannelId, "RouteId": a.RouteId, "FormId": a.FormId,
+             "ValidFrom": str(a.ValidFrom) if a.ValidFrom else None, "ValidTo": str(a.ValidTo) if a.ValidTo else None,
+             "CreatedByUserId": a.CreatedByUserId, "IsActive": bool(a.IsActive)}
+            for a in acts],
         "ids": {**found, "station_channel": ch_station.ChannelId},
         "channel_names": {c.ChannelId: c.Name for c in channels},
         "manager_name": managers[0].DisplayName,
@@ -666,26 +740,54 @@ def print_summary(state: dict, plan: dict) -> None:
     for n in plan["notes"]:
         P(f"Nota: {n}")
 
-    acts = plan["mandatory_activities"]
-    P(f"\n── ACTIVIDADES OBLIGATORIAS por canal (activas y vigentes): {len(acts)} ──")
-    if acts:
-        for a in acts:
-            P(f"   • id {a['MandatoryActivityId']} '{a['Name']}' [{a['ActionType']}] · canal "
-              f"{state['channel_names'].get(a['ChannelId'], a['ChannelId'])} (id {a['ChannelId']})"
-              + (f" · hasta {a['ValidTo']}" if a["ValidTo"] else ""))
-        moved = ", ".join(f"{state['channel_names'].get(int(k), k)}: {v} PDVs" for k, v in plan["moved_from_channel"].items())
-        P(f"   ⚠ Los PDVs que cambian de canal ({moved or 'ninguno'}) DEJAN de recibir las actividades de su canal\n"
-          f"     anterior y EMPIEZAN a recibir las de '{state['channel_names'][ids['chain_channel']]}' en la próxima visita.\n"
-          "     Si eso está bien: --commit … --ack-mandatory-activities. Si no, ajustá las actividades antes.")
-    else:
-        P("   (ninguna: el cambio de canal no altera actividades obligatorias)")
+    ma = plan["mandatory"]
+    chn = lambda cid: f"{state['channel_names'].get(cid, cid)} (id {cid})"  # noqa: E731
+    ch22_name = state["channel_names"][ids["chain_channel"]]
+    P("\n── (vii) ACTIVIDADES OBLIGATORIAS ──")
+    P("   (la app las siembra por IsActive + canal + ruta; no mira fechas de vigencia)")
+    if not (ma["clone"] or ma["reactivate"] or ma["already_equivalent"] or ma["lost_by_moved"]
+            or (ma["gained_by_moved"] and ma["pdvs_moved"])):
+        P("   Ninguna actividad por canal involucrada: el cambio de canal no altera nada.")
+    if ma["clone"]:
+        P(f"   SE CLONAN al canal '{ch22_name}' para que los {ma['pdvs_moved']} PDVs movidos las CONSERVEN: {len(ma['clone'])}")
+        for a in ma["clone"]:
+            extra = "".join([f" · ruta {a['RouteId']}" if a["RouteId"] else "", f" · form {a['FormId']}" if a["FormId"] else "",
+                             f" · vigencia {a['ValidFrom'] or '…'}→{a['ValidTo'] or '…'}" if a["ValidFrom"] or a["ValidTo"] else ""])
+            P(f"   + '{a['Name']}' [{a['ActionType']}] ← id {a['source_id']} de {chn(a['source_channel'])}, "
+              f"{a['pdvs_movidos']} PDVs movidos{extra}")
+    if ma["reactivate"]:
+        P("   SE REACTIVAN (ya existía una equivalente INACTIVA en el canal de cadenas — revisar que no la hayan apagado a propósito):")
+        for a in ma["reactivate"]:
+            P(f"   ~ id {a['MandatoryActivityId']} '{a['Name']}' [{a['ActionType']}] (equivale a id {a['source_id']} de {chn(a['source_channel'])})")
+    if ma["already_equivalent"]:
+        P("   Ya cubiertas (hay una equivalente activa en el canal de cadenas): "
+          + ", ".join(f"'{a['Name']}' (id {a['source_id']})" for a in ma["already_equivalent"]))
+    if ma["clone"] or ma["reactivate"]:
+        P(f"   ⚠ EFECTO COLATERAL: los {ma['pdvs_already_in_chain_channel']} PDVs activos que YA estaban en '{ch22_name}' "
+          "también EMPIEZAN a recibir\n     esas actividades en su próxima visita (la plantilla solo se acota por canal/ruta, "
+          "no por PDV ni por cadena).")
+        if len({a["source_channel"] for a in ma["clone"] + ma["reactivate"]}) > 1:
+            P("   ⚠ Hay más de un canal de origen: los PDVs movidos desde uno reciben también las clonadas del otro.")
+    if ma["gained_by_moved"] and ma["pdvs_moved"]:
+        P(f"   Actividades que '{ch22_name}' YA tenía y los {ma['pdvs_moved']} PDVs movidos EMPIEZAN a recibir: {len(ma['gained_by_moved'])}")
+        for a in ma["gained_by_moved"]:
+            P(f"   → id {a['MandatoryActivityId']} '{a['Name']}' [{a['ActionType']}]" + (f" · solo ruta {a['RouteId']}" if a["RouteId"] else ""))
+    if ma["lost_by_moved"]:
+        P("   ⚠ --no-clone-mandatory-activities: los PDVs movidos DEJAN de recibir:")
+        for a in ma["lost_by_moved"]:
+            P(f"   ✗ id {a['source_id']} '{a['Name']}' [{a['ActionType']}] de {chn(a['source_channel'])} — {a['pdvs_movidos']} PDVs")
+    if ma["clone"] or ma["reactivate"]:
+        P("   Nota: un pendiente (BACKLOG) que un PDV movido arrastre de la plantilla original puede aparecer una vez\n"
+          "     junto al de la plantilla clonada en su primera visita posterior (son plantillas distintas).")
+
     if not has_changes(plan):
         P("\n✔ Nada para hacer: la base ya está migrada (idempotente).")
 
 
 def has_changes(plan: dict) -> bool:
     return any(plan[k] for k in ("chains_create", "chains_update", "subs_create", "subs_activate",
-                                 "pdv_changes", "subs_deactivate"))
+                                 "pdv_changes", "subs_deactivate")) or bool(
+        plan["mandatory"]["clone"] or plan["mandatory"]["reactivate"])
 
 
 def apply_plan(db, state: dict, plan: dict, backup_path: Path) -> dict:
@@ -704,6 +806,7 @@ def apply_plan(db, state: dict, plan: dict, backup_path: Path) -> dict:
         "subchannels_deactivated": [s["SubChannelId"] for s in plan["subs_deactivate"]],
         "subchannels_activated": [s["SubChannelId"] for s in plan["subs_activate"]],
         "chains_created": [], "subchannels_created": [],  # se completan al final (ids nuevos)
+        "mandatory_created": [], "mandatory_reactivated": [a["MandatoryActivityId"] for a in plan["mandatory"]["reactivate"]],
         "pdvs_after": {},  # PdvId → {ChainId, SubChannelId} que dejó la migración (el rollback detecta ediciones posteriores)
     }
     with open(backup_path, "x") as fh:  # "x": jamás pisa un backup anterior
@@ -741,6 +844,28 @@ def apply_plan(db, state: dict, plan: dict, backup_path: Path) -> dict:
         backup["subchannels_created"].append(row.SubChannelId)
     for s in plan["subs_activate"]:
         db.query(SubChannel).filter(SubChannel.SubChannelId == s["SubChannelId"]).update({SubChannel.IsActive: True})
+
+    # (vii) actividades obligatorias: clones en el canal de cadenas (ANTES de mover los PDVs)
+    from datetime import date as _date
+
+    from app.models.mandatory_activity import MandatoryActivity
+    for a in plan["mandatory"]["clone"]:
+        row = MandatoryActivity(
+            Name=a["Name"], ActionType=a["ActionType"], Description=a["Description"], DetailsJson=a["DetailsJson"],
+            PhotoRequired=a["PhotoRequired"], ChannelId=a["ChannelId"], RouteId=a["RouteId"], FormId=a["FormId"],
+            ValidFrom=_date.fromisoformat(a["ValidFrom"]) if a["ValidFrom"] else None,
+            ValidTo=_date.fromisoformat(a["ValidTo"]) if a["ValidTo"] else None,
+            CreatedByUserId=a["CreatedByUserId"], IsActive=True)
+        db.add(row)
+        db.flush()
+        backup["mandatory_created"].append(row.MandatoryActivityId)
+        audit("MandatoryActivity", row.MandatoryActivityId, "MA_CLONE", {
+            "clonedFrom": a["source_id"], "fromChannelId": a["source_channel"], "toChannelId": a["ChannelId"],
+            "Name": a["Name"], "ActionType": a["ActionType"]})
+    for a in plan["mandatory"]["reactivate"]:
+        db.query(MandatoryActivity).filter(MandatoryActivity.MandatoryActivityId == a["MandatoryActivityId"]).update(
+            {MandatoryActivity.IsActive: True})
+        audit("MandatoryActivity", a["MandatoryActivityId"], "MA_REACTIVATE", {"equivalentTo": a["source_id"]})
 
     # PDVs: set-based. Un UPDATE por grupo (canal, subcanal, cadena) en tandas de
     # PDV_BATCH ids, en vez de ~900 viajes fila por fila. La auditoría sigue siendo
@@ -814,8 +939,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--commit", action="store_true", help="Aplica los cambios (default: dry-run)")
     ap.add_argument("--dry-run", action="store_true", help="No escribe nada (default)")
     ap.add_argument("--plan-json", help="Dry-run: escribe acá el plan. --commit: OBLIGATORIO, el plan del dry-run revisado")
-    ap.add_argument("--ack-mandatory-activities", action="store_true",
-                    help="Confirmo que revisé las actividades obligatorias por canal que lista el dry-run")
+    ap.add_argument("--no-clone-mandatory-activities", action="store_true",
+                    help="NO clonar al canal de cadenas las actividades obligatorias del canal de origen "
+                         "(los PDVs movidos las pierden). Usar el mismo flag en el dry-run y en el --commit")
     ap.add_argument("--yes", action="store_true", help="No pide la confirmación tipeada (uso no interactivo)")
     ap.add_argument("--skip-id-check", action="store_true", help="SOLO ensayo local: no exige los ids de prod")
     ap.add_argument("--import-log", default=str(IMPORT_LOG))
@@ -841,10 +967,8 @@ def commit_blockers(args, plan: dict, target: dict) -> list[str]:
     if reviewed.get("plan_hash") != plan_fingerprint(plan, target):
         was = (reviewed.get("target") or {}).get("label", "?")
         out.append(f"el plan de hoy NO es el que se revisó en {path} (revisado sobre: {was}; ahora: {target['label']}). "
-                   "La base cambió desde el dry-run o es otra base: volver a correr el dry-run y revisar de nuevo")
-    if plan["mandatory_activities"] and not args.ack_mandatory_activities:
-        out.append(f"hay {len(plan['mandatory_activities'])} actividades obligatorias por canal activas "
-                   "(ver el resumen): agregar --ack-mandatory-activities si el efecto es el esperado")
+                   "La base cambió desde el dry-run, es otra base, o cambió --no-clone-mandatory-activities: "
+                   "volver a correr el dry-run y revisar de nuevo")
     return out
 
 
@@ -860,7 +984,7 @@ def main(argv=None) -> int:
     try:
         state = load_state(db, args.skip_id_check)
         try:
-            plan = build_plan(state, import_log)
+            plan = build_plan(state, import_log, clone_mandatory=not args.no_clone_mandatory_activities)
         except PlanError as e:
             print(f"\nABORTO: {e}")
             return 3
@@ -895,7 +1019,8 @@ def main(argv=None) -> int:
                   f"(El archivo {backup_path} quedó escrito pero no corresponde a ningún cambio.)")
             raise
         print(f"\nCOMMIT OK · cadenas creadas {len(backup['chains_created'])} · PDVs {len(backup['pdvs'])} · "
-              f"subcanales desactivados {len(backup['subchannels_deactivated'])}")
+              f"subcanales desactivados {len(backup['subchannels_deactivated'])} · actividades obligatorias clonadas "
+              f"{len(backup['mandatory_created'])} / reactivadas {len(backup['mandatory_reactivated'])}")
         print(f"Rollback: python scripts/rollback_chains_20261119.py {backup_path} [--commit]")
         verify(db, state["ids"])
         return 0

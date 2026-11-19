@@ -14,6 +14,9 @@ Deshace, en UNA transacción y en orden inverso:
      mandan). Subcanales de tamaño creados: se desactivan si ningún PDV los usa.
      Efecto: sin cadenas activas el canal deja de exigir cadena → la app vuelve a
      comportarse como antes de la migración.
+  5. Actividades obligatorias que la migración CLONÓ al canal de cadenas: se desactivan
+     (no se borran: las VisitAction ya sembradas las referencian). Las que reactivó
+     vuelven a quedar inactivas. Las originales nunca se tocaron.
 Los AuditEvent de la migración NO se borran (append-only); se agrega un evento de rollback.
 Re-ejecutar la migración después de un rollback reactiva esas mismas cadenas (idempotente).
 
@@ -106,14 +109,23 @@ def rollback(db, backup: dict, *, force: bool = False, backup_name: str = "") ->
             subs_off.append(sid)
     still_linked = [d for d in deactivated if d[2]]
 
+    # 5. actividades obligatorias clonadas / reactivadas por la migración
+    from app.models.mandatory_activity import MandatoryActivity
+    ma_ids = list(backup.get("mandatory_created", [])) + list(backup.get("mandatory_reactivated", []))
+    ma_off = 0
+    if ma_ids:
+        ma_off = (db.query(MandatoryActivity)
+                  .filter(MandatoryActivity.MandatoryActivityId.in_(ma_ids), MandatoryActivity.IsActive == True)  # noqa: E712
+                  .update({MandatoryActivity.IsActive: False}, synchronize_session=False))
+
     db.add(AuditEvent(UserId=None, Entity="Chain", EntityId="0", Action="CHAIN_ROLLBACK", PayloadJson=json.dumps({
         "source": SOURCE, "backup": backup_name, "pdvsRestored": restored,
         "pdvsSkipped": [s[0] for s in skipped], "chainsDeleted": 0,
-        "chainsDeactivated": [d[0] for d in deactivated],
+        "chainsDeactivated": [d[0] for d in deactivated], "mandatoryDeactivated": ma_ids,
     }, ensure_ascii=False)))
     db.flush()
     return {"restored": restored, "skipped": skipped, "missing": missing, "deactivated": deactivated,
-            "still_linked": still_linked, "subs_off": subs_off, "subs_kept": subs_kept}
+            "still_linked": still_linked, "subs_off": subs_off, "subs_kept": subs_kept, "mandatory_off": ma_off}
 
 
 def main(argv=None) -> int:
@@ -145,6 +157,7 @@ def main(argv=None) -> int:
             print(f"   ! {pid} {name} (usar --force para restaurarlo igual)")
         print(f"Cadenas desactivadas (no se borran): {len(r['deactivated'])} · de esas, todavía con PDVs "
               f"(altas/ediciones posteriores, conservan su cadena): {r['still_linked'] or 'ninguna'}")
+        print(f"Actividades obligatorias clonadas/reactivadas por la migración que se desactivan: {r['mandatory_off']}")
         print(f"Subcanales reactivados: {len(backup['subchannels_deactivated'])} · de tamaño desactivados: "
               f"{len(r['subs_off'])} · conservados activos (con PDVs): {r['subs_kept'] or 'ninguno'}")
         if args.commit:

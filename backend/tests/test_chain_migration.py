@@ -42,6 +42,9 @@ def test_chain_from_cad_name_and_patterns():
 
 def test_every_reused_pdv_of_the_import_log_resolves_to_one_chain():
     import json
+    import pytest
+    if not m.IMPORT_LOG.exists():
+        pytest.skip("log del import de cadenas no versionado (solo en la máquina de Davor)")
     log = json.loads(m.IMPORT_LOG.read_text())
     assert len(log["pdvs"]) == 371 and len(log["reused"]) == 82
     assert all(m.chain_from_patterns(r["Name"]) for r in log["reused"])
@@ -292,8 +295,24 @@ def mig_db(tmp_path):
     for pid, name, ch, sub, code in rows:
         db.add(PDV(PdvId=pid, Code=code or f"P-{pid}", Name=name, Channel="Convenience" if ch == 9 else "Cadenas de Proximidad",
                    ChannelId=ch, SubChannelId=sub, IsActive=True))
-    db.add(MandatoryActivity(Name="Canje KA", ActionType="canje_sueltos", ChannelId=9, PhotoRequired=True, IsActive=True))
-    db.add(MandatoryActivity(Name="Vieja", ActionType="pop", ChannelId=22, PhotoRequired=True, IsActive=False))
+    from datetime import date
+    db.add_all([
+        # canal de origen (9): activas → los PDVs movidos las tienen que conservar
+        MandatoryActivity(MandatoryActivityId=1, Name="Canje KA", ActionType="canje_sueltos", ChannelId=9,
+                          PhotoRequired=True, IsActive=True, Description="Canjear sueltos", DetailsJson='{"x": 1}',
+                          FormId=None, ValidFrom=date(2026, 1, 1), ValidTo=date(2026, 6, 30), CreatedByUserId=149),
+        MandatoryActivity(MandatoryActivityId=2, Name="Cobertura", ActionType="cobertura", ChannelId=9,
+                          PhotoRequired=False, IsActive=True),
+        MandatoryActivity(MandatoryActivityId=3, Name="Apagada en 9", ActionType="otra", ChannelId=9,
+                          PhotoRequired=True, IsActive=False),
+        # canal de cadenas (22)
+        MandatoryActivity(MandatoryActivityId=4, Name="cobertura", ActionType="cobertura", ChannelId=22,
+                          PhotoRequired=False, IsActive=False),                     # equivalente INACTIVA de la 2
+        MandatoryActivity(MandatoryActivityId=5, Name="POP cadenas", ActionType="pop", ChannelId=22,
+                          PhotoRequired=True, IsActive=True),                       # los movidos la ganan
+        MandatoryActivity(MandatoryActivityId=6, Name="Global", ActionType="otra", ChannelId=None,
+                          PhotoRequired=True, IsActive=True),                       # global: no cambia nada
+    ])
     db.commit()
     yield db
     db.close()
@@ -309,11 +328,10 @@ def _snapshot(db):
             for r in db.query(PDV.PdvId, PDV.ChannelId, PDV.Channel, PDV.SubChannelId, PDV.ChainId).all()}
 
 
-def test_commit_blockers_plan_hash_and_mandatory_activities(mig_db, tmp_path):
-    """M1 + M4: sin el plan revisado, con un plan viejo o sin el ack, no se aplica."""
+def test_commit_blockers_plan_hash(mig_db, tmp_path):
+    """M4: sin el plan revisado, con un plan viejo, de otra base o con otro flag, no se aplica."""
     state = m.load_state(mig_db, skip_id_check=False)      # ids 22 / 9 / 62 / 149 = los esperados de prod
     plan = m.build_plan(state, LOG)
-    assert [(a["Name"], a["ChannelId"]) for a in plan["mandatory_activities"]] == [("Canje KA", 9)]
     assert plan["moved_from_channel"] == {"9": 2}
 
     plan_file = tmp_path / "plan.json"
@@ -322,19 +340,44 @@ def test_commit_blockers_plan_hash_and_mandatory_activities(mig_db, tmp_path):
 
     import json
     plan_file.write_text(json.dumps({"plan_hash": m.plan_fingerprint(plan, TARGET), "target": TARGET}))
-    blockers = m.commit_blockers(args, plan, TARGET)
-    assert len(blockers) == 1 and "--ack-mandatory-activities" in blockers[0]
-    acked = m.parse_args(["--commit", "--plan-json", str(plan_file), "--ack-mandatory-activities"])
-    assert m.commit_blockers(acked, plan, TARGET) == []
+    assert m.commit_blockers(args, plan, TARGET) == []
+    with pytest.raises(SystemExit):      # el flag viejo ya no existe
+        m.parse_args(["--commit", "--plan-json", str(plan_file), "--ack-mandatory-activities"])
+    # dry-run revisado CON clonado, commit pedido SIN clonado → es otro plan
+    no_clone = m.build_plan(state, LOG, clone_mandatory=False)
+    assert "NO es el que se revisó" in m.commit_blockers(args, no_clone, TARGET)[0]
     # mismo plan pero OTRA base → no vale
     other = {**TARGET, "server": "trade-mkt-sql.database.windows.net", "database": "trademktdb", "kind": "mssql"}
-    assert "NO es el que se revisó" in m.commit_blockers(acked, plan, other)[0]
+    assert "NO es el que se revisó" in m.commit_blockers(args, plan, other)[0]
     # la base cambió después del dry-run → el plan de hoy difiere del revisado
     from app.models import PDV
     mig_db.query(PDV).filter(PDV.PdvId == 4).update({PDV.SubChannelId: 4})
     mig_db.commit()
     plan2 = m.build_plan(m.load_state(mig_db, skip_id_check=False), LOG)
-    assert "NO es el que se revisó" in m.commit_blockers(acked, plan2, TARGET)[0]
+    assert "NO es el que se revisó" in m.commit_blockers(args, plan2, TARGET)[0]
+
+
+def test_mandatory_activities_plan(mig_db):
+    """A: las activas del canal de origen se clonan al canal de cadenas; equivalentes inactivas se reactivan."""
+    state = m.load_state(mig_db, skip_id_check=False)
+    ma = m.build_plan(state, LOG)["mandatory"]
+    assert [(a["source_id"], a["Name"], a["ChannelId"], a["pdvs_movidos"]) for a in ma["clone"]] == [(1, "Canje KA", 22, 2)]
+    c = ma["clone"][0]
+    assert (c["Description"], c["DetailsJson"], c["PhotoRequired"], c["ValidFrom"], c["ValidTo"], c["CreatedByUserId"]) == \
+        ("Canjear sueltos", '{"x": 1}', True, "2026-01-01", "2026-06-30", 149)   # vencida por fecha pero activa: la app la siembra igual
+    assert [(a["MandatoryActivityId"], a["source_id"]) for a in ma["reactivate"]] == [(4, 2)]
+    assert [a["MandatoryActivityId"] for a in ma["gained_by_moved"]] == [5]
+    assert ma["pdvs_moved"] == 2 and ma["pdvs_already_in_chain_channel"] == 6 and ma["lost_by_moved"] == []
+    # opt-out: nada se clona y se informa lo que pierden
+    off = m.build_plan(state, LOG, clone_mandatory=False)["mandatory"]
+    assert off["clone"] == [] and off["reactivate"] == [] and [a["source_id"] for a in off["lost_by_moved"]] == [1, 2]
+    # si ningún PDV cambia de canal, no se clona nada
+    assert m.plan_mandatory_activities(state["mandatory_activities"], {}, 22, 6)["clone"] == []
+    # dos canales de origen con la misma actividad → un solo clon
+    acts = [{"MandatoryActivityId": 1, "Name": "X", "ActionType": "pop", "ChannelId": 9, "IsActive": True},
+            {"MandatoryActivityId": 2, "Name": "x", "ActionType": "pop", "ChannelId": 8, "IsActive": True}]
+    two = m.plan_mandatory_activities(acts, {9: 3, 8: 1}, 22, 0)
+    assert len(two["clone"]) == 1 and len(two["already_equivalent"]) == 1
 
 
 def test_apply_plan_then_rollback_end_to_end(mig_db, tmp_path):
@@ -372,8 +415,25 @@ def test_apply_plan_then_rollback_end_to_end(mig_db, tmp_path):
     assert sorted(int(e.EntityId) for e in ev) == sorted(changed)
     assert json.loads(ev[0].PayloadJson)["source"] == "migrate_chains_20261119"
     assert db.query(AuditEvent).filter(AuditEvent.Action == "CHAIN_CREATE").count() == len(backup["chains_created"])
+    # A: actividades obligatorias — clon con todos los campos + reactivación; las originales intactas
+    from app.models.mandatory_activity import MandatoryActivity as MA
+    acts = {a.MandatoryActivityId: a for a in db.query(MA).all()}
+    clone_id = backup["mandatory_created"][0]
+    cl = acts[clone_id]
+    assert len(backup["mandatory_created"]) == 1 and backup["mandatory_reactivated"] == [4]
+    assert (cl.Name, cl.ActionType, cl.ChannelId, cl.Description, cl.DetailsJson, cl.PhotoRequired, cl.IsActive,
+            str(cl.ValidFrom), str(cl.ValidTo), cl.CreatedByUserId) == \
+        ("Canje KA", "canje_sueltos", 22, "Canjear sueltos", '{"x": 1}', True, True, "2026-01-01", "2026-06-30", 149)
+    assert acts[4].IsActive and acts[1].IsActive and acts[1].ChannelId == 9 and not acts[3].IsActive
+    assert db.query(AuditEvent).filter(AuditEvent.Action == "MA_CLONE", AuditEvent.EntityId == str(clone_id)).count() == 1
+    # lo que recibe un PDV movido (regla de visits.py: activa + canal + ruta) ⊇ lo que recibía antes
+    def applies(channel_id):
+        return {(a.Name.lower(), a.ActionType) for a in db.query(MA).filter(MA.IsActive == True).all()  # noqa: E712
+                if a.ChannelId in (None, channel_id) and a.RouteId is None}
+    assert {("canje ka", "canje_sueltos"), ("cobertura", "cobertura"), ("global", "otra")} <= applies(22)
     # el backup en disco quedó completo
     on_disk = json.loads(backup_path.read_text())
+    assert on_disk["mandatory_created"] == [clone_id]
     assert sorted(p["PdvId"] for p in on_disk["pdvs"]) == sorted(changed) and len(on_disk["pdvs_after"]) == 7
     # nunca pisa un backup existente
     with pytest.raises(FileExistsError):
@@ -405,6 +465,11 @@ def test_apply_plan_then_rollback_end_to_end(mig_db, tmp_path):
     assert subs[bucket["mediana"]].IsActive                                     # lo usa el PDV 50
     assert not subs[bucket["grande"]].IsActive                                  # creado y sin PDVs → off
     assert db.query(AuditEvent).filter(AuditEvent.Action == "CHAIN_ROLLBACK").count() == 1
+    # A: el rollback desactiva el clon y vuelve a apagar la reactivada; no borra nada ni toca las originales
+    db.expire_all()
+    acts = {a.MandatoryActivityId: a for a in db.query(MA).all()}
+    assert r["mandatory_off"] == 2 and not acts[clone_id].IsActive and not acts[4].IsActive
+    assert acts[1].IsActive and acts[2].IsActive and acts[5].IsActive and len(acts) == 7
     # --force restaura también el editado
     r2 = rb.rollback(db, on_disk, force=True)
     db.commit()
@@ -412,6 +477,8 @@ def test_apply_plan_then_rollback_end_to_end(mig_db, tmp_path):
     # volver a migrar después del rollback: reactiva las mismas cadenas, no crea duplicadas
     plan3 = m.build_plan(m.load_state(db, skip_id_check=False), LOG)
     assert plan3["chains_create"] == [] and any(c["after"].get("IsActive") for c in plan3["chains_update"])
+    # …y reactiva el clon en vez de crear otro
+    assert plan3["mandatory"]["clone"] == [] and sorted(a["MandatoryActivityId"] for a in plan3["mandatory"]["reactivate"]) == sorted([4, clone_id])
 
 
 def test_apply_plan_reverts_if_db_changed_under_it(mig_db, tmp_path):
@@ -428,3 +495,132 @@ def test_apply_plan_reverts_if_db_changed_under_it(mig_db, tmp_path):
         m.apply_plan(db, state, plan, tmp_path / "b.json")
     db.rollback()
     assert db.query(Chain).count() == 1 and _snapshot(db)[2][3] is None
+
+
+# ── B: índice único de RouteDay ──
+
+def _routeday_db(tmp_path, with_duplicates: bool):
+    from datetime import date
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import app.models  # noqa: F401
+    from app.database import Base
+    from app.models import PDV, Channel, User
+    from app.models.route import Route, RouteDay, RouteDayPdv
+    from app.models.visit import Visit
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'rd.db'}")
+    Base.metadata.create_all(eng)
+    db = sessionmaker(bind=eng)()
+    db.add_all([Channel(ChannelId=1, Name="C"), User(UserId=1, Email="a@x", DisplayName="A", IsActive=True),
+                User(UserId=2, Email="b@x", DisplayName="B", IsActive=True)])
+    db.flush()
+    db.add(Route(RouteId=10, Name="R10"))
+    db.add(PDV(PdvId=1, Code="P1", Name="P", ChannelId=1, IsActive=True))
+    db.flush()
+    d = date(2026, 11, 23)
+    db.add_all([RouteDay(RouteDayId=100, RouteId=10, WorkDate=d, AssignedUserId=1, Status="PLANNED"),
+                RouteDay(RouteDayId=101, RouteId=10, WorkDate=d, AssignedUserId=2, Status="PLANNED"),   # activador: otro usuario, OK
+                RouteDay(RouteDayId=102, RouteId=10, WorkDate=date(2026, 11, 24), AssignedUserId=1, Status="PLANNED")])
+    if with_duplicates:
+        db.add(RouteDay(RouteDayId=103, RouteId=10, WorkDate=d, AssignedUserId=1, Status="IN_PROGRESS"))
+        db.flush()
+        db.add(RouteDayPdv(RouteDayId=103, PdvId=1, PlannedOrder=1, ExecutionStatus="DONE"))
+        db.add(Visit(PdvId=1, UserId=1, RouteDayId=103, Status="CLOSED"))
+    db.commit()
+    return eng, db
+
+
+def test_routeday_duplicate_report(tmp_path, capsys):
+    """B: el informe lista cada fila del grupo con visitas / avance; activadores (otro usuario) no son duplicado."""
+    eng, db = _routeday_db(tmp_path, with_duplicates=True)
+    with eng.connect() as conn:
+        rows = ddl.routeday_duplicates(conn)
+    assert [(r["RouteDayId"], r["Status"], r["Visitas"], r["Pdvs"], r["PdvsConAvance"]) for r in rows] == \
+        [(100, "PLANNED", 0, 0, 0), (103, "IN_PROGRESS", 1, 1, 1)]
+    assert ddl.print_routeday_duplicates(rows) == 1
+    out = capsys.readouterr().out
+    assert "RouteDayId     103" in out and "No se borra ni se fusiona nada" in out
+    db.close()
+    assert ddl.print_routeday_duplicates([]) == 0
+
+
+def test_routeday_unique_step_skips_on_duplicates_and_is_idempotent(capsys):
+    """B (rama SQL Server, con una conexión simulada): con duplicados NO crea el índice; sin duplicados lo crea
+    filtrado si la columna admite NULL; si ya existe no hace nada. Nunca emite DELETE/UPDATE."""
+    class _Res:
+        def __init__(self, scalar=None, rows=()): self._s, self._rows = scalar, rows
+        def scalar(self): return self._s
+        def __iter__(self): return iter(self._rows)
+    class _Row:
+        def __init__(self, d): self._mapping = d
+    class _Conn:
+        def __init__(self, exists, dups, nullable): self.exists, self.dups, self.nullable, self.sql = exists, dups, nullable, []
+        def execute(self, stmt, params=None):
+            q = str(stmt); self.sql.append(q)
+            if "sys.indexes" in q: return _Res(self.exists)
+            if "HAVING COUNT(*) > 1" in q: return _Res(rows=[_Row(d) for d in self.dups])
+            if "is_nullable" in q: return _Res(self.nullable)
+            return _Res()
+    dup = [{"RouteDayId": i, "RouteId": 10, "WorkDate": "2026-11-23", "AssignedUserId": 1, "Status": "PLANNED",
+            "Visitas": 0, "Pdvs": 0, "PdvsConAvance": 0} for i in (100, 103)]
+    c = _Conn(0, dup, 1)
+    assert ddl.routeday_unique_step(c, commit=True) == "duplicados"
+    assert not any("CREATE" in q or "DELETE" in q or "UPDATE" in q for q in c.sql)
+    assert "SALTEADO" in capsys.readouterr().out
+    c = _Conn(0, [], 1)
+    assert ddl.routeday_unique_step(c, commit=False) == "pendiente" and not any(q.startswith("CREATE") for q in c.sql)
+    c = _Conn(0, [], 1)
+    assert ddl.routeday_unique_step(c, commit=True) == "creado"
+    create = [q for q in c.sql if q.startswith("CREATE")]
+    assert create == [f"CREATE UNIQUE INDEX {ddl.ROUTEDAY_UQ} ON RouteDay(RouteId, WorkDate, AssignedUserId) WHERE AssignedUserId IS NOT NULL"]
+    c = _Conn(0, [], 0)
+    assert ddl.routeday_unique_step(c, commit=True) == "creado" and not any("WHERE AssignedUserId" in q for q in c.sql if q.startswith("CREATE"))
+    c = _Conn(1, dup, 1)
+    assert ddl.routeday_unique_step(c, commit=True) == "existe" and len(c.sql) == 1
+
+
+def _run_0031(eng, fn="upgrade"):
+    import importlib.util
+
+    from alembic.migration import MigrationContext
+    from alembic.operations import Operations
+    path = Path(__file__).resolve().parents[1] / "alembic" / "versions" / "0031_routeday_unique.py"
+    spec = importlib.util.spec_from_file_location("mig0031", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with eng.begin() as conn:
+        with Operations.context(MigrationContext.configure(conn)):
+            getattr(mod, fn)()
+    return mod
+
+
+def test_alembic_0031_creates_index_or_skips_on_duplicates(tmp_path, capsys):
+    from sqlalchemy import inspect, text
+    from sqlalchemy.exc import IntegrityError
+
+    (tmp_path / "a").mkdir(); (tmp_path / "b").mkdir()
+    # con duplicados: no falla, no crea el índice, no toca filas
+    eng, db = _routeday_db(tmp_path / "a", with_duplicates=True)
+    mod = _run_0031(eng)
+    assert mod.down_revision == "0030_chains"
+    assert mod.INDEX not in {i["name"] for i in inspect(eng).get_indexes("RouteDay")}
+    assert "NO se crea" in capsys.readouterr().out
+    with eng.connect() as c:
+        assert c.execute(text("SELECT COUNT(*) FROM RouteDay")).scalar() == 4
+    db.close()
+    # sin duplicados: lo crea (único) y es idempotente; activadores con otro usuario siguen entrando
+    eng, db = _routeday_db(tmp_path / "b", with_duplicates=False)
+    _run_0031(eng); _run_0031(eng)
+    idx = {i["name"]: i for i in inspect(eng).get_indexes("RouteDay")}
+    assert idx[mod.INDEX]["unique"] and idx[mod.INDEX]["column_names"] == ["RouteId", "WorkDate", "AssignedUserId"]
+    with eng.begin() as c:
+        c.execute(text("INSERT INTO RouteDay (RouteId, WorkDate, AssignedUserId, Status) VALUES (10, '2026-11-24', 2, 'PLANNED')"))
+    with pytest.raises(IntegrityError):
+        with eng.begin() as c:
+            c.execute(text("INSERT INTO RouteDay (RouteId, WorkDate, AssignedUserId, Status) VALUES (10, '2026-11-24', 1, 'PLANNED')"))
+    _run_0031(eng, "downgrade"); _run_0031(eng, "downgrade")
+    assert mod.INDEX not in {i["name"] for i in inspect(eng).get_indexes("RouteDay")}
+    db.close()
