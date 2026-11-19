@@ -1,4 +1,6 @@
+import { useState } from "react";
 import type { GerencialUniverso } from "@/lib/api";
+import { UniversoDetalleModal, type UniversoDetalle } from "./UniversoDetalleModal";
 import { dec1, nf, pct, ratioPct } from "./format";
 import { MiniBar, ROW_CLICK, SortTH, StatCard, TableCard, TD, rowKeyHandler } from "./parts";
 import { useSort, type SortValue } from "./sort";
@@ -18,9 +20,12 @@ const AREA_COLS: Record<string, (a: Area) => SortValue> = {
 
 export function UniversoTab({
   data,
+  context,
   onSelectZone,
 }: {
   data: GerencialUniverso;
+  /** Filtro vigente en texto, para el encabezado de los detalles. */
+  context: string;
   onSelectZone: (zoneId: number) => void;
 }) {
   const e = data.embudo;
@@ -33,6 +38,7 @@ export function UniversoTab({
   const totalPct = ratioPct(e.enRutaFoco, e.rastrillado);
   const { sorted: areas, sort, toggle } = useSort(data.areas, AREA_COLS, { key: "rastrillado", dir: "desc" });
   const h = { sort, onSort: toggle };
+  const [detalle, setDetalle] = useState<UniversoDetalle | null>(null);
 
   return (
     <div className="space-y-4">
@@ -57,15 +63,17 @@ export function UniversoTab({
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Rutas foco" value={nf(data.rutasFoco)} sub="rutas armadas en el período" />
+        <StatCard label="Rutas foco" value={nf(data.rutasFoco)} sub="rutas armadas en el período" onClick={() => setDetalle("rutas")} />
         <StatCard
           label="TM Reps activos"
           value={nf(data.repsActivos)}
           sub={`de ${nf(data.repsNomina)} en nómina · con visitas en ${data.periodoLabel}`}
+          onClick={() => setDetalle("reps")}
         />
-        <StatCard label="Promedio PDV por ruta" value={dec1(data.pdvPorRuta)} sub="PDVs por ruta foco" />
-        <StatCard label="Promedio PDV por TM Rep" value={dec1(data.pdvPorRep)} sub="PDVs en ruta por TM Rep activo" />
+        <StatCard label="Promedio PDV por ruta" value={dec1(data.pdvPorRuta)} sub="PDVs por ruta foco" onClick={() => setDetalle("pdvPorRuta")} />
+        <StatCard label="Promedio PDV por TM Rep" value={dec1(data.pdvPorRep)} sub="PDVs en ruta por TM Rep activo" onClick={() => setDetalle("pdvPorRep")} />
       </div>
+      <UniversoDetalleModal detalle={detalle} data={data} context={context} onClose={() => setDetalle(null)} />
 
       <TableCard title="Universo por área" hint="Tocá un área para filtrar todo el tablero, o un título para ordenar.">
         <table className="w-full text-xs tabular-nums">

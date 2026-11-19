@@ -196,7 +196,13 @@ def _gerencial_months(months: Optional[str]) -> list:
 # workers (ver `utils/shared_cache.py`): la base S0 no aguanta que cada worker
 # repita el mismo cálculo. La fecha va en la key para que el mes en curso no
 # arrastre el día anterior.
-_GERENCIAL_CACHE = SharedTTLCache("gerencial", ttl_seconds=1800.0, namespace=settings.resolved_database_url)
+# El namespace lleva la versión del código: un cache escrito por otra versión
+# (otra forma de los datos) queda en otra carpeta y no se lee.
+_GERENCIAL_CACHE = SharedTTLCache(
+    "gerencial",
+    ttl_seconds=1800.0,
+    namespace=f"{settings.resolved_database_url}|{G.cache_version()}",
+)
 
 
 def _gerencial_base(db: Session, today: date) -> G.Base:

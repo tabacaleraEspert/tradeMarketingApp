@@ -263,7 +263,7 @@ export function GerencialPage() {
         <section className={`space-y-4 transition-opacity ${loading ? "opacity-50 pointer-events-none" : ""}`} aria-busy={loading}>
           <SectionTitle title={tab === "universo" ? "Universo" : "Performance de equipo"} context={context} />
           {tab === "universo" ? (
-            <UniversoTab data={universo} onSelectZone={handleZoneChange} />
+            <UniversoTab data={universo} context={context} onSelectZone={handleZoneChange} />
           ) : (
             <EquipoTab data={equipo} subtab={subtab} onSubtabChange={setSubtab} onSelectRep={handleSelectRepRow} />
           )}

@@ -50,6 +50,7 @@ volver a la base. Varios meses faltantes se resuelven en una sola pasada (un
 """
 from __future__ import annotations
 
+import hashlib
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
@@ -94,6 +95,14 @@ OK_LEVELS = frozenset(E.LEVELS)  # regular o más
 SIN_ZONA = "Sin zona"
 
 Month = tuple[int, int]
+
+
+def cache_version() -> str:
+    """Huella del código de este módulo. Lo que se cachea en disco (`Base`,
+    `MonthData`) tiene la forma que le da este archivo: si cambia, lo guardado
+    por una versión anterior no se puede reusar."""
+    with open(__file__, "rb") as fh:
+        return hashlib.sha1(fh.read()).hexdigest()[:12]
 
 
 # ---------------------------------------------------------------------------
@@ -224,13 +233,15 @@ class Base:
         # Rutas foco vigentes y sus PDVs activos.
         self.route_user: dict[int, Optional[int]] = {}
         self.route_zone_raw: dict[int, Optional[int]] = {}
-        for route_id, user_id, zone_id in (
-            db.query(Route.RouteId, Route.AssignedUserId, Route.ZoneId)
+        self.route_name: dict[int, str] = {}
+        for route_id, user_id, zone_id, name in (
+            db.query(Route.RouteId, Route.AssignedUserId, Route.ZoneId, Route.Name)
             .filter(Route.IsFocus == True, route_is_live())  # noqa: E712
             .all()
         ):
             self.route_user[route_id] = user_id
             self.route_zone_raw[route_id] = zone_id
+            self.route_name[route_id] = name
 
         # pdv -> dueño de su ruta foco (la de menor RouteId si está en varias,
         # para que el resultado sea estable entre requests).
@@ -734,6 +745,55 @@ def build_universo(
     def total(key: str) -> int:
         return sum(r[key] for r in rows.values())
 
+    # ── Detalle para los modales de las tarjetas: rutas foco y TM Reps ─────
+    realizadas = shared.total("realizadas")
+    route_pdvs: dict[int, list[int]] = defaultdict(list)
+    for pdv_id, route_ids in base.focus_routes_of_pdv.items():
+        for route_id in route_ids:
+            route_pdvs[route_id].append(pdv_id)
+
+    def pdv_counts(pdv_ids) -> dict[str, int]:
+        return {
+            "pdvs": len(pdv_ids),
+            "visitados": sum(1 for p in pdv_ids if p in shared.visited),
+            "efectivos": sum(1 for p in pdv_ids if p in shared.effective),
+        }
+
+    rutas_detalle = []
+    rep_pdvs: dict[int, set[int]] = defaultdict(set)
+    rep_rutas: dict[int, int] = defaultdict(int)
+    for route_id in base.routes_with_pdvs:
+        owner = base.route_user.get(route_id)
+        if owner is not None:  # para la lista de reps, sin recorte de zona de la ruta
+            rep_pdvs[owner].update(route_pdvs[route_id])
+            rep_rutas[owner] += 1
+        if not route_in_scope(route_id):
+            continue
+        rutas_detalle.append({
+            "id": route_id,
+            "nombre": base.route_name.get(route_id) or f"Ruta {route_id}",
+            "repId": owner,
+            "rep": base.user_name.get(owner) if owner is not None else None,
+            "area": base.zone_label(base.route_zone(route_id)),
+            **pdv_counts(route_pdvs[route_id]),
+        })
+    rutas_detalle.sort(key=lambda r: (-r["pdvs"], r["nombre"]))
+
+    reps_detalle = [
+        {
+            "id": uid,
+            "nombre": base.user_name.get(uid, f"Usuario {uid}"),
+            "area": base.zone_label(base.user_zone.get(uid)),
+            "activo": uid in active,
+            "realizadas": realizadas.get(uid, 0),
+            "rutasFoco": rep_rutas.get(uid, 0),
+            **pdv_counts(rep_pdvs.get(uid, ())),
+        }
+        for uid in base.nomina
+        if rep_in_scope(uid)
+    ]
+    reps_detalle.sort(key=lambda r: (not r["activo"], -r["pdvs"], r["nombre"]))
+
     en_ruta, rutas, reps_activos = total("enRutaFoco"), total("rutas"), total("repsActivos")
     return {
         "periodoLabel": months_label(months),
@@ -749,6 +809,8 @@ def build_universo(
         "pdvPorRuta": _ratio(en_ruta, rutas, 0),
         "pdvPorRep": _ratio(en_ruta, reps_activos, 0),
         "areas": areas,
+        "rutasDetalle": rutas_detalle,
+        "repsDetalle": reps_detalle,
     }
 
 

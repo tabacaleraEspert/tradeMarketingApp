@@ -1,6 +1,7 @@
 import { api } from "./client";
 import { getAccessToken } from "./auth-storage";
 import { API_BASE_URL } from "./config";
+import type { BoardDayDetail, BoardPdvCandidate, RouteBoardData, ShiftWeekdayResult } from "./routeBoard";
 
 // --- Dashboard (aggregated Home endpoint) ---
 export interface DashboardHomeData {
@@ -126,6 +127,9 @@ import type {
   PdvContact,
   Channel,
   SubChannel,
+  Chain,
+  ChainAdmin,
+  ChainKind,
   Route,
   RouteStats,
   RouteType,
@@ -377,6 +381,33 @@ export const subchannelsApi = {
   delete: (id: number) => api.delete(`/subchannels/${id}`),
 };
 
+// --- Chains (cadenas / banderas) ---
+export interface ChainWriteData {
+  Name?: string;
+  Kind?: ChainKind;
+  IsKeyAccount?: boolean;
+  AccountManagerUserId?: number | null;
+  StoreCount?: number | null;
+  Aliases?: string | null;
+  IsActive?: boolean;
+}
+
+export const chainsApi = {
+  /** Activas — para los selects del alta/edición de PDV (se cachea offline). */
+  list: (channelId?: number) =>
+    api.get<Chain[]>("/chains", channelId ? { channel_id: channelId } : {}),
+  /** Todas (incl. inactivas) con conteo de PDVs — gestión. */
+  listAll: (channelId?: number) =>
+    api.get<ChainAdmin[]>("/chains/all", channelId ? { channel_id: channelId } : {}),
+  create: (data: ChainWriteData & { Name: string; ChannelId: number }) =>
+    api.post<ChainAdmin>("/chains", data),
+  update: (id: number, data: ChainWriteData) => api.patch<ChainAdmin>(`/chains/${id}`, data),
+  delete: (id: number) => api.delete(`/chains/${id}`),
+  /** Fusiona la cadena `id` dentro de `targetChainId` (solo admin). */
+  merge: (id: number, targetChainId: number) =>
+    api.post<ChainAdmin>(`/chains/${id}/merge`, { TargetChainId: targetChainId }),
+};
+
 // --- PDVs ---
 // --- PDV Photos ---
 export interface PdvPhotoRead {
@@ -417,6 +448,7 @@ export interface PdvCreateData {
   Name: string;
   ChannelId: number;
   SubChannelId?: number;
+  ChainId?: number | null;
   Address?: string;
   City?: string;
   ZoneId?: number;
@@ -591,17 +623,33 @@ export const routesApi = {
   // Route Days
   listDays: (routeId: number) =>
     api.get<RouteDay[]>(`/routes/${routeId}/days`),
-  createDay: (routeId: number, data: { WorkDate: string; AssignedUserId?: number; Status?: string }) =>
+  /** `Origin: "board"` = alta manual desde el tablero de control (queda en auditoría). 409 si la ruta ya tiene ese día. */
+  createDay: (routeId: number, data: { WorkDate: string; AssignedUserId?: number; Status?: string; Origin?: string }) =>
     api.post<RouteDay>(`/routes/${routeId}/days`, data),
   /** Activadores (VisitFlow short): arranca hoy una campaña de su zona sin día planificado (idempotente). */
   startToday: (routeId: number) =>
     api.post<RouteDay>(`/routes/${routeId}/start-today`, {}),
   getDay: (routeDayId: number) =>
     api.get<RouteDay>(`/routes/days/${routeDayId}`),
-  updateDay: (routeDayId: number, data: { Status?: string }) =>
+  /** Con WorkDate / AssignedUserId mueve SOLO ese día (409 si tiene visitas o la ruta ya tiene esa fecha). */
+  updateDay: (routeDayId: number, data: { Status?: string; WorkDate?: string; AssignedUserId?: number }) =>
     api.patch<RouteDay>(`/routes/days/${routeDayId}`, data),
-  deleteDay: (routeDayId: number) =>
-    api.delete(`/routes/days/${routeDayId}`),
+  deleteDay: (routeDayId: number, origin?: string) =>
+    api.delete(`/routes/days/${routeDayId}${origin ? `?origin=${encodeURIComponent(origin)}` : ""}`),
+
+  // Tablero de control (semana × trade)
+  board: (dateFrom: string, dateTo: string) =>
+    api.get<RouteBoardData>("/routes/board", { date_from: dateFrom, date_to: dateTo }),
+  dayDetail: (routeDayId: number) =>
+    api.get<BoardDayDetail>(`/routes/days/${routeDayId}/detail`),
+  dayPdvCandidates: (routeDayId: number, q?: string) =>
+    api.get<BoardPdvCandidate[]>(`/routes/days/${routeDayId}/pdv-candidates`, { q: q || undefined }),
+  /** "Toda la ruta de acá en adelante": cambia el día de la semana de la frecuencia y corre los días futuros sin visitas. */
+  shiftWeekday: (routeDayId: number, workDate: string) =>
+    api.post<ShiftWeekdayResult>(`/routes/days/${routeDayId}/shift-weekday`, { WorkDate: workDate }),
+  /** Saca un PDV de ese día solamente (409 si ya tiene visita). */
+  removeDayPdv: (routeDayId: number, pdvId: number) =>
+    api.delete(`/routes/days/${routeDayId}/pdvs/${pdvId}`),
 
   // Route Day PDVs
   listDayPdvs: (routeDayId: number) =>
@@ -616,7 +664,7 @@ export const routesApi = {
       Priority?: number;
       ExecutionStatus?: string;
     }
-  ) => api.post<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs`, data),
+  ) => api.post<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs`, { RouteDayId: routeDayId, ...data }), // el schema lo exige también en el body
   updateDayPdv: (routeDayId: number, pdvId: number, data: { ExecutionStatus?: string }) =>
     api.patch<RouteDayPdv>(`/routes/days/${routeDayId}/pdvs/${pdvId}`, data),
 
@@ -1786,6 +1834,32 @@ export interface GerencialUniverso {
   pdvPorRuta: number | null;
   pdvPorRep: number | null;
   areas: GerencialAreaRow[];
+  /** Detalle de las tarjetas: rutas foco y TM Reps de la nómina, ya filtrados. */
+  rutasDetalle: GerencialRutaDetalle[];
+  repsDetalle: GerencialRepDetalle[];
+}
+
+export interface GerencialRutaDetalle {
+  id: number;
+  nombre: string;
+  repId: number | null;
+  rep: string | null;
+  area: string;
+  pdvs: number;
+  visitados: number;
+  efectivos: number;
+}
+
+export interface GerencialRepDetalle {
+  id: number;
+  nombre: string;
+  area: string;
+  activo: boolean;
+  realizadas: number;
+  rutasFoco: number;
+  pdvs: number;
+  visitados: number;
+  efectivos: number;
 }
 
 export interface GerencialEquipoCards {

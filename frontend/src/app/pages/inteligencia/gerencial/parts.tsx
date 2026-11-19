@@ -1,5 +1,5 @@
 import type { KeyboardEvent, ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Maximize2 } from "lucide-react";
 import type { SortState } from "./sort";
 import { Card } from "../../../components/ui/card";
 
@@ -10,6 +10,7 @@ export function StatCard({
   sub,
   barPct,
   valueClassName = "",
+  onClick,
 }: {
   label: string;
   value: string;
@@ -17,13 +18,31 @@ export function StatCard({
   /** 0–100; si viene, dibuja la barra fina bajo el número. */
   barPct?: number | null;
   valueClassName?: string;
+  /** Si viene, la tarjeta es un botón que abre el detalle. */
+  onClick?: () => void;
 }) {
-  return (
-    <Card className="gap-0 p-4 min-w-0">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+  const body = (
+    <>
+      <p className="flex items-center justify-between gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+        {onClick && <Maximize2 size={11} className="shrink-0 opacity-50 group-hover:opacity-100 group-hover:text-espert-gold" aria-hidden />}
+      </p>
       <p className={`mt-1 text-2xl font-bold tabular-nums text-foreground ${valueClassName}`}>{value}</p>
       {barPct != null && <MiniBar pct={barPct} className="mt-2" />}
       {sub && <p className="mt-1.5 text-xs text-muted-foreground">{sub}</p>}
+    </>
+  );
+  if (!onClick) return <Card className="gap-0 p-4 min-w-0">{body}</Card>;
+  return (
+    <Card className="gap-0 p-0 min-w-0 transition-colors hover:border-espert-gold/60">
+      <button
+        type="button"
+        onClick={onClick}
+        title={`Ver detalle: ${label}`}
+        className="group h-full w-full rounded-[inherit] p-4 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-espert-gold"
+      >
+        {body}
+      </button>
     </Card>
   );
 }

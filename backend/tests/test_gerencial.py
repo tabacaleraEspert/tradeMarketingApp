@@ -581,3 +581,46 @@ def test_pieza_por_mes_equivale_a_calcular_el_periodo_junto(db, milenio):
     assert juntos.effective == {pdv.PdvId}
     for build in (G.build_universo, G.build_equipo):
         assert build(db, [FEB, APR], shared=juntos) == build(db, [FEB, APR], shared=por_mes)
+
+
+def test_universo_detalle_de_rutas_y_reps_coincide_con_las_tarjetas(db, milenio):
+    zona = _zone(db)
+    rep, otro = _rep(db, zona.ZoneId), _rep(db, zona.ZoneId)
+    efectivo, visitado, sin_visita = _pdv(db, rep), _pdv(db, rep), _pdv(db, rep)
+    ruta = _route(db, rep, [efectivo, visitado, sin_visita])
+    _route(db, otro, [])  # sin PDVs: no es ruta armada
+    v = _visit(db, efectivo, rep)
+    _cov(db, v, milenio)
+    _pop(db, v)
+    _visit(db, visitado, rep)
+
+    u = G.build_universo(db, [APR], zone_id=zona.ZoneId)
+    assert len(u["rutasDetalle"]) == u["rutasFoco"] == 1
+    r = u["rutasDetalle"][0]
+    assert (r["id"], r["repId"], r["pdvs"], r["visitados"], r["efectivos"]) == (ruta.RouteId, rep.UserId, 3, 2, 1)
+    assert r["nombre"] == ruta.Name and r["area"] == zona.Name
+
+    reps = {x["id"]: x for x in u["repsDetalle"]}
+    assert len(reps) == u["repsNomina"] == 2
+    assert sum(x["activo"] for x in reps.values()) == u["repsActivos"] == 1
+    mine = reps[rep.UserId]
+    assert (mine["realizadas"], mine["rutasFoco"], mine["pdvs"], mine["efectivos"]) == (2, 1, 3, 1)
+    assert (reps[otro.UserId]["activo"], reps[otro.UserId]["pdvs"]) == (False, 0)
+    assert u["repsDetalle"][0]["id"] == rep.UserId  # activos primero
+
+    solo = G.build_universo(db, [APR], user_id=otro.UserId)
+    assert solo["rutasDetalle"] == [] and [x["id"] for x in solo["repsDetalle"]] == [otro.UserId]
+
+
+def test_el_cache_en_disco_cambia_de_carpeta_si_cambia_el_codigo(monkeypatch):
+    """Un pickle con la forma vieja de `Base` / `MonthData` daba 500 al leerlo."""
+    from app.config import settings
+    from app.routers import intelligence as router
+    from app.utils.shared_cache import SharedTTLCache
+
+    def cache_dir(version):
+        return SharedTTLCache("gerencial", 1800.0, namespace=f"{settings.resolved_database_url}|{version}")._dir
+
+    assert router._GERENCIAL_CACHE._dir == cache_dir(G.cache_version())
+    assert cache_dir(G.cache_version()) != cache_dir("otra-version")
+    assert len(G.cache_version()) == 12

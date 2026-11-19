@@ -9,7 +9,9 @@ Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s 
 - [x] Contra prod (solo lectura, `scratchpad/tools/profile_new.py`): mismos números; repetir / filtrar / otro worker / sacar un mes 0,01 s y 0 consultas; frío 37 consultas en una pasada.
 - [x] Revisión independiente → corregido: pedidos ya cacheados y `filters` no esperan detrás de un cálculo en frío (camino rápido sin lock), espera del lock con tope de 45 s, memoria del cache con purga y tope, carpeta del cache verificada como propia, aviso de disco una sola vez. Aceptado: actividad del equipo ahora puede tener hasta 30 min de atraso (antes era al instante).
 - [x] Orden por columna en las tres tablas (`sort.ts` + `SortTH`): vacíos siempre al final; verificado en Chrome sobre SQLite sembrada.
-- [ ] Deploy y medir de nuevo en App Insights.
+- [x] Modal de detalle en las 4 tarjetas de Universo (Rutas foco, TM Reps activos, PDV por ruta, PDV por TM Rep): listas `rutasDetalle` / `repsDetalle` en la respuesta de universo (del cache, sin consultas), tablas ordenables. Verificado en Chrome, escritorio y celular.
+- [x] Fix: la carpeta del cache lleva la huella del código (`gerencial.cache_version`); un pickle con la forma vieja daba 500 (pasó en local).
+- [ ] Medir de nuevo en App Insights cuando alguien abra la vista.
 - [ ] Propuesta (DDL en prod, falta OK de Davor): índice `VisitCoverage(VisitId) INCLUDE (ProductId, Works, …)`. Hoy la consulta de cobertura escanea la tabla entera (537 mil filas, 38 MB) aunque se pida un mes.
 - Firewall: regla `DavorLocal5` (181.169.19.234) agregada el 19/11; siguen `DavorLocal3` y `DavorLocal4`.
 
