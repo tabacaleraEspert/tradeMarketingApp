@@ -76,6 +76,12 @@ export interface Pdv {
   SubChannelId: number | null;
   ChannelName: string | null;
   SubChannelName: string | null;
+  // Cadena / bandera (eje aparte del canal). Opcionales: los PDVs cacheados antes
+  // de esta versión no los traen.
+  ChainId?: number | null;
+  ChainName?: string | null;
+  ChainKind?: ChainKind | null;
+  IsKeyAccount?: boolean;            // atributo de la cadena
   Address: string | null;
   City: string | null;
   ZoneId: number | null;
@@ -269,6 +275,32 @@ export interface SubChannel {
   Description: string | null;
   IsActive: boolean;
   CreatedAt: string;
+}
+
+export type ChainKind = "cadena" | "bandera";
+
+/** Cadena (retail) o bandera (estación de servicio) a la que pertenece un PDV. */
+export interface Chain {
+  ChainId: number;
+  Name: string;
+  ChannelId: number;
+  Kind: ChainKind;
+  IsKeyAccount: boolean;
+  Aliases: string | null;            // separados por coma
+  IsActive: boolean;
+  // Solo en /chains/all y /chains/{id} (territory_manager+); GET /chains no los expone
+  AccountManagerUserId?: number | null;
+  StoreCount?: number | null;        // locales reales de la cadena (carga admin)
+  CreatedAt?: string;
+}
+
+/** Fila de /chains/all (gestión): + conteos y nombres resueltos. */
+export interface ChainAdmin extends Chain {
+  ChannelName: string | null;
+  AccountManagerName: string | null;
+  PdvCount: number;
+  EffectiveStoreCount: number;
+  SizeBucket: string | null;         // Chica / Mediana / Grande (solo cadenas)
 }
 
 export interface Route {

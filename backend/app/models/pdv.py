@@ -16,6 +16,8 @@ class PDV(Base):
     Channel = Column(String(40), nullable=True)  # Legacy, usar ChannelId
     ChannelId = Column(Integer, ForeignKey("Channel.ChannelId"), nullable=True, index=True)
     SubChannelId = Column(Integer, ForeignKey("SubChannel.SubChannelId"), nullable=True, index=True)
+    # Cadena / bandera (eje independiente del canal). Reglas en app/services/chains.py
+    ChainId = Column(Integer, ForeignKey("Chain.ChainId"), nullable=True, index=True)
     Address = Column(String(200), nullable=True)
     City = Column(String(80), nullable=True)
     ZoneId = Column(Integer, ForeignKey("Zone.ZoneId"), nullable=True, index=True)

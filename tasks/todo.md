@@ -306,3 +306,13 @@ Grilla en `/admin/routes` (pestaña por defecto): filas = TM rep, columnas = dí
 - [ ] Fase 2 (mover): `PATCH /routes/days/{id}` acepta `WorkDate` y `AssignedUserId` (guarda: sin visitas, jerarquía, sin duplicado); drag & drop (react-dnd ya instalado) entre días y entre trades; al soltar: "solo este día" / "toda la ruta de acá en adelante" (cambia frecuencia / reasigna).
 - [ ] Fase 3 (robustez): generación de días en servidor (`POST /routes/{id}/generate-days`, idempotente) + unique (RouteId, WorkDate); horizonte: días proyectados "fantasma" pasada la semana 8; resolver superposición con 1 clic (mover / fusionar / dejar); traspaso de cartera desde menú de la fila.
 - [ ] Limpieza: modal "Editar Ruta" muerto, alta de ruta sin trade ni frecuencia, visibilidad faltante en `/all-days` `/day-detail`.
+
+### Review 2026-11-19 (A cadenas + B tablero fases 1-2)
+- Implementado y revisado en local (revisión independiente + correcciones). 898 pytest / 307 vitest / build OK. E2E Playwright: tablero 54/54, cadenas 38/38. SIN commit, SIN deploy.
+- Prod cadenas (fuera de horario, `USE_SQLITE=false` + creds): `ddl_chains_20261119.py --commit` → deploy backend (`/health` 200) → `migrate_chains_20261119.py --plan-json plan.json` → revisar → `--commit --plan-json plan.json [--ack-mandatory-activities]` → `review_chain_candidates_20261119.py --plan-json plan.json --out revision.xlsx`.
+- Tablero: sin DDL.
+- [ ] Davor: ¿prestar un día a otro trade? (a quién cuenta en KPI 2) — hoy bloqueado
+- [ ] Davor: revisar actividades obligatorias canal 9 vs 22 en el dry-run
+- [ ] Santiago: conflictos de nombre en reusados + Excel de candidatos + marcar key accounts restantes
+- [ ] Fase 3 tablero + índice único RouteDay (DDL)
+- [ ] Probar tablero con ~40 trades y contra Azure SQL; DDL cadenas nunca corrió en SQL Server

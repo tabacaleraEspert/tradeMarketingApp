@@ -645,8 +645,11 @@ export const routesApi = {
   dayPdvCandidates: (routeDayId: number, q?: string) =>
     api.get<BoardPdvCandidate[]>(`/routes/days/${routeDayId}/pdv-candidates`, { q: q || undefined }),
   /** "Toda la ruta de acá en adelante": cambia el día de la semana de la frecuencia y corre los días futuros sin visitas. */
-  shiftWeekday: (routeDayId: number, workDate: string) =>
-    api.post<ShiftWeekdayResult>(`/routes/days/${routeDayId}/shift-weekday`, { WorkDate: workDate }),
+  shiftWeekday: (routeDayId: number, workDate: string, assignedUserId?: number) =>
+    api.post<ShiftWeekdayResult>(`/routes/days/${routeDayId}/shift-weekday`, {
+      WorkDate: workDate,
+      ...(assignedUserId != null ? { AssignedUserId: assignedUserId } : {}), // además reasigna la ruta, misma transacción
+    }),
   /** Saca un PDV de ese día solamente (409 si ya tiene visita). */
   removeDayPdv: (routeDayId: number, pdvId: number) =>
     api.delete(`/routes/days/${routeDayId}/pdvs/${pdvId}`),
@@ -1871,6 +1874,8 @@ export interface GerencialEquipoCards {
   efectividadPct: number | null;
   efectivos: number;
   visitados: number;
+  /** TM Reps del filtro con al menos una visita cerrada: divisor de visitas por día. */
+  repsConVisitas: number;
 }
 
 export interface GerencialRepRow {
@@ -1886,6 +1891,9 @@ export interface GerencialRepRow {
   visitasPorDia: number | null;
   duracionMin: number | null;
   efectividadPct: number | null;
+  /** PDVs de sus rutas foco visitados / efectivos en el período. */
+  visitados: number;
+  efectivos: number;
   gpsPct: number | null;
   fotoPct: number | null;
   movimientos: number;

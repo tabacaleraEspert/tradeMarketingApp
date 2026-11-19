@@ -79,7 +79,10 @@ export function useQuery<T>(
     if (!promise) {
       promise = fetchWithCache<T>(key, fetcher, ttlMs);
       inflight.set(key, promise);
-      promise.finally(() => inflight.delete(key));
+      // .finally() devuelve OTRA promesa que también rechaza: sin este catch quedaba un
+      // "unhandled rejection" cada vez que el fetch fallaba (ej. offline). El error real
+      // se maneja abajo, en el await de `promise`.
+      promise.finally(() => inflight.delete(key)).catch(() => {});
     }
 
     try {

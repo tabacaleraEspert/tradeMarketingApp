@@ -54,6 +54,7 @@ class PdvBase(BaseModel):
     Channel: str | None = Field(None, max_length=40)
     ChannelId: int | None = None
     SubChannelId: int | None = None
+    ChainId: int | None = None  # Cadena / bandera (eje independiente del canal)
     Address: str | None = Field(None, max_length=200)
     City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
@@ -84,6 +85,10 @@ class PdvCreate(BaseModel):
     BusinessName: str | None = Field(None, max_length=200)
     ChannelId: int
     SubChannelId: int | None = None
+    # Cadena / bandera. El alta NUNCA se rechaza por clasificación (puede venir de la
+    # cola offline o de una PWA vieja que no manda la clave): lo inválido o faltante
+    # queda como PDV_CHAIN_PENDING (ver app/services/chains.py).
+    ChainId: int | None = None
     Address: str | None = Field(None, max_length=200)
     City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
@@ -139,6 +144,7 @@ class PdvUpdate(BaseModel):
     BusinessName: str | None = Field(None, max_length=200)
     ChannelId: int | None = None
     SubChannelId: int | None = None
+    ChainId: int | None = None
     Address: str | None = Field(None, max_length=200)
     City: str | None = Field(None, max_length=80)
     ZoneId: int | None = None
@@ -204,6 +210,9 @@ class Pdv(PdvBase):
     PdvId: int
     ChannelName: str | None = None
     SubChannelName: str | None = None
+    ChainName: str | None = None
+    ChainKind: str | None = None  # 'cadena' | 'bandera'
+    IsKeyAccount: bool = False    # atributo de la cadena
     Contacts: list[PdvContact] = []
     Distributors: list[DistributorInfo] = []
     CreatedAt: datetime

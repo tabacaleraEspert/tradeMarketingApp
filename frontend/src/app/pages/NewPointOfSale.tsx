@@ -14,7 +14,9 @@ import { toast } from "sonner";
 import { pdvsApi, pdvPhotosApi, pdvNotesApi, routesApi, ApiError } from "@/lib/api";
 import { executeOrEnqueue, queue, writeCache, readCache } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
-import { useChannels, useSubChannels, useMyRoutes } from "@/lib/api";
+import { useChannels, useSubChannels, useChains, useMyRoutes } from "@/lib/api";
+import { ChainSelect } from "../components/ChainSelect";
+import { chainCreateFields, chainFieldFor, chainInfoFor, chainSelectionError } from "@/lib/chains";
 import { LocationMap } from "../components/LocationMap";
 import { AddressAutocomplete } from "../components/AddressAutocomplete";
 import type { Route } from "@/lib/api/types";
@@ -41,6 +43,7 @@ export function NewPointOfSale() {
     address: "",
     channelId: "" as number | "",
     subChannelId: "" as number | "",
+    chainId: "" as number | "",
     monthlyVolume: "" as number | "",
     // null = sin responder (no bloquea el alta)
     worksEspert: null as boolean | null,
@@ -115,6 +118,14 @@ export function NewPointOfSale() {
 
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
+  // Cadenas / banderas: mismo cache offline que canales. Sin cache → chainField "none"
+  // y el alta viaja sin ChainId (el server no la rechaza).
+  const { data: chains } = useChains();
+  const chainField = chainFieldFor(
+    chains,
+    formData.channelId,
+    subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Name,
+  );
 
   const { isLoaded: isMapsLoaded } = useJsApiLoader({
     id: "google-map-script-places",
@@ -234,6 +245,12 @@ export function NewPointOfSale() {
       return;
     }
 
+    const chainError = chainSelectionError(chainField.mode, formData.chainId);
+    if (chainError) {
+      toast.error(chainError);
+      return;
+    }
+
     if (addressOutOfRange) {
       toast.error(
         `La dirección está a ${Math.round(addressDistance!)}m de la ubicación capturada (máx. ${ADDRESS_MAX_DISTANCE_M}m)`
@@ -262,7 +279,9 @@ export function NewPointOfSale() {
         Name: formData.name.trim(),
         Address: formData.address.trim(),
         ChannelId: Number(formData.channelId),
-        SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
+        // SubChannelId / ChainId según el canal (ver lib/chains.ts): con cadena el
+        // subcanal lo deriva el server; sin cadenas conocidas la clave ChainId no viaja.
+        ...chainCreateFields(chainField.mode, formData.chainId, formData.subChannelId),
         ZoneId: currentUser.zoneId ?? undefined,
         Lat: formData.lat ?? undefined,
         Lon: formData.lon ?? undefined,
@@ -405,6 +424,7 @@ export function NewPointOfSale() {
           SubChannelId: pdvBody.SubChannelId ? Number(pdvBody.SubChannelId) : null,
           ChannelName: channelName,
           SubChannelName: null,
+          ...chainInfoFor(chains, pdvBody.ChainId),
           Address: pdvBody.Address ?? null,
           City: null,
           ZoneId: pdvBody.ZoneId ?? null,
@@ -651,6 +671,7 @@ export function NewPointOfSale() {
                     ...formData,
                     channelId: value ? Number(value) : "",
                     subChannelId: "",
+                    chainId: "",
                   })
                 }
                 required
@@ -673,6 +694,22 @@ export function NewPointOfSale() {
               )}
             </div>
 
+            {chainField.mode === "cadena" && (
+              <div className="space-y-2">
+                <Label htmlFor="chain">
+                  Cadena <span className="text-red-600">*</span>
+                </Label>
+                <ChainSelect
+                  id="chain"
+                  mode="cadena"
+                  options={chainField.options}
+                  value={formData.chainId}
+                  onChange={(chainId) => setFormData({ ...formData, chainId })}
+                />
+              </div>
+            )}
+
+            {chainField.mode !== "cadena" && (
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
                 <Label htmlFor="subChannel">Sub-canal</Label>
@@ -722,6 +759,20 @@ export function NewPointOfSale() {
                 </div>
               )}
             </div>
+            )}
+
+            {chainField.mode === "bandera" && (
+              <div className="space-y-2">
+                <Label htmlFor="chain">Bandera</Label>
+                <ChainSelect
+                  id="chain"
+                  mode="bandera"
+                  options={chainField.options}
+                  value={formData.chainId}
+                  onChange={(chainId) => setFormData({ ...formData, chainId })}
+                />
+              </div>
+            )}
 
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">

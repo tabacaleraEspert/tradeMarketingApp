@@ -47,7 +47,7 @@ from typing import Any, Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from ..models import PDV, Channel, Product, Route, RoutePdv, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
+from ..models import PDV, Chain, Channel, Product, Route, RoutePdv, User, Visit, VisitCheck, VisitCoverage, VisitPhoto, Zone
 from ..models.route import route_is_live
 from ..models.pdv_contact import PdvContact
 from ..models.pdv_supplier import PdvSupplier
@@ -134,6 +134,7 @@ class Census:
     pdvs: dict[int, Any] = field(default_factory=dict)  # PdvId -> fila PDV
     zone_names: dict[int, str] = field(default_factory=dict)
     channel_names: dict[int, str] = field(default_factory=dict)
+    chain_names: dict[int, str] = field(default_factory=dict)
     user_names: dict[int, str] = field(default_factory=dict)
     works: dict[int, set[int]] = field(default_factory=dict)      # PdvId -> ProductIds
     surveyed: dict[int, set[int]] = field(default_factory=dict)
@@ -177,6 +178,9 @@ class Census:
     def pdv_channel(self, p) -> str:
         return self.channel_names.get(p.ChannelId) or p.Channel or "—"
 
+    def pdv_chain(self, p) -> str | None:
+        return self.chain_names.get(p.ChainId) if p.ChainId else None
+
 
 def load_census(db: Session, pdv_scope: Optional[set[int]]) -> Census:
     """Carga y consolida el censo del scope (`pdv_scope=None` = todos los PDVs).
@@ -214,6 +218,7 @@ def load_census(db: Session, pdv_scope: Optional[set[int]]) -> Census:
 
     c.zone_names = {z.ZoneId: z.Name for z in db.query(Zone).all()}
     c.channel_names = {ch.ChannelId: ch.Name for ch in db.query(Channel).all()}
+    c.chain_names = dict(db.query(Chain.ChainId, Chain.Name).all())
     c.user_names = {u.UserId: u.DisplayName for u in db.query(User.UserId, User.DisplayName).all()}
 
     # El escaneo caro: todo el histórico de VisitCoverage (productos de catálogo;
@@ -1028,6 +1033,7 @@ def build_pdv_detail(db: Session, census: Census, pdv_id: int) -> Optional[dict[
             "codigo": p.Code,
             "direccion": ", ".join(x for x in [p.Address, p.City] if x),
             "canal": c.pdv_channel(p),
+            "cadena": c.pdv_chain(p),
             "zona": c.pdv_zone(p),
             "trade": c.user_names.get(p.AssignedUserId, "Sin asignar"),
             "tradeId": p.AssignedUserId,

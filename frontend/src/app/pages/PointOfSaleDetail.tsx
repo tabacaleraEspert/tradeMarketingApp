@@ -38,7 +38,9 @@ import {
   ImageIcon,
   RotateCcw,
 } from "lucide-react";
-import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useMyRoutes, ApiError } from "@/lib/api";
+import { pdvsApi, visitsApi, pdvNotesApi, pdvPhotosApi, routesApi, fetchRouteDayPdvsForDate, useZones, useDistributors, useChannels, useSubChannels, useChains, useMyRoutes, ApiError } from "@/lib/api";
+import { ChainSelect } from "../components/ChainSelect";
+import { chainFieldFor, chainSelectionError, chainUpdateFields, type LoadedClassification } from "@/lib/chains";
 import { fetchWithCache, executeOrEnqueue, queue } from "@/lib/offline";
 import { usePhotoCapture } from "@/lib/usePhotoCapture";
 import type { PdvPhotoRead, Route, Visit } from "@/lib/api";
@@ -110,6 +112,7 @@ export function PointOfSaleDetail() {
     businessName: "",
     channelId: "" as number | "",
     subChannelId: "" as number | "",
+    chainId: "" as number | "",
     address: "",
     zoneId: "" as number | "",
     distributorId: "" as number | "",
@@ -134,6 +137,15 @@ export function PointOfSaleDetail() {
   const { data: distributors } = useDistributors();
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
+  const { data: chains } = useChains();
+  // Clasificación con la que se cargó el form de edición: al guardar solo viaja lo que
+  // el usuario cambió respecto de esto (un form viejo no pisa canal/cadena del server).
+  const loadedClassRef = useRef<LoadedClassification | null>(null);
+  const chainField = chainFieldFor(
+    chains,
+    formData.channelId,
+    subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Name,
+  );
   const { data: myRoutes } = useMyRoutes(Number(currentUser.id));
 
   // Detect if this PDV is in today's route AND if it's in any of MY routes
@@ -294,11 +306,13 @@ export function PointOfSaleDetail() {
           : p.ContactName
           ? [{ ContactName: p.ContactName, ContactPhone: p.ContactPhone || undefined }]
           : [];
+        loadedClassRef.current = { ChannelId: p.ChannelId, SubChannelId: p.SubChannelId, ChainId: p.ChainId };
         setFormData({
           name: p.Name,
           businessName: p.BusinessName || "",
           channelId: p.ChannelId ?? "",
           subChannelId: p.SubChannelId ?? "",
+          chainId: p.ChainId ?? "",
           address: p.Address || "",
           zoneId: p.ZoneId ?? "",
           distributorId: p.DistributorId ?? "",
@@ -469,11 +483,13 @@ export function PointOfSaleDetail() {
         : pos.ContactName
         ? [{ ContactName: pos.ContactName, ContactPhone: pos.ContactPhone || undefined }]
         : [];
+      loadedClassRef.current = { ChannelId: pos.ChannelId, SubChannelId: pos.SubChannelId, ChainId: pos.ChainId };
       setFormData({
         name: pos.Name,
         businessName: pos.BusinessName || "",
         channelId: pos.ChannelId ?? "",
         subChannelId: pos.SubChannelId ?? "",
+        chainId: pos.ChainId ?? "",
         address: pos.Address || "",
         zoneId: pos.ZoneId ?? "",
         distributorId: pos.DistributorId ?? "",
@@ -503,6 +519,14 @@ export function PointOfSaleDetail() {
       toast.error("Ingresá el motivo de desactivación");
       return;
     }
+    // PDV viejo que ya estaba en el canal sin cadena: no se bloquea (el server tampoco)
+    const loadedClass = loadedClassRef.current;
+    const legacyNoChain = !loadedClass?.ChainId && loadedClass?.ChannelId === Number(formData.channelId);
+    const chainError = chainSelectionError(chainField.mode, formData.chainId, legacyNoChain);
+    if (chainError) {
+      toast.error(chainError);
+      return;
+    }
     setSaving(true);
     try {
       const contactsToSend = formData.contacts
@@ -519,8 +543,8 @@ export function PointOfSaleDetail() {
       await pdvsApi.update(Number(id), {
         Name: formData.name,
         BusinessName: formData.businessName || undefined,
-        ChannelId: Number(formData.channelId),
-        SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
+        // Canal / subcanal / cadena: solo lo que cambió (ver chainUpdateFields)
+        ...chainUpdateFields(chainField.mode, formData, loadedClass, chains.length > 0),
         MonthlyVolume: formData.monthlyVolume !== "" ? Number(formData.monthlyVolume) : undefined,
         // null explícito = volver a "sin dato" (el backend lo admite)
         WorksEspertProducts: formData.worksEspert,
@@ -760,6 +784,16 @@ export function PointOfSaleDetail() {
           <div className="flex-1">
             <h1 className="text-xl font-bold text-foreground">{pos.Name}</h1>
             <p className="text-sm text-muted-foreground">{pos.ChannelName || pos.Channel || "-"}</p>
+            {pos.ChainName && (
+              <div className="flex flex-wrap items-center gap-1 mt-1" data-testid="pdv-chain-badges">
+                <Badge variant="outline" className="text-[10px]">
+                  {pos.ChainKind === "bandera" ? "Bandera" : "Cadena"}: {pos.ChainName}
+                </Badge>
+                {pos.IsKeyAccount && (
+                  <Badge className="bg-[#A48242]/15 text-[#7a5f2d] border-[#A48242]/40 text-[10px]">Key account</Badge>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={openEditModal}>
@@ -1586,7 +1620,7 @@ export function PointOfSaleDetail() {
               <Select
                 value={formData.channelId ? String(formData.channelId) : ""}
                 onValueChange={(v) =>
-                  setFormData((f) => ({ ...f, channelId: v ? Number(v) : "", subChannelId: "" }))
+                  setFormData((f) => ({ ...f, channelId: v ? Number(v) : "", subChannelId: "", chainId: "" }))
                 }
               >
                 <SelectTrigger>
@@ -1601,6 +1635,20 @@ export function PointOfSaleDetail() {
                 </SelectContent>
               </Select>
             </div>
+            {chainField.mode === "cadena" ? (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                Cadena <span className="text-red-500">*</span>
+              </label>
+              <ChainSelect
+                mode="cadena"
+                options={chainField.options}
+                value={formData.chainId}
+                onChange={(chainId) => setFormData((f) => ({ ...f, chainId }))}
+                current={pos?.ChainId && pos.ChainName ? { ChainId: pos.ChainId, Name: pos.ChainName } : null}
+              />
+            </div>
+            ) : (
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Sub-canal</label>
               <Select
@@ -1622,6 +1670,19 @@ export function PointOfSaleDetail() {
                 </SelectContent>
               </Select>
             </div>
+            )}
+            {chainField.mode === "bandera" && (
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Bandera</label>
+              <ChainSelect
+                mode="bandera"
+                options={chainField.options}
+                value={formData.chainId}
+                onChange={(chainId) => setFormData((f) => ({ ...f, chainId }))}
+                current={pos?.ChainId && pos.ChainName ? { ChainId: pos.ChainId, Name: pos.ChainName } : null}
+              />
+            </div>
+            )}
           </div>
 
           <div>

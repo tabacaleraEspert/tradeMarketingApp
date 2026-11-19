@@ -6,6 +6,7 @@ import {
   pdvsApi,
   channelsApi,
   subchannelsApi,
+  chainsApi,
   visitsApi,
   incidentsApi,
   notificationsApi,
@@ -15,6 +16,7 @@ import {
   formsApi,
 } from "./services";
 import type { Pdv, RouteDayPdv, Incident } from "./types";
+import { CHAINS_CACHE_KEY } from "@/lib/chains";
 
 /** PDV enriquecido con datos de ruta del día */
 export interface RouteDayPdvWithDetails extends RouteDayPdv {
@@ -194,6 +196,12 @@ export function useSubChannels(channelId: number | null | undefined) {
   );
 }
 
+/** Hook para cadenas / banderas activas (todas; se filtran por canal en el cliente).
+ *  Mismo mecanismo offline que canales: fetchWithCache + precarga en Home. */
+export function useChains() {
+  return useApiList(() => fetchWithCache(CHAINS_CACHE_KEY, () => chainsApi.list()));
+}
+
 /** Hook para usuarios */
 export function useUsers() {
   return useApiList(() => fetchWithCache("users", () => usersApi.list()));
@@ -281,7 +289,7 @@ export function useActiveNotifications(userId?: number) {
 
 // ── PDVs pendientes de sync (creados offline) ──
 
-import type { Pdv, Channel } from "./types";
+import type { Pdv, Channel, Chain } from "./types";
 
 export interface PendingPdv extends Pdv {
   _isPendingSync: true;
@@ -301,6 +309,8 @@ export function usePendingPdvs(): PendingPdv[] {
       // Resolve channel names from cache if available
       const channels = readCache<Channel[]>("channels") ?? [];
       const chMap = new Map(channels.map((c) => [c.ChannelId, c.Name]));
+      const chains = readCache<Chain[]>(CHAINS_CACHE_KEY) ?? [];
+      const chainMap = new Map(chains.map((c) => [c.ChainId, c]));
 
       const items: PendingPdv[] = pdvOps.map((op) => {
         const b = (op.body ?? {}) as Record<string, unknown>;
@@ -314,6 +324,10 @@ export function usePendingPdvs(): PendingPdv[] {
           SubChannelId: (b.SubChannelId as number) ?? null,
           ChannelName: chMap.get(b.ChannelId as number) ?? null,
           SubChannelName: null,
+          ChainId: (b.ChainId as number) ?? null,
+          ChainName: chainMap.get(b.ChainId as number)?.Name ?? null,
+          ChainKind: chainMap.get(b.ChainId as number)?.Kind ?? null,
+          IsKeyAccount: chainMap.get(b.ChainId as number)?.IsKeyAccount ?? false,
           Address: (b.Address as string) ?? null,
           City: null,
           ZoneId: (b.ZoneId as number) ?? null,

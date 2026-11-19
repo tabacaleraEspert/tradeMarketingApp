@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from .database import engine, Base, get_db
 from .models import User as UserModel, UserRole, Role, Zone
-from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities, pdv_notes, files, holidays, user_vacations, route_generator, products, pdv_product_categories, visit_coverage, visit_pop, visit_loose, visit_indicators, app_settings, audit, supplier_types, supplier_product_types, pdv_suppliers, suppliers, dashboard, kpi, intelligence, behavior_reports, pop_materials, visit_pop_placements, assistant
+from .routers import zones, users, roles, distributors, channels, subchannels, pdvs, routes, forms, visits, incidents, notifications, visit_actions, market_news, reports, mandatory_activities, pdv_notes, files, holidays, user_vacations, route_generator, products, pdv_product_categories, visit_coverage, visit_pop, visit_loose, visit_indicators, app_settings, audit, supplier_types, supplier_product_types, pdv_suppliers, suppliers, dashboard, kpi, intelligence, behavior_reports, pop_materials, visit_pop_placements, assistant, chains
 from .auth import create_access_token, create_refresh_token, decode_token, get_current_user, get_user_role, require_role
 from .storage import is_local_backend, get_local_base_dir
 from .middleware import RequestIdMiddleware, configure_logging
@@ -83,6 +83,7 @@ app.include_router(roles.router, dependencies=_auth_dep)
 app.include_router(distributors.router, dependencies=_auth_dep)
 app.include_router(channels.router, dependencies=_auth_dep)
 app.include_router(subchannels.router, dependencies=_auth_dep)
+app.include_router(chains.router, dependencies=_auth_dep)
 app.include_router(pdvs.router, dependencies=_auth_dep)
 app.include_router(routes.router, dependencies=_auth_dep)
 app.include_router(forms.router, dependencies=_auth_dep)
@@ -501,6 +502,49 @@ def root():
     return {"message": "Trade Marketing API", "docs": "/docs"}
 
 
+# ── Guarda de orden de deploy (cadenas, 2026-11-19) ──
+# Los modelos nuevos hacen SELECT de PDV.ChainId: sin el DDL, TODOS los endpoints de PDV
+# dan 500 (mismo modo de falla que el incidente del 2026-08-04). No tiramos el proceso
+# (crash-loop silencioso): log bien visible al arrancar + /health en 503 hasta que se corra.
+_CHAIN_SCHEMA_HINT = "correr backend/scripts/ddl_chains_20261119.py --commit ANTES de deployar este backend"
+_chain_schema_ok = False
+
+
+def _chain_schema_problems(db: Session) -> list[str]:
+    """[] si la tabla Chain y PDV.ChainId existen. El OK se recuerda (el esquema no
+    desaparece); mientras falte algo se re-chequea en cada /health (2 SELECT vacíos)."""
+    global _chain_schema_ok
+    if _chain_schema_ok:
+        return []
+    from .services.chains import schema_problems
+    problems = schema_problems(db)
+    _chain_schema_ok = not problems
+    return problems
+
+
+@app.on_event("startup")
+def _check_chain_schema_on_startup() -> None:
+    import logging
+    log = logging.getLogger("app")
+    try:
+        from .database import SessionLocal
+        db = SessionLocal()
+        try:
+            problems = _chain_schema_problems(db)
+        finally:
+            db.close()
+    except Exception as e:  # la DB no responde: no es este chequeo el que tiene que avisar
+        log.warning("No se pudo verificar el esquema de cadenas al arrancar: %s", e)
+        return
+    if problems:
+        banner = "!" * 78
+        log.error(
+            "\n%s\nESQUEMA INCOMPLETO: falta %s.\nLos endpoints de PDV van a responder 500 "
+            "hasta que se aplique el DDL.\nSolución: %s.\n/health responde 503 mientras tanto.\n%s",
+            banner, " y ".join(problems), _CHAIN_SCHEMA_HINT, banner,
+        )
+
+
 @app.get("/health")
 def health(db: Session = Depends(get_db)):
     """Health check para Azure App Service probe. Verifica DB y storage."""
@@ -512,6 +556,10 @@ def health(db: Session = Depends(get_db)):
         checks["db"] = "ok"
     except Exception as e:
         checks["db"] = f"error: {e}"
+
+    # Esquema de cadenas (orden de deploy: DDL antes que el backend)
+    problems = _chain_schema_problems(db)
+    checks["schema_chains"] = "ok" if not problems else f"error: falta {', '.join(problems)} — {_CHAIN_SCHEMA_HINT}"
 
     # Storage check
     try:

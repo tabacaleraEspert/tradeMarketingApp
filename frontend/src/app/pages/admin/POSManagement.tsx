@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Card, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
@@ -25,8 +25,9 @@ import {
   Navigation,
   BarChart3,
   ArrowRightLeft,
+  Store,
 } from "lucide-react";
-import { useZones, useDistributors, useChannels, useSubChannels, useUsers, usePaginated, pdvsApi, distributorsApi, reportsApi, type AdminPdv } from "@/lib/api";
+import { useZones, useDistributors, useChannels, useSubChannels, useChains, useUsers, usePaginated, pdvsApi, distributorsApi, reportsApi, type AdminPdv } from "@/lib/api";
 import { Settings } from "lucide-react";
 import { api } from "@/lib/api/client";
 import { SearchInput } from "../../components/ui/search-input";
@@ -40,6 +41,8 @@ import { Checkbox } from "../../components/ui/checkbox";
 import { getCurrentUser } from "../../lib/auth";
 import { PortfolioTransferModal } from "./PortfolioTransferModal";
 import { PdvRouteModal } from "./PdvRouteModal";
+import { ChainSelect } from "../../components/ChainSelect";
+import { chainCreateFields, chainFieldFor, chainSelectionError, chainUpdateFields, type LoadedClassification } from "@/lib/chains";
 
 interface POSData {
   id: string;
@@ -58,6 +61,9 @@ interface POSData {
   hasCoords: boolean;
   worksEspert: boolean | null;
   sellsLoose: boolean | null;
+  chainName: string | null;
+  chainKind: string | null;
+  isKeyAccount: boolean;
 }
 
 type PdvAnalytics = Awaited<ReturnType<typeof reportsApi.pdvAnalytics>>;
@@ -210,6 +216,9 @@ export function POSManagement() {
   // Perfil comercial: all | si | no | nd (sin dato)
   const [selectedEspertFilter, setSelectedEspertFilter] = useState<string>("all");
   const [selectedSueltosFilter, setSelectedSueltosFilter] = useState<string>("all");
+  // Cadena: all | <ChainId> | missing (canal que exige cadena y no la tiene)
+  const [selectedChain, setSelectedChain] = useState<string>("all");
+  const [onlyKeyAccounts, setOnlyKeyAccounts] = useState(false);
 
   // Lista paginada server-side (/pdvs/admin-list): baja UNA página de 50, no
   // los ~7000 PDVs. Todos los filtros de la vista viajan como query params.
@@ -253,7 +262,11 @@ export function POSManagement() {
           : undefined,
       works_espert: selectedEspertFilter !== "all" ? selectedEspertFilter : undefined,
       sells_loose: selectedSueltosFilter !== "all" ? selectedSueltosFilter : undefined,
+      chain_id: selectedChain !== "all" && selectedChain !== "missing" ? Number(selectedChain) : undefined,
+      missing_chain: selectedChain === "missing" ? true : undefined,
+      key_account: onlyKeyAccounts ? true : undefined,
   }), [
+    selectedChain, onlyKeyAccounts,
     selectedZoneId, selectedChannel, selectedStatus, selectedTradeMarketer,
     selectedDistributorFilter, selectedLocation, selectedRouteFilter,
     selectedDaysSinceVisit, selectedVisitFrequency, selectedEspertFilter, selectedSueltosFilter,
@@ -294,6 +307,28 @@ export function POSManagement() {
   const { data: distributors, refetch: refetchDistributors } = useDistributors();
   const { data: channels } = useChannels();
   const { data: subchannels } = useSubChannels(formData.channelId || null);
+  const { data: chains } = useChains();
+  // Clasificación con la que se abrió el modal de edición (solo viaja lo que cambie)
+  const loadedClassRef = useRef<(LoadedClassification & { ChainName?: string | null }) | null>(null);
+  const chainField = chainFieldFor(
+    chains,
+    formData.channelId,
+    subchannels.find((s) => s.SubChannelId === Number(formData.subChannelId))?.Name,
+  );
+  // Cadena/bandera actual del PDV en edición: se muestra en el selector aunque esté inactiva
+  const loadedForSelect = selectedPOS ? loadedClassRef.current : null;
+  const currentChainOption =
+    loadedForSelect?.ChainId && loadedForSelect.ChainName
+      ? { ChainId: loadedForSelect.ChainId, Name: loadedForSelect.ChainName }
+      : null;
+  // Opciones del filtro de cadena (acotadas al canal elegido, si hay)
+  const chainFilterOptions = useMemo(
+    () =>
+      chains
+        .filter((c) => selectedChannel === "all" || c.ChannelId === Number(selectedChannel))
+        .sort((a, b) => a.Name.localeCompare(b.Name, "es", { numeric: true })),
+    [chains, selectedChannel]
+  );
   const { data: users } = useUsers();
 
   // Datos del mapa (/reports/pdv-map, todos los pins): solo cuando la vista
@@ -327,8 +362,10 @@ export function POSManagement() {
     if (selectedRouteFilter !== "all") count++;
     if (selectedEspertFilter !== "all") count++;
     if (selectedSueltosFilter !== "all") count++;
+    if (selectedChain !== "all") count++;
+    if (onlyKeyAccounts) count++;
     return count;
-  }, [selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter, selectedRouteFilter, selectedEspertFilter, selectedSueltosFilter]);
+  }, [selectedChain, onlyKeyAccounts, selectedTradeMarketer, selectedDaysSinceVisit, selectedStatus, selectedLocation, selectedVisitFrequency, selectedDistributorFilter, selectedRouteFilter, selectedEspertFilter, selectedSueltosFilter]);
 
   const clearAdvancedFilters = () => {
     setSelectedTradeMarketer("all");
@@ -340,6 +377,8 @@ export function POSManagement() {
     setSelectedRouteFilter("all");
     setSelectedEspertFilter("all");
     setSelectedSueltosFilter("all");
+    setSelectedChain("all");
+    setOnlyKeyAccounts(false);
   };
 
   // Filtro client-side SOLO para el mapa (necesita todos los pins a la vez;
@@ -438,6 +477,9 @@ export function POSManagement() {
         visitCount: p.VisitCount,
         hasCoords: p.HasCoords,
         worksEspert: p.WorksEspertProducts ?? null,
+        chainName: p.ChainName ?? null,
+        chainKind: p.ChainKind ?? null,
+        isKeyAccount: !!p.IsKeyAccount,
         sellsLoose: p.SellsLooseCigarettes ?? null,
       })),
     [pdvs, zoneMap, distributorMap]
@@ -485,9 +527,13 @@ export function POSManagement() {
   };
 
   const openModal = (pos?: POSData) => {
+    loadedClassRef.current = null;
     if (pos) {
       setSelectedPOS(pos);
       const pdv = pdvs.find((p) => String(p.PdvId) === pos.id);
+      loadedClassRef.current = pdv
+        ? { ChannelId: pdv.ChannelId, SubChannelId: pdv.SubChannelId, ChainId: pdv.ChainId, ChainName: pdv.ChainName }
+        : null;
       const existingContacts: ContactFormData[] =
         pdv?.Contacts && pdv.Contacts.length > 0
           ? pdv.Contacts.map((c) => ({
@@ -505,6 +551,7 @@ export function POSManagement() {
         name: pos.name,
         channelId: pdv?.ChannelId ?? "",
         subChannelId: pdv?.SubChannelId ?? "",
+        chainId: pdv?.ChainId ?? "",
         address: pos.address,
         city: pdv?.City || "",
         contacts: existingContacts,
@@ -522,6 +569,7 @@ export function POSManagement() {
         name: "",
         channelId: "",
         subChannelId: "",
+        chainId: "",
         address: "",
         city: "",
         contacts: [emptyContact()],
@@ -541,6 +589,14 @@ export function POSManagement() {
       toast.error("Nombre y canal son obligatorios");
       return;
     }
+    const loadedClass = selectedPOS ? loadedClassRef.current : null;
+    // PDV viejo que ya estaba en el canal sin cadena: no se bloquea (el server tampoco)
+    const legacyNoChain = !!loadedClass && !loadedClass.ChainId && loadedClass.ChannelId === Number(formData.channelId);
+    const chainError = chainSelectionError(chainField.mode, formData.chainId, legacyNoChain);
+    if (chainError) {
+      toast.error(chainError);
+      return;
+    }
     setSaving(true);
     try {
       const validContacts = formData.contacts
@@ -554,8 +610,6 @@ export function POSManagement() {
         }));
       const payload = {
         Name: formData.name,
-        ChannelId: Number(formData.channelId),
-        SubChannelId: formData.subChannelId ? Number(formData.subChannelId) : undefined,
         Address: formData.address || undefined,
         City: formData.city || undefined,
         ZoneId: formData.zoneId ? Number(formData.zoneId) : undefined,
@@ -569,10 +623,18 @@ export function POSManagement() {
         Contacts: validContacts.length > 0 ? validContacts : undefined,
       };
       if (selectedPOS) {
-        await pdvsApi.update(Number(selectedPOS.id), payload);
+        await pdvsApi.update(Number(selectedPOS.id), {
+          ...payload,
+          // Canal / subcanal / cadena: solo lo que cambió respecto de lo cargado
+          ...chainUpdateFields(chainField.mode, formData, loadedClass, chains.length > 0),
+        });
         toast.success("PDV actualizado");
       } else {
-        await pdvsApi.create(payload);
+        await pdvsApi.create({
+          ...payload,
+          ChannelId: Number(formData.channelId),
+          ...chainCreateFields(chainField.mode, formData.chainId, formData.subChannelId),
+        });
         toast.success("PDV creado");
       }
       setIsCreateModalOpen(false);
@@ -760,6 +822,36 @@ export function POSManagement() {
           {/* Advanced filters panel */}
           {showAdvancedFilters && (
             <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 pt-3 border-t border-border">
+              {/* Cadena / key accounts */}
+              <div>
+                <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
+                  <Store size={13} />
+                  Cadena
+                </label>
+                <select
+                  value={selectedChain}
+                  onChange={(e) => setSelectedChain(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-espert-gold"
+                  data-testid="filter-chain"
+                >
+                  <option value="all">Todas</option>
+                  <option value="missing">Sin cadena (pendientes)</option>
+                  {chainFilterOptions.map((c) => (
+                    <option key={c.ChainId} value={String(c.ChainId)}>
+                      {c.Name}{c.IsKeyAccount ? " ★" : ""}
+                    </option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1.5 text-xs text-muted-foreground mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={onlyKeyAccounts}
+                    onChange={(e) => setOnlyKeyAccounts(e.target.checked)}
+                    data-testid="filter-key-accounts"
+                  />
+                  Solo key accounts
+                </label>
+              </div>
               {/* Trade Marketer */}
               <div>
                 <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
@@ -1140,6 +1232,16 @@ export function POSManagement() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Canal</p>
                   <Badge variant="outline">{pos.channel}</Badge>
+                  {pos.chainName && (
+                    <div className="flex flex-wrap gap-1 mt-1" data-testid="pdv-card-chain">
+                      <Badge variant="outline" className="text-[10px] border-[#A48242]/50 text-[#7a5f2d]">
+                        {pos.chainKind === "bandera" ? "Bandera" : "Cadena"}: {pos.chainName}
+                      </Badge>
+                      {pos.isKeyAccount && (
+                        <Badge className="bg-[#A48242]/15 text-[#7a5f2d] border-[#A48242]/40 text-[10px]">Key account</Badge>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground mb-1">Perfil</p>
@@ -1319,6 +1421,7 @@ export function POSManagement() {
                     ...f,
                     channelId: e.target.value ? Number(e.target.value) : "",
                     subChannelId: "",
+                    chainId: "",
                   }))
                 }
               >
@@ -1330,6 +1433,20 @@ export function POSManagement() {
                 ))}
               </select>
             </div>
+            {chainField.mode === "cadena" ? (
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-1">
+                Cadena <span className="text-red-500">*</span>
+              </label>
+              <ChainSelect
+                mode="cadena"
+                options={chainField.options}
+                value={formData.chainId}
+                onChange={(chainId) => setFormData((f) => ({ ...f, chainId }))}
+                current={currentChainOption}
+              />
+            </div>
+            ) : (
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-1">Sub-canal</label>
               <select
@@ -1351,6 +1468,19 @@ export function POSManagement() {
                 ))}
               </select>
             </div>
+            )}
+            {chainField.mode === "bandera" && (
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-1">Bandera</label>
+              <ChainSelect
+                mode="bandera"
+                options={chainField.options}
+                value={formData.chainId}
+                onChange={(chainId) => setFormData((f) => ({ ...f, chainId }))}
+                current={currentChainOption}
+              />
+            </div>
+            )}
           </div>
 
           <div>

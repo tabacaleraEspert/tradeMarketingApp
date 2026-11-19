@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { toast } from "sonner";
 import { getCurrentUser } from "../../lib/auth";
+import { ChainsSection } from "./ChainsSection";
 
 export function ChannelManagement() {
   const currentUser = getCurrentUser();
@@ -37,6 +38,7 @@ export function ChannelManagement() {
   const [subchannelSubCategory2, setSubchannelSubCategory2] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<{ type: "channel" | "subchannel"; id: number } | null>(null);
+  const [tab, setTab] = useState<"channels" | "chains">("channels");
 
   const { data: subchannels, refetch: refetchSubchannels } = useApiList(
     () =>
@@ -167,17 +169,41 @@ export function ChannelManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-foreground mb-2">Canales y Subcanales</h1>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Canales y Cadenas</h1>
           <p className="text-muted-foreground">
-            Gestiona los canales y subcanales disponibles para el alta de PDVs
+            Gestiona los canales, subcanales y cadenas disponibles para el alta de PDVs
           </p>
         </div>
+        {tab === "channels" && (
         <Button onClick={openCreateChannel} className="gap-2">
           <Plus size={20} />
           Nuevo Canal
         </Button>
+        )}
       </div>
 
+      <div className="flex gap-1 border-b border-border" role="tablist">
+        {([["channels", "Canales y subcanales"], ["chains", "Cadenas"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            data-testid={`tab-${key}`}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === key
+                ? "border-[#A48242] text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "chains" && <ChainsSection channels={channels} />}
+
+      {tab === "channels" && (
       <Card>
         <CardContent className="p-4">
           <div className="space-y-2">
@@ -281,6 +307,7 @@ export function ChannelManagement() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {/* Modal Canal */}
       <Modal

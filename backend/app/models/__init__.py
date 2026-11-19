@@ -1,5 +1,6 @@
 from .zone import Zone
 from .channel import Channel, SubChannel
+from .chain import Chain
 from .pdv_contact import PdvContact
 from .user import User, Role, UserRole
 from .device import Device, SyncLog, DeviceState
@@ -48,6 +49,7 @@ __all__ = [
     "Zone",
     "Channel",
     "SubChannel",
+    "Chain",
     "PdvContact",
     "User",
     "Role",

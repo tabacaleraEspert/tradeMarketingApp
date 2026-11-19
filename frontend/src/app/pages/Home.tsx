@@ -13,7 +13,7 @@ import { useSelectedDate } from "../lib/SelectedDateContext";
 import {
   routeDayPdvToPointOfSaleUI, incidentToAlertUI, notificationToAlertUI,
   pdvsApi, productsApi, formsApi, dashboardApi, visitsApi,
-  channelsApi, subchannelsApi, supplierTypesApi, supplierProductTypesApi, zonesApi,
+  channelsApi, subchannelsApi, chainsApi, supplierTypesApi, supplierProductTypesApi, zonesApi,
   usersApi, mandatoryActivitiesApi, pdvSuppliersApi, pdvProductCategoriesApi, suppliersApi,
   useIncidentsWithPdvNames, useActiveNotifications,
 } from "@/lib/api";
@@ -21,6 +21,7 @@ import { fetchRouteDayPdvsForDate } from "@/lib/api/hooks";
 import { useQuery } from "@/lib/api/useQuery";
 import { fetchWithCache, writeCache } from "@/lib/offline";
 import { ZONE_SUPPLIERS_CACHE_KEY } from "@/lib/suppliers";
+import { CHAINS_CACHE_KEY } from "@/lib/chains";
 import { loadPopMaterials } from "@/lib/popMaterials";
 import type { DashboardHomeData } from "@/lib/api/services";
 
@@ -200,6 +201,8 @@ export function Home() {
       track(fetchWithCache("channels", () => channelsApi.list()).then((chs: any[]) => {
         for (const ch of chs) track(fetchWithCache(`subchannels_${ch.ChannelId}`, () => subchannelsApi.list(ch.ChannelId)).catch(() => {}));
       }).catch(() => {}));
+      // Cadenas / banderas (alta de PDV offline)
+      track(fetchWithCache(CHAINS_CACHE_KEY, () => chainsApi.list()).catch(() => {}));
       // Forms + questions
       track(fetchWithCache("forms_active", () => formsApi.list({ limit: 200 })).then((forms: any[]) => {
         for (const f of forms) track(fetchWithCache(`form_questions_${f.FormId}`, () => formsApi.listQuestions(f.FormId)).catch(() => {}));

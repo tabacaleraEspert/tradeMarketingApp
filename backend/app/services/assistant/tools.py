@@ -25,7 +25,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ...hierarchy import visible_user_ids
-from ...models import PDV, Channel, Role, User, UserRole, Visit, Zone
+from ...models import PDV, Chain, Channel, Role, User, UserRole, Visit, Zone
 from . import compact
 from .provider import ToolDef
 
@@ -185,7 +185,8 @@ def _pdv_filters(**kw):
     """AdminPdvFilters con todos los campos explícitos (sus defaults son `Query`)."""
     from ...routers.pdvs import AdminPdvFilters
     base = dict(
-        zone_id=None, channel_id=None, is_active=None, assigned_user_id=None, unassigned=False,
+        zone_id=None, channel_id=None, chain_id=None, key_account=None, missing_chain=False,
+        is_active=None, assigned_user_id=None, unassigned=False,
         distributor_id=None, no_distributor=False, has_coords=None, has_route=None,
         days_since_visit=None, visit_freq=None, works_espert=None, sells_loose=None,
     )
@@ -197,6 +198,8 @@ def _pdv_rows(ctx: ToolCtx, pdvs: list[PDV], with_visits: bool = False) -> list[
     db = ctx.db
     zones = {z.ZoneId: z.Name for z in db.query(Zone).all()}
     channels = {c.ChannelId: c.Name for c in db.query(Channel).all()}
+    chain_ids = {p.ChainId for p in pdvs if p.ChainId}
+    chains = dict(db.query(Chain.ChainId, Chain.Name).filter(Chain.ChainId.in_(chain_ids)).all()) if chain_ids else {}
     uids = {p.AssignedUserId for p in pdvs if p.AssignedUserId}
     users = dict(db.query(User.UserId, User.DisplayName).filter(User.UserId.in_(uids)).all()) if uids else {}
     visits: dict[int, tuple] = {}
@@ -218,6 +221,7 @@ def _pdv_rows(ctx: ToolCtx, pdvs: list[PDV], with_visits: bool = False) -> list[
             "ciudad": p.City,
             "zona": zones.get(p.ZoneId, "Sin zona"),
             "canal": channels.get(p.ChannelId) or p.Channel,
+            "cadena": chains.get(p.ChainId),
             "trade": users.get(p.AssignedUserId, "Sin asignar"),
             "activo": bool(p.IsActive),
         }
@@ -281,7 +285,7 @@ _DIAS_SIN_VISITA = {
     "hasta_7": "7", "8_a_14": "14", "15_a_30": "30", "31_a_60": "60", "mas_de_60": "60plus", "nunca": "never",
 }
 _TRI = ("si", "no", "sin_dato")
-_AGRUPAR = ("ninguno", "zona", "trade", "canal")
+_AGRUPAR = ("ninguno", "zona", "trade", "canal", "cadena")
 
 
 def _listar_pdvs(ctx: ToolCtx, args: dict) -> str:
@@ -292,6 +296,14 @@ def _listar_pdvs(ctx: ToolCtx, args: dict) -> str:
     canal = (
         _resolve_name([(c.ChannelId, c.Name) for c in db.query(Channel).all()], canal_name, "el canal")
         if canal_name else None
+    )
+    cadena_name = _text(args, "cadena")
+    cadena = (
+        _resolve_name(
+            [(c.ChainId, c.Name) for c in db.query(Chain).filter(Chain.IsActive == True).all()],  # noqa: E712
+            cadena_name, "la cadena",
+        )
+        if cadena_name else None
     )
     dias = _enum(args, "dias_sin_visita", tuple(_DIAS_SIN_VISITA))
     trabaja = _enum(args, "trabaja_espert", _TRI)
@@ -304,6 +316,8 @@ def _listar_pdvs(ctx: ToolCtx, args: dict) -> str:
     f = _pdv_filters(
         zone_id=zona[0] if zona else None,
         channel_id=canal[0] if canal else None,
+        chain_id=cadena[0] if cadena else None,
+        key_account=_bool(args, "cuenta_clave"),
         is_active=True if activo is None else activo,
         assigned_user_id=_int(args, "trade_id"),
         unassigned=bool(_bool(args, "sin_asignar")),
@@ -316,7 +330,7 @@ def _listar_pdvs(ctx: ToolCtx, args: dict) -> str:
     total = q.count()
 
     if agrupar != "ninguno":
-        col = {"zona": PDV.ZoneId, "trade": PDV.AssignedUserId, "canal": PDV.ChannelId}[agrupar]
+        col = {"zona": PDV.ZoneId, "trade": PDV.AssignedUserId, "canal": PDV.ChannelId, "cadena": PDV.ChainId}[agrupar]
         groups = q.with_entities(col, func.count(PDV.PdvId)).group_by(col).all()
         if agrupar == "zona":
             names = {z.ZoneId: z.Name for z in db.query(Zone).all()}
@@ -324,6 +338,9 @@ def _listar_pdvs(ctx: ToolCtx, args: dict) -> str:
         elif agrupar == "canal":
             names = {c.ChannelId: c.Name for c in db.query(Channel).all()}
             none_label = "Sin canal"
+        elif agrupar == "cadena":
+            names = dict(db.query(Chain.ChainId, Chain.Name).all())
+            none_label = "Sin cadena"
         else:
             names = dict(db.query(User.UserId, User.DisplayName).all())
             none_label = "Sin asignar"
@@ -588,7 +605,7 @@ TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         "buscar_pdv",
-        "Busca puntos de venta por nombre, dirección o código (hasta 10) y devuelve su pdvId, zona, canal y trade. "
+        "Busca puntos de venta por nombre, dirección o código (hasta 10) y devuelve su pdvId, zona, canal, cadena y trade. "
         "Usala antes de get_ficha_pdv.",
         "buscando el punto de venta…",
         _schema({"texto": {"type": "string", "description": "Nombre, dirección o código"}, "zona": _ZONA_PROP}, ("texto",)),
@@ -596,13 +613,15 @@ TOOLS: tuple[Tool, ...] = (
     ),
     Tool(
         "listar_pdvs",
-        "Cuenta o lista PDVs con los filtros de Gestión de PDV: zona, canal, trade, sin asignar, con o sin ruta, "
+        "Cuenta o lista PDVs con los filtros de Gestión de PDV: zona, canal, cadena, cuenta clave, trade, sin asignar, con o sin ruta, "
         "días desde la última visita, si trabaja Espert, si vende sueltos. Con agrupar_por devuelve el conteo por "
-        "zona, trade o canal. Usala para preguntas de cartera y de PDVs sin visitar. Por defecto solo PDVs activos.",
+        "zona, trade, canal o cadena. Usala para preguntas de cartera y de PDVs sin visitar. Por defecto solo PDVs activos.",
         "revisando los puntos de venta…",
         _schema({
             "zona": _ZONA_PROP,
             "canal": {"type": "string", "description": "Nombre del canal. Opcional."},
+            "cadena": {"type": "string", "description": "Nombre de la cadena o bandera. Opcional."},
+            "cuenta_clave": {"type": "boolean", "description": "true = solo PDVs de cadenas key account; false = el resto."},
             "trade_id": {"type": "integer", "description": "userId del trade asignado. Opcional."},
             "sin_asignar": {"type": "boolean", "description": "true = solo PDVs sin trade asignado."},
             "con_ruta": {"type": "boolean", "description": "true = en alguna ruta; false = en ninguna."},

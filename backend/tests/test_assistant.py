@@ -533,6 +533,31 @@ def test_listar_pdvs_cuenta_agrupa_y_filtra(db, world):
     assert row["visitas"] == 1 and row["ultimaVisita"] and row["canal"] == world["chan"].Name
 
 
+def test_listar_pdvs_por_cadena_y_cuenta_clave(db, world):
+    from app.models.chain import Chain
+    a, z = world["admin"], world["zone"].Name
+    ka = Chain(Name=f"Cadena KA {world['tag']}", ChannelId=world["chan"].ChannelId, Kind="cadena", IsKeyAccount=True)
+    db.add(ka)
+    db.flush()
+    db.query(PDVModel).filter(PDVModel.PdvId == world["pdvs"][0].PdvId).update({PDVModel.ChainId: ka.ChainId})
+    db.commit()
+    try:
+        assert json.loads(_run(db, a, "listar_pdvs", zona=z, cadena=f"cadena ka {world['tag']}", solo_contar=True)) == {"total": 1}
+        assert json.loads(_run(db, a, "listar_pdvs", zona=z, cuenta_clave=True, solo_contar=True)) == {"total": 1}
+        assert json.loads(_run(db, a, "listar_pdvs", zona=z, cuenta_clave=False, solo_contar=True)) == {"total": 2}
+        grouped = json.loads(_run(db, a, "listar_pdvs", zona=z, agrupar_por="cadena"))
+        assert grouped["filas"] == [["Sin cadena", 2], [ka.Name, 1]]
+        listed = json.loads(_run(db, a, "listar_pdvs", zona=z, cadena=ka.Name))
+        assert dict(zip(listed["columnas"], listed["filas"][0]))["cadena"] == ka.Name
+        found = json.loads(_run(db, a, "buscar_pdv", texto=world["tag"], zona=z))
+        assert "cadena" in found["columnas"]
+        assert _run(db, a, "listar_pdvs", cadena="Narnia-no-existe").startswith("ERROR: no existe la cadena")
+    finally:
+        db.query(PDVModel).filter(PDVModel.PdvId == world["pdvs"][0].PdvId).update({PDVModel.ChainId: None})
+        db.query(Chain).filter(Chain.ChainId == ka.ChainId).delete()
+        db.commit()
+
+
 def test_enum_desconocido_es_error_no_default(db, world):
     a = world["admin"]
     assert _run(db, a, "listar_pdvs", dias_sin_visita="90").startswith("ERROR: 'dias_sin_visita' = '90' no es válido")

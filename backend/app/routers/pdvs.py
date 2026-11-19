@@ -29,6 +29,8 @@ from ..auth import require_role, get_current_user, get_user_role, ROLE_HIERARCHY
 from ..hierarchy import visible_pdv_ids
 from ..utils.pagination import PageParams, paginate, make_page
 from ..utils.geo_zones import zone_id_from_coords
+from ..models.chain import Chain as ChainModel
+from ..services import chains as chain_svc
 
 router = APIRouter(prefix="/pdvs", tags=["PDVs"])
 
@@ -73,6 +75,7 @@ def _pdvs_to_response_batch(pdvs: list[PDVModel], db: Session) -> list[dict]:
 
     ch_map = {c.ChannelId: c.Name for c in db.query(Channel).filter(Channel.ChannelId.in_(ch_ids)).all()} if ch_ids else {}
     sc_map = {s.SubChannelId: s.Name for s in db.query(SubChannel).filter(SubChannel.SubChannelId.in_(sc_ids)).all()} if sc_ids else {}
+    chain_map = chain_svc.chain_info_map(db, {p.ChainId for p in pdvs if p.ChainId})
 
     all_contacts = db.query(PdvContactModel).filter(PdvContactModel.PdvId.in_(pdv_ids)).order_by(PdvContactModel.PdvContactId).all()
     contacts_map: dict[int, list] = {}
@@ -96,6 +99,7 @@ def _pdvs_to_response_batch(pdvs: list[PDVModel], db: Session) -> list[dict]:
         if channel_name is None and pdv.Channel:
             channel_name = pdv.Channel
         subchannel_name = sc_map.get(pdv.SubChannelId) if pdv.SubChannelId else None
+        chain = chain_map.get(pdv.ChainId) if pdv.ChainId else None
 
         result.append(Pdv(
             PdvId=pdv.PdvId, Code=pdv.Code, Name=pdv.Name,
@@ -121,6 +125,10 @@ def _pdvs_to_response_batch(pdvs: list[PDVModel], db: Session) -> list[dict]:
             CreatedAt=getattr(pdv, "CreatedAt", None),
             UpdatedAt=getattr(pdv, "UpdatedAt", None),
             ChannelName=channel_name, SubChannelName=subchannel_name,
+            ChainId=pdv.ChainId,
+            ChainName=chain.Name if chain else None,
+            ChainKind=chain.Kind if chain else None,
+            IsKeyAccount=bool(chain.IsKeyAccount) if chain else False,
             Contacts=[PdvContact.model_validate(c) for c in contacts_map.get(pdv.PdvId, [])],
             Distributors=dist_map.get(pdv.PdvId, []),
         ).model_dump())
@@ -150,6 +158,7 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
     )
 
     distributors = _get_distributors(db, pdv.PdvId)
+    chain = db.query(ChainModel).filter(ChainModel.ChainId == pdv.ChainId).first() if pdv.ChainId else None
 
     return Pdv(
         PdvId=pdv.PdvId,
@@ -182,6 +191,10 @@ def _pdv_to_response(pdv: PDVModel, db: Session) -> dict:
         ReactivateOn=getattr(pdv, "ReactivateOn", None),
         ChannelName=channel_name,
         SubChannelName=subchannel_name,
+        ChainId=pdv.ChainId,
+        ChainName=chain.Name if chain else None,
+        ChainKind=chain.Kind if chain else None,
+        IsKeyAccount=bool(chain.IsKeyAccount) if chain else False,
         Contacts=[PdvContact.model_validate(c) for c in contacts],
         Distributors=distributors,
         CreatedAt=pdv.CreatedAt,
@@ -241,6 +254,9 @@ class AdminPdvFilters:
         self,
         zone_id: int | None = None,
         channel_id: int | None = None,
+        chain_id: int | None = None,
+        key_account: bool | None = None,
+        missing_chain: bool = False,
         is_active: bool | None = None,
         assigned_user_id: int | None = None,
         unassigned: bool = False,
@@ -255,6 +271,9 @@ class AdminPdvFilters:
     ):
         self.zone_id = zone_id
         self.channel_id = channel_id
+        self.chain_id = chain_id
+        self.key_account = key_account
+        self.missing_chain = missing_chain
         self.is_active = is_active
         self.assigned_user_id = assigned_user_id
         self.unassigned = unassigned
@@ -294,6 +313,22 @@ def _admin_pdv_query(db: Session, current_user: UserModel, f: AdminPdvFilters, t
         q = q.filter(PDVModel.ZoneId == zone_id)
     if channel_id is not None:
         q = q.filter(PDVModel.ChannelId == channel_id)
+    if f.chain_id is not None:
+        q = q.filter(PDVModel.ChainId == f.chain_id)
+    if f.key_account is not None:
+        ka_ids = db.query(ChainModel.ChainId).filter(ChainModel.IsKeyAccount == True).scalar_subquery()  # noqa: E712
+        if f.key_account:
+            q = q.filter(PDVModel.ChainId.in_(ka_ids))
+        else:
+            q = q.filter(or_(PDVModel.ChainId.is_(None), ~PDVModel.ChainId.in_(ka_ids)))
+    if f.missing_chain:
+        # PDVs de un canal que exige cadena y todavía no la tienen (altas de clientes viejos)
+        cadena_channels = (
+            db.query(ChainModel.ChannelId)
+            .filter(ChainModel.Kind == chain_svc.KIND_CADENA, ChainModel.IsActive == True)  # noqa: E712
+            .scalar_subquery()
+        )
+        q = q.filter(PDVModel.ChainId.is_(None), PDVModel.ChannelId.in_(cadena_channels))
     if is_active is not None:
         q = q.filter(PDVModel.IsActive == is_active)
 
@@ -506,6 +541,13 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
         raise HTTPException(status_code=400, detail="Canal no encontrado")
     channel_name = channel.Name
 
+    # El alta NUNCA se rechaza por clasificación (puede venir de la cola offline):
+    # lo inválido se descarta y queda pendiente + auditado. Ver services/chains.py.
+    sub_id, chain, chain_pending, chain_reasons = chain_svc.resolve_pdv_classification_lenient(
+        db, channel_id=data.ChannelId, subchannel_id=data.SubChannelId, chain_id=data.ChainId,
+        chain_sent="ChainId" in data.model_fields_set,
+    )
+
     # Detectar duplicado por nombre + dirección (warn, don't block)
     duplicate_warning = None
     dup_q = db.query(PDVModel).filter(PDVModel.Name == data.Name.strip(), PDVModel.IsActive == True)
@@ -538,7 +580,8 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
         BusinessName=data.BusinessName,
         Channel=channel_name,
         ChannelId=data.ChannelId,
-        SubChannelId=data.SubChannelId,
+        SubChannelId=sub_id,
+        ChainId=chain.ChainId if chain else None,
         Address=data.Address,
         City=data.City,
         ZoneId=zone_id,
@@ -559,6 +602,24 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
     )
     db.add(pdv)
     db.flush()
+
+    if chain is not None:
+        # Kind='cadena' → subcanal derivado del tamaño (incluye a este PDV en el conteo)
+        chain_svc.sync_chain_bucket(db, chain, current_user)
+        chain_svc.audit(db, current_user, "PDV", pdv.PdvId, "PDV_CHAIN_CHANGE", {
+            "before": {"ChainId": None}, "after": {"ChainId": chain.ChainId, "ChainName": chain.Name},
+            "source": ("alta" if data.ChainId == chain.ChainId
+                       else "alta-cadena-fusionada" if data.ChainId is not None else "alta-subcanal-legacy"),
+            **({"sentChainId": data.ChainId} if data.ChainId not in (None, chain.ChainId) else {}),
+        })
+    if chain_pending:
+        # Canal que exige cadena y no vino, o clasificación inválida descartada: no se
+        # rechaza (se perdería el alta de campo); queda marcado para completar desde Gestión.
+        chain_svc.audit(db, current_user, "PDV", pdv.PdvId, "PDV_CHAIN_PENDING", {
+            "ChannelId": data.ChannelId, "SubChannelId": data.SubChannelId, "Name": data.Name,
+            "sentChainId": data.ChainId, "chainSent": "ChainId" in data.model_fields_set,
+            "discarded": chain_reasons,
+        })
 
     # Sync distributors junction table
     dist_ids = data.DistributorIds or ([data.DistributorId] if data.DistributorId else [])
@@ -589,11 +650,18 @@ def create_pdv(data: PdvCreate, current_user: UserModel = Depends(get_current_us
     resp = _pdv_to_response(pdv, db).model_dump(mode="json")
     if duplicate_warning:
         resp["_warning"] = duplicate_warning
+    if chain_pending:
+        resp["_chainPending"] = True
     return resp
 
 
 @router.patch("/{pdv_id}", response_model=Pdv)
-def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
+def update_pdv(
+    pdv_id: int,
+    data: PdvUpdate,
+    current_user: UserModel = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     from datetime import datetime, timedelta, timezone
 
     pdv = db.query(PDVModel).filter(PDVModel.PdvId == pdv_id).first()
@@ -613,12 +681,70 @@ def update_pdv(pdv_id: int, data: PdvUpdate, db: Session = Depends(get_db)):
         new_is_active is True and pdv.IsActive is False
     )
 
+    # ── Canal / subcanal / cadena (reglas en services/chains.py) ──
+    if "ChannelId" in dump and dump["ChannelId"] is None:
+        dump.pop("ChannelId")  # el canal no se puede vaciar
+    # Cliente viejo / form desactualizado sobre un PDV con cadena: no deshace la clasificación
+    stale_ignored = chain_svc.stale_classification_guard(db, pdv, dump)
+    if stale_ignored:
+        chain_svc.audit(db, current_user, "PDV", pdv_id, "PDV_CLASS_IGNORED", {
+            "ignored": stale_ignored, "ChainId": pdv.ChainId,
+            "reason": "body sin clave ChainId sobre PDV con cadena (cliente viejo o formulario desactualizado)",
+        })
+    old_class = (pdv.ChannelId, pdv.SubChannelId, pdv.ChainId)
+    new_channel = dump["ChannelId"] if dump.get("ChannelId") is not None else pdv.ChannelId
+    channel_changed = new_channel != pdv.ChannelId
+    chain_sent = "ChainId" in dump
+    if "SubChannelId" in dump:
+        new_sub = dump["SubChannelId"]
+    else:
+        # Si cambia el canal y no mandan subcanal, el viejo ya no aplica
+        new_sub = None if channel_changed else pdv.SubChannelId
+    new_chain_id = dump["ChainId"] if chain_sent else pdv.ChainId
+    if not chain_sent and channel_changed:
+        new_chain_id = None  # la cadena vivía en el canal anterior
+    chain = None
+    if (new_channel, new_sub, new_chain_id) != old_class:
+        if (new_channel, new_sub) != old_class[:2]:
+            chain_svc.validate_subchannel(db, new_channel, new_sub)
+        if chain_sent and new_chain_id is None and pdv.ChainId is not None and not channel_changed \
+                and chain_svc.channel_has_cadenas(db, new_channel):
+            raise HTTPException(status_code=422, detail="Este canal exige cadena: cambiala por otra, no la quites")
+        chain, _pending = chain_svc.resolve_pdv_chain(
+            db, channel_id=new_channel, subchannel_id=new_sub, chain_id=new_chain_id,
+            chain_sent=chain_sent, require_chain=channel_changed, current_chain_id=pdv.ChainId,
+        )
+        dump["SubChannelId"] = new_sub
+        dump["ChainId"] = chain.ChainId if chain else None
+        if _pending:
+            chain_svc.audit(db, current_user, "PDV", pdv_id, "PDV_CHAIN_PENDING", {
+                "ChannelId": new_channel, "SubChannelId": new_sub, "Name": pdv.Name, "source": "edicion",
+            })
+
     for k, v in dump.items():
         if k == "ChannelId" and v is not None:
             ch = db.query(Channel).filter(Channel.ChannelId == v).first()
             if ch:
                 pdv.Channel = ch.Name
         setattr(pdv, k, v)
+
+    if pdv.ChainId != old_class[2]:
+        names = {c.ChainId: c.Name for c in db.query(ChainModel).filter(
+            ChainModel.ChainId.in_([i for i in (old_class[2], pdv.ChainId) if i])).all()}
+        chain_svc.audit(db, current_user, "PDV", pdv_id, "PDV_CHAIN_CHANGE", {
+            "before": {"ChainId": old_class[2], "ChainName": names.get(old_class[2])},
+            "after": {"ChainId": pdv.ChainId, "ChainName": names.get(pdv.ChainId)},
+            "ChannelId": {"before": old_class[0], "after": pdv.ChannelId},
+        })
+    if chain is not None:
+        db.flush()
+        chain_svc.sync_chain_bucket(db, chain, current_user)
+    if old_class[2] and old_class[2] != pdv.ChainId:
+        # La cadena anterior perdió un local: su tamaño puede haber bajado de escalón
+        prev = db.query(ChainModel).filter(ChainModel.ChainId == old_class[2]).first()
+        if prev is not None:
+            db.flush()
+            chain_svc.sync_chain_bucket(db, prev, current_user)
 
     # Auto-derive Category when MonthlyVolume changes
     if "MonthlyVolume" in dump:

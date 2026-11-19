@@ -6,6 +6,7 @@ Tabacalera Espert fabrica y vende cigarrillos y productos afines (tabacos, papel
 
 - **Zona**: división geográfica (por ejemplo AMBA, Cuyo, La Plata). Cada PDV, ruta y usuario pertenece a una zona.
 - **Canal y subcanal**: tipo de comercio del PDV.
+- **Cadena**: a qué cadena pertenece el PDV (dato aparte del canal; la mayoría de los PDVs no tiene). Algunas cadenas son **cuentas clave** (key accounts) con un responsable. En estaciones de servicio la cadena es la bandera (YPF, Shell…).
 - **Equipo**: árbol jerárquico. Roles, de menor a mayor: vendedor (el "trade" o "TM rep" que recorre la calle), ejecutivo, territory manager, regional manager, admin. Cada usuario reporta a un superior.
 - **PDV**: punto de venta. Tiene un trade asignado (su "cartera"), zona, canal, coordenadas y dos datos propios: si trabaja productos Espert y si vende cigarrillos sueltos (ambos pueden estar sin dato).
 - **Ruta**: lista ordenada de PDVs asignada a un trade. Hay dos clases:
