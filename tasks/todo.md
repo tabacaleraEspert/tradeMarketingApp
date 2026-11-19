@@ -1,4 +1,4 @@
-# Vista gerencial — tiempo de carga (2026-11-19) — EN CURSO
+# Vista gerencial — tiempo de carga + orden por columna (2026-11-19) — COMMIT LOCAL, FALTA PUSH
 
 Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s + `equipo` 52,2 s; segunda 0,2 s + 2,2 s. Causa: la base S0 quedó al 100% de CPU un minuto. La consulta de cobertura corrió 3 veces en paralelo (una por solapa y por worker; el cache era por worker) y a la vez corría el censo de Inteligencia, porque a la vista se entraba pasando por esa página. Cada consulta usa ~0,5 s de CPU; sola tarda segundos, compitiendo tarda decenas.
 
@@ -7,7 +7,8 @@ Medido en prod (App Insights, 19/11 12:29 UTC): primera carga `universo` 46,6 s 
 - [x] Front: un solo pedido, sin espera de 300 ms en la primera carga, entrada "Vista gerencial" en el menú lateral (no pasa por Inteligencia).
 - [x] Tests: back 11 nuevos (suite 779 ok) · front 271 ok + build. Prueba con 4 procesos reales: 1 solo cálculo.
 - [x] Contra prod (solo lectura, `scratchpad/tools/profile_new.py`): mismos números; repetir / filtrar / otro worker / sacar un mes 0,01 s y 0 consultas; frío 37 consultas en una pasada.
-- [ ] Revisión independiente.
+- [x] Revisión independiente → corregido: pedidos ya cacheados y `filters` no esperan detrás de un cálculo en frío (camino rápido sin lock), espera del lock con tope de 45 s, memoria del cache con purga y tope, carpeta del cache verificada como propia, aviso de disco una sola vez. Aceptado: actividad del equipo ahora puede tener hasta 30 min de atraso (antes era al instante).
+- [x] Orden por columna en las tres tablas (`sort.ts` + `SortTH`): vacíos siempre al final; verificado en Chrome sobre SQLite sembrada.
 - [ ] Deploy y medir de nuevo en App Insights.
 - [ ] Propuesta (DDL en prod, falta OK de Davor): índice `VisitCoverage(VisitId) INCLUDE (ProductId, Works, …)`. Hoy la consulta de cobertura escanea la tabla entera (537 mil filas, 38 MB) aunque se pida un mes.
 - Firewall: regla `DavorLocal5` (181.169.19.234) agregada el 19/11; siguen `DavorLocal3` y `DavorLocal4`.

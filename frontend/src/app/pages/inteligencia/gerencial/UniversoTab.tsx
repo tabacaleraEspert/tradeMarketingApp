@@ -1,6 +1,20 @@
 import type { GerencialUniverso } from "@/lib/api";
 import { dec1, nf, pct, ratioPct } from "./format";
-import { MiniBar, ROW_CLICK, StatCard, TableCard, TD, TH, rowKeyHandler } from "./parts";
+import { MiniBar, ROW_CLICK, SortTH, StatCard, TableCard, TD, rowKeyHandler } from "./parts";
+import { useSort, type SortValue } from "./sort";
+
+type Area = GerencialUniverso["areas"][number];
+const AREA_COLS: Record<string, (a: Area) => SortValue> = {
+  area: (a) => a.area,
+  rastrillado: (a) => a.rastrillado,
+  enRutaFoco: (a) => a.enRutaFoco,
+  pctEnRuta: (a) => ratioPct(a.enRutaFoco, a.rastrillado),
+  visitados: (a) => a.visitados,
+  efectivos: (a) => a.efectivos,
+  rutas: (a) => a.rutas,
+  repsActivos: (a) => a.repsActivos,
+  pdvPorRep: (a) => a.pdvPorRep,
+};
 
 export function UniversoTab({
   data,
@@ -17,6 +31,8 @@ export function UniversoTab({
     { label: "Efectivos", value: e.efectivos, prev: e.visitados, sub: "de los visitados" },
   ];
   const totalPct = ratioPct(e.enRutaFoco, e.rastrillado);
+  const { sorted: areas, sort, toggle } = useSort(data.areas, AREA_COLS, { key: "rastrillado", dir: "desc" });
+  const h = { sort, onSort: toggle };
 
   return (
     <div className="space-y-4">
@@ -51,30 +67,30 @@ export function UniversoTab({
         <StatCard label="Promedio PDV por TM Rep" value={dec1(data.pdvPorRep)} sub="PDVs en ruta por TM Rep activo" />
       </div>
 
-      <TableCard title="Universo por área" hint="Tocá un área para filtrar todo el tablero.">
+      <TableCard title="Universo por área" hint="Tocá un área para filtrar todo el tablero, o un título para ordenar.">
         <table className="w-full text-xs tabular-nums">
           <thead>
-            <tr className="text-right">
-              <th className={`${TH} text-left`}>Área</th>
-              <th className={TH}>Rastrillado</th>
-              <th className={TH}>En ruta foco</th>
-              <th className={TH}>% en ruta</th>
-              <th className={TH}>Visitados</th>
-              <th className={TH}>Efectivos</th>
-              <th className={TH}>Rutas</th>
-              <th className={TH}>TM Reps activos</th>
-              <th className={TH}>PDV por TM Rep</th>
+            <tr>
+              <SortTH label="Área" col="area" align="left" {...h} />
+              <SortTH label="Rastrillado" col="rastrillado" {...h} />
+              <SortTH label="En ruta foco" col="enRutaFoco" {...h} />
+              <SortTH label="% en ruta" col="pctEnRuta" {...h} />
+              <SortTH label="Visitados" col="visitados" {...h} />
+              <SortTH label="Efectivos" col="efectivos" {...h} />
+              <SortTH label="Rutas" col="rutas" {...h} />
+              <SortTH label="TM Reps activos" col="repsActivos" {...h} />
+              <SortTH label="PDV por TM Rep" col="pdvPorRep" {...h} />
             </tr>
           </thead>
           <tbody>
-            {data.areas.length === 0 && (
+            {areas.length === 0 && (
               <tr className="border-t border-border/60">
                 <td colSpan={9} className="px-3 py-6 text-center text-muted-foreground">
                   No hay áreas con datos para este filtro.
                 </td>
               </tr>
             )}
-            {data.areas.map((a) => {
+            {areas.map((a) => {
               const p = ratioPct(a.enRutaFoco, a.rastrillado);
               const zoneId = a.zoneId;
               const click = zoneId != null ? () => onSelectZone(zoneId) : undefined;

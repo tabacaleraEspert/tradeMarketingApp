@@ -1,4 +1,6 @@
 import type { KeyboardEvent, ReactNode } from "react";
+import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
+import type { SortState } from "./sort";
 import { Card } from "../../../components/ui/card";
 
 /** Tarjeta de indicador: etiqueta, número grande, barra fina opcional y bajada. */
@@ -72,4 +74,40 @@ export function rowKeyHandler(fn: () => void) {
       fn();
     }
   };
+}
+
+/** Encabezado de columna que ordena la tabla al tocarlo. */
+export function SortTH<K extends string>({
+  label,
+  col,
+  sort,
+  onSort,
+  align = "right",
+}: {
+  label: string;
+  col: K;
+  sort: SortState<K>;
+  onSort: (col: K) => void;
+  align?: "left" | "right" | "center";
+}) {
+  const active = sort.key === col;
+  const Icon = !active ? ChevronsUpDown : sort.dir === "asc" ? ArrowUp : ArrowDown;
+  const justify = align === "left" ? "justify-start" : align === "center" ? "justify-center" : "justify-end";
+  return (
+    <th
+      scope="col"
+      aria-sort={active ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+      className={`${TH} !p-0`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(col)}
+        title={`Ordenar por ${label}`}
+        className={`flex w-full items-center gap-1 px-3 py-2 text-[10px] whitespace-nowrap uppercase tracking-wider font-semibold hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-espert-gold ${justify} ${active ? "text-foreground" : ""}`}
+      >
+        {label}
+        <Icon size={11} className={active ? "text-espert-gold" : "opacity-40"} aria-hidden />
+      </button>
+    </th>
+  );
 }

@@ -3,7 +3,8 @@ import type { GerencialRepRow } from "@/lib/api";
 import { DASH, dec1, nf, pct } from "./format";
 import { terciles } from "./heat";
 import { HeatPill } from "./HeatPill";
-import { ROW_CLICK, TableCard, TD, TH, rowKeyHandler } from "./parts";
+import { ROW_CLICK, SortTH, TableCard, TD, rowKeyHandler } from "./parts";
+import { useSort, type SortValue } from "./sort";
 
 const ESTADO_CLS = {
   ok: "bg-green-100 text-green-800 dark:bg-green-500/20 dark:text-green-300",
@@ -25,6 +26,23 @@ export function estadoRep(r: GerencialRepRow): { label: string; cls: string } {
   return { label: "OK", cls: ESTADO_CLS.ok };
 }
 
+const COLS: Record<string, (r: GerencialRepRow) => SortValue> = {
+  nombre: (r) => r.nombre,
+  area: (r) => r.area,
+  clientes: (r) => r.clientes,
+  rutasFoco: (r) => r.rutasFoco,
+  planificadas: (r) => r.planificadas,
+  realizadas: (r) => r.realizadas,
+  cumplimiento: (r) => r.cumplimientoPct,
+  visitasPorDia: (r) => r.visitasPorDia,
+  duracion: (r) => r.duracionMin,
+  efectividad: (r) => r.efectividadPct,
+  gps: (r) => r.gpsPct,
+  foto: (r) => r.fotoPct,
+  movimientos: (r) => r.movimientos,
+  estado: (r) => estadoRep(r).label,
+};
+
 export function ActividadTable({
   reps,
   onSelectRep,
@@ -32,7 +50,8 @@ export function ActividadTable({
   reps: GerencialRepRow[];
   onSelectRep: (rep: GerencialRepRow) => void;
 }) {
-  const rows = useMemo(() => [...reps].sort((a, b) => b.realizadas - a.realizadas), [reps]);
+  const { sorted: rows, sort, toggle } = useSort(reps, COLS, { key: "realizadas", dir: "desc" });
+  const h = { sort, onSort: toggle };
   const heat = useMemo(
     () => ({
       cumpl: terciles(rows.map((r) => r.cumplimientoPct)),
@@ -46,26 +65,26 @@ export function ActividadTable({
   );
 
   return (
-    <TableCard title="Detalle por TM Rep" hint="Tocá un TM Rep para ver solo su gestión en todas las solapas.">
+    <TableCard title="Detalle por TM Rep" hint="Tocá un TM Rep para ver solo su gestión en todas las solapas, o un título para ordenar.">
       <table className="w-full text-xs tabular-nums">
         <thead>
-          <tr className="text-right">
-            <th className={`${TH} text-left`}>TM Rep</th>
-            <th className={`${TH} text-left`}>Área</th>
-            <th className={TH}>Clientes activos</th>
-            <th className={TH}>Rutas foco</th>
-            <th className={TH}>Planif.</th>
-            <th className={TH}>Realizadas</th>
-            <th className={`${TH} text-center`}>Cumplim.</th>
-            <th className={`${TH} text-center`}>Vis./día</th>
-            <th className={TH}>Duración</th>
-            <th className={`${TH} text-center`}>Efectividad</th>
-            <th className={`${TH} text-center`}>GPS</th>
-            <th className={`${TH} text-center`}>Foto</th>
-            <th className={`${TH} text-center`}>Mov. en la app</th>
-            <th className={`${TH} text-center`}>Estado</th>
-          </tr>
-        </thead>
+            <tr>
+              <SortTH label="TM Rep" col="nombre" align="left" {...h} />
+              <SortTH label="Área" col="area" align="left" {...h} />
+              <SortTH label="Clientes activos" col="clientes" {...h} />
+              <SortTH label="Rutas foco" col="rutasFoco" {...h} />
+              <SortTH label="Planif." col="planificadas" {...h} />
+              <SortTH label="Realizadas" col="realizadas" {...h} />
+              <SortTH label="Cumplim." col="cumplimiento" align="center" {...h} />
+              <SortTH label="Vis./día" col="visitasPorDia" align="center" {...h} />
+              <SortTH label="Duración" col="duracion" {...h} />
+              <SortTH label="Efectividad" col="efectividad" align="center" {...h} />
+              <SortTH label="GPS" col="gps" align="center" {...h} />
+              <SortTH label="Foto" col="foto" align="center" {...h} />
+              <SortTH label="Mov. en la app" col="movimientos" align="center" {...h} />
+              <SortTH label="Estado" col="estado" align="center" {...h} />
+            </tr>
+          </thead>
         <tbody>
           {rows.length === 0 && (
             <tr className="border-t border-border/60">

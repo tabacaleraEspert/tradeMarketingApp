@@ -3,7 +3,17 @@ import type { GerencialRepRow } from "@/lib/api";
 import { DASH, nf, pct } from "./format";
 import { terciles } from "./heat";
 import { HeatPill } from "./HeatPill";
-import { ROW_CLICK, TableCard, TD, TH, rowKeyHandler } from "./parts";
+import { ROW_CLICK, SortTH, TableCard, TD, rowKeyHandler } from "./parts";
+import { useSort, type SortValue } from "./sort";
+
+const COLS: Record<string, (r: GerencialRepRow) => SortValue> = {
+  nombre: (r) => r.nombre,
+  area: (r) => r.area,
+  clientes: (r) => r.clientes,
+  comunicacion: (r) => r.comunicacionPct,
+  sueltos: (r) => r.sueltosPct,
+  activaciones: (r) => r.activacionesPct,
+};
 
 export function EjecucionTable({
   reps,
@@ -12,7 +22,8 @@ export function EjecucionTable({
   reps: GerencialRepRow[];
   onSelectRep: (rep: GerencialRepRow) => void;
 }) {
-  const rows = useMemo(() => [...reps].sort((a, b) => b.realizadas - a.realizadas), [reps]);
+  const { sorted: rows, sort, toggle } = useSort(reps, COLS, { key: "clientes", dir: "desc" });
+  const h = { sort, onSort: toggle };
   const heat = useMemo(
     () => ({
       com: terciles(rows.map((r) => r.comunicacionPct)),
@@ -25,19 +36,19 @@ export function EjecucionTable({
   return (
     <TableCard
       title="Ejecución en PDV por TM Rep"
-      hint="% sobre los clientes activos de cada TM Rep. Promedio mensual del período."
+      hint="% sobre los clientes activos de cada TM Rep. Promedio mensual del período. Tocá un título para ordenar."
     >
       <table className="w-full text-xs tabular-nums">
         <thead>
-          <tr className="text-right">
-            <th className={`${TH} text-left`}>TM Rep</th>
-            <th className={`${TH} text-left`}>Área</th>
-            <th className={TH}>Clientes activos</th>
-            <th className={`${TH} text-center`}>Comunicación</th>
-            <th className={`${TH} text-center`}>Sueltos</th>
-            <th className={`${TH} text-center`}>Activaciones</th>
-          </tr>
-        </thead>
+            <tr>
+              <SortTH label="TM Rep" col="nombre" align="left" {...h} />
+              <SortTH label="Área" col="area" align="left" {...h} />
+              <SortTH label="Clientes activos" col="clientes" {...h} />
+              <SortTH label="Comunicación" col="comunicacion" align="center" {...h} />
+              <SortTH label="Sueltos" col="sueltos" align="center" {...h} />
+              <SortTH label="Activaciones" col="activaciones" align="center" {...h} />
+            </tr>
+          </thead>
         <tbody>
           {rows.length === 0 && (
             <tr className="border-t border-border/60">
